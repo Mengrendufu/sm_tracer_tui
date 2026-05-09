@@ -1,0 +1,70 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja Multi-Config",
+      "binaryDir": "${sourceDir}/build",
+      "toolchainFile": "${sourceDir}/toolchain_gcc.cmake",
+      "cacheVariables": {
+        "CMAKE_CONFIGURATION_TYPES": "Debug;Release",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "CMAKE_C_STANDARD": "99",
+        "CMAKE_C_STANDARD_REQUIRED": "ON",
+        "CMAKE_C_EXTENSIONS": "OFF",
+        "CMAKE_C_FLAGS_DEBUG": "-O0 -g3",
+        "CMAKE_C_FLAGS_RELEASE": "-O2 -g3 -DNDEBUG"
+      }
+    },
+    {
+      "name": "configure",
+      "displayName": "Configure termbox_hello notcurses project",
+      "inherits": "base"
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "build-debug",
+      "configurePreset": "configure",
+      "configuration": "Debug"
+    },
+    {
+      "name": "build-release",
+      "configurePreset": "configure",
+      "configuration": "Release"
+    },
+    {
+      "name": "run-debug",
+      "configurePreset": "configure",
+      "configuration": "Debug",
+      "targets": [
+        "run"
+      ]
+    },
+    {
+      "name": "run-release",
+      "configurePreset": "configure",
+      "configuration": "Release",
+      "targets": [
+        "run"
+      ]
+    },
+    {
+      "name": "clean-debug",
+      "configurePreset": "configure",
+      "configuration": "Debug",
+      "targets": [
+        "clean"
+      ]
+    },
+    {
+      "name": "clean-release",
+      "configurePreset": "configure",
+      "configuration": "Release",
+      "targets": [
+        "clean"
+      ]
+    }
+  ]
+}

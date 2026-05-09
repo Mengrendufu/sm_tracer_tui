@@ -1,0 +1,9 @@
+[submodule "3rd_party/Super-Simple-Tasker"]
+	path = 3rd_party/Super-Simple-Tasker
+	url = https://github.com/QuantumLeaps/Super-Simple-Tasker.git
+[submodule "3rd_party/sm_hsm"]
+	path = 3rd_party/sm_hsm
+	url = https://github.com/Mengrendufu/sm_hsm.git
+[submodule "3rd_party/common_c"]
+	path = 3rd_party/common_c
+	url = https://github.com/Mengrendufu/common_c.git
