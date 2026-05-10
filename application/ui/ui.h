@@ -30,18 +30,32 @@ typedef struct {
     uint32_t key;
 } UI_KeyEvt;
 
+// UI text event (variable-length payload)
+typedef struct {
+    UI_Evt super;
+    size_t len;
+    char text[];
+} UI_TextEvt;
+
 // UI signal values
 enum {
     UI_NULL_SIG = 0,
     UI_KEY_SIG,
     UI_QUIT_SIG,
     UI_TIMER_SIG,
+    UI_BLINKY_TEXT_SIG,
 };
 
 // Post a signal-only event to the UI (thread-safe, callable from SST AOs)
 void UI_postSignal(UI_Signal sig);
 
-// Run the UI main loop (blocks until quit)
-void UI_run(struct notcurses *nc);
+// Post a text event to the UI (thread-safe, callable from SST AOs)
+void UI_postText(UI_Signal sig, char const *text, size_t len);
+
+// Initialize UI planes, eventfd, tick registration (call before SST starts)
+void UI_prepare(struct notcurses *nc);
+
+// Run the UI event loop (blocks until quit)
+void UI_loop(void);
 
 #endif // UI_H_

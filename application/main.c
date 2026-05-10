@@ -38,10 +38,12 @@ int main(int argc, char **argv) {
     struct notcurses *nc = notcurses_core_init(&opts, NULL);
     if (!nc) { fprintf(stderr, "notcurses init failed\n"); return 1; }
 
+    UI_prepare(nc);
+
     pthread_t SST_tid;
     pthread_create(&SST_tid, NULL, SST_thread, NULL);
 
-    UI_run(nc);
+    UI_loop();
 
     notcurses_stop(nc);
     printf("Goodbye!\n");

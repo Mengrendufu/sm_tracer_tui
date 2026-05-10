@@ -8,15 +8,21 @@
 // See http://www.wtfpl.net/ for more details.
 //============================================================================
 //============================================================================
-//=== Application AO definition and dispatch
+//=== Application AO registry
 #include "sst.h"
 #include "dbc_assert.h"
 #include "aos.h"
+#include "blinky.h"
 DBC_MODULE_NAME("aos")
 
 //============================================================================
-//=== AO startup — create and start all Active Objects
+//=== AO startup — construct + start all Active Objects
 
 void SST_start(void) {
-    /* TODO: create AOs here */
+    Blinky_ctor();
+    SST_Task_start(Blinky_task(),
+                   1U,                     // priority
+                   Blinky_qBuf(),
+                   BLINKY_Q_LEN_,
+                   (SST_Evt const *)0);   // init event
 }

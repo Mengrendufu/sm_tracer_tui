@@ -71,9 +71,21 @@ void SST_onStart(void) {
 //============================================================================
 //=== DBC fault handler (SST assertion framework).
 #ifndef DBC_DISABLE
+#include <unistd.h>
+#include <fcntl.h>
+#include <stdlib.h>
 void DBC_fault_handler(char const *module, int label) {
-    fprintf(stderr, "DBC ASSERT: %s:%d\n", module, label);
-    exit(EXIT_FAILURE);
+    char buf[128];
+    int len = snprintf(buf, sizeof(buf), "\nDBC ASSERT [%s:%d]\n",
+                       module, label);
+    // write directly to controlling tty (bypasses notcurses alternate screen)
+    int tty = open("/dev/tty", O_WRONLY);
+    if (tty >= 0) {
+        ssize_t wr = write(tty, buf, (size_t)len);
+        (void)wr;
+        close(tty);
+    }
+    abort();
 }
 #endif // DBC_DISABLE
 

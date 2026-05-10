@@ -19,12 +19,13 @@ DBC_MODULE_NAME("ui_hsm")
 //============================================================================
 //=== State: active
 
+static void        UI_activeEntry_(SM_Hsm *me) SM_HSM_RETT;
 static SM_RetState UI_activeHandler_(SM_Hsm *me, void const *e) SM_HSM_RETT;
 
 SM_HsmState SM_HSM_ROM UI_active_ = {
     (SM_StatePtr)0,                     // super (top)
     (SM_InitHandler)0,                  // init_ (leaf)
-    (SM_ActionHandler)0,                // entry_
+    (SM_ActionHandler)&UI_activeEntry_, // entry_
     (SM_ActionHandler)0,                // exit_
     (SM_StateHandler)&UI_activeHandler_ // handler_
 };
@@ -37,6 +38,75 @@ static SM_StatePtr UI_topInitial_(SM_Hsm *me) SM_HSM_RETT;
 static SM_StatePtr UI_topInitial_(SM_Hsm * const me) SM_HSM_RETT {
     (void)me;
     return _SM_INIT(&UI_active_);
+}
+
+//============================================================================
+//=== active entry — create nested-box TUI layout
+
+static void UI_activeEntry_(SM_Hsm * const me) SM_HSM_RETT {
+    UI_AO *ao = containerof(me, UI_AO, super);
+    struct ncplane *std = notcurses_stdplane(ao->nc);
+
+    unsigned dimY, dimX;
+    ncplane_dim_yx(std, &dimY, &dimX);
+
+    // colour scheme
+    uint64_t borderCh = NCCHANNELS_INITIALIZER(60, 60, 120, 15, 15, 35);
+
+    // outer box (full screen)
+    ncplane_ascii_box(std, 0, borderCh, dimY, dimX, 0);
+
+    // title row (row 1, inside outer box)
+    {
+        ncplane_options nopts = {
+            .y = 1, .x = 2, .rows = 1, .cols = dimX - 4, .name = "title"
+        };
+        struct ncplane *title = ncplane_create(std, &nopts);
+        ncplane_set_bg_rgb8(title, 60, 60, 120);
+        ncplane_set_fg_rgb8(title, 230, 230, 255);
+        ncplane_on_styles(title, NCSTYLE_BOLD);
+        ncplane_puttext(title, 0, NCALIGN_CENTER,
+                        " termbox ─ sm_tracer ", (size_t)0);
+    }
+
+    // status row (row 3)
+    {
+        ncplane_options nopts = {
+            .y = 3, .x = 2, .rows = 1, .cols = dimX - 4, .name = "status"
+        };
+        ao->statusPlane = ncplane_create(std, &nopts);
+        ncplane_set_bg_rgb8(ao->statusPlane, 35, 35, 60);
+        ncplane_set_fg_rgb8(ao->statusPlane, 200, 200, 200);
+        ncplane_puttext(ao->statusPlane, 0, NCALIGN_LEFT,
+                        " ● disconnected ", (size_t)0);
+    }
+
+    // main box (rows 5 ~ dimY-4)
+    {
+        unsigned mainRows = dimY - 7;
+        ncplane_options nopts = {
+            .y = 5, .x = 2, .rows = mainRows, .cols = dimX - 4, .name = "main"
+        };
+        ao->mainPlane = ncplane_create(std, &nopts);
+        ncplane_set_bg_rgb8(ao->mainPlane, 15, 15, 35);
+        ncplane_set_fg_rgb8(ao->mainPlane, 180, 220, 180);
+        ncplane_set_scrolling(ao->mainPlane, true);
+        ncplane_ascii_box(ao->mainPlane, 0, borderCh, mainRows, dimX - 4, 0);
+    }
+
+    // keybar row (row dimY-2)
+    {
+        ncplane_options nopts = {
+            .y = (int)(dimY - 2), .x = 2, .rows = 1, .cols = dimX - 4,
+            .name = "keybar"
+        };
+        ao->keybarPlane = ncplane_create(std, &nopts);
+        ncplane_set_bg_rgb8(ao->keybarPlane, 50, 50, 80);
+        ncplane_set_fg_rgb8(ao->keybarPlane, 160, 160, 180);
+        ncplane_puttext(ao->keybarPlane, 0, NCALIGN_CENTER,
+                        " ^Q:quit | F1:connect | F2:config | F5:clear ",
+                        (size_t)0);
+    }
 }
 
 //============================================================================
@@ -59,6 +129,12 @@ static SM_RetState UI_activeHandler_(SM_Hsm * const me, void const * const e) {
     case UI_TIMER_SIG:
         // periodic tick — render gate advances here
         return _SM_HANDLED();
+    case UI_BLINKY_TEXT_SIG: {
+        UI_TextEvt const *te = (UI_TextEvt const *)e;
+        ncplane_puttext(ao->mainPlane, -1, NCALIGN_LEFT,
+                        te->text, (size_t)0);
+        return _SM_HANDLED();
+    }
     default:
         return _SM_SUPER();
     }
@@ -85,9 +161,12 @@ void UI_AO_ctor(UI_AO * const me) {
     me->init     = (VC_Handler)UI_AO_init_;
     me->dispatch = (VC_Handler)UI_AO_dispatch_;
 
-    me->nc    = (struct notcurses *)0;
-    me->quit  = false;
-    me->dirty = false;
+    me->nc          = (struct notcurses *)0;
+    me->statusPlane = (struct ncplane *)0;
+    me->mainPlane   = (struct ncplane *)0;
+    me->keybarPlane = (struct ncplane *)0;
+    me->quit        = false;
+    me->dirty       = false;
     me->lastRender.tv_sec  = 0;
     me->lastRender.tv_nsec = 0;
 }

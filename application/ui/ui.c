@@ -12,6 +12,7 @@
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 #include <poll.h>
 #include <sys/eventfd.h>
@@ -98,27 +99,6 @@ static UI_Evt *UI_dequeue_(void) {
     return e;
 }
 
-// drain one event → HSM → free
-static void UI_drainOne_(void) {
-    UI_Evt *e = UI_dequeue_();
-    DBC_ENSURE(400, e != (UI_Evt *)0);
-
-    (*l_uiAo.dispatch)(&l_uiAo, e);
-    l_uiAo.dirty = true;
-    UI_Free_(e);
-
-    // chain: if more events remain, re-arm eventfd for immediate wake
-    pthread_mutex_lock(&UI_q_.mtx);
-    bool hasMore = (UI_q_.used > 0U);
-    pthread_mutex_unlock(&UI_q_.mtx);
-
-    if (hasMore) {
-        uint64_t one = 1ULL;
-        ssize_t  wr  = write(l_evfd, &one, sizeof(one));
-        (void)wr;
-    }
-}
-
 //============================================================================
 //=== Wake main loop after enqueue
 
@@ -142,32 +122,63 @@ void UI_postSignal(UI_Signal sig) {
     UI_wake_();
 }
 
+void UI_postText(UI_Signal sig, char const *text, size_t len) {
+    DBC_REQUIRE(310, sig  > UI_NULL_SIG);
+    DBC_REQUIRE(311, text != (char const *)0);
+    DBC_REQUIRE(312, len  > 0U);
+    DBC_REQUIRE(313, l_evfd >= 0);
+
+    size_t size = sizeof(UI_TextEvt) + len + 1U;
+    UI_TextEvt *te = (UI_TextEvt *)UI_Alloc_(size);
+    te->super.sig = sig;
+    te->len       = len;
+    memcpy(te->text, text, len);
+    te->text[len] = '\0';
+
+    UI_enqueue_((UI_Evt *)te);
+    UI_wake_();
+}
+
 //============================================================================
-//=== BSP tick callback — posts UI_TIMER_SIG from SST thread
+//=== BSP tick callback — posts UI_TIMER_SIG every Nth tick
+
+#define UI_TICK_DIV_ 3U
 
 static void UI_onTick_(void) {
-    UI_postSignal(UI_TIMER_SIG);
+    static uint8_t l_div;
+    if (++l_div >= UI_TICK_DIV_) {
+        l_div = 0U;
+        UI_postSignal(UI_TIMER_SIG);
+    }
 }
 
 //============================================================================
 //=== Input router: notcurses raw input → UI event → enqueue
 
-static void UI_routeInput_(uint32_t r, ncinput const *ni) {
-    (void)ni;
+static UI_Evt *UI_quitEvt_(void) {
+    UI_Evt *e = (UI_Evt *)UI_Alloc_(sizeof(UI_Evt));
+    e->sig = UI_QUIT_SIG;
+    return e;
+}
 
+static void UI_routeInput_(uint32_t r, ncinput const *ni) {
+    (void)ni; // reserved for future use (modifiers, evtype)
+
+    // quit keys
     switch (r) {
-    case (uint32_t)-1:
-    case NCKEY_ENTER: {
-        UI_Evt *e = (UI_Evt *)UI_Alloc_(sizeof(UI_Evt));
-        e->sig = UI_QUIT_SIG;
-        UI_enqueue_(e);
+    case (uint32_t)-1:   // EOF / disconnect
+    case NCKEY_ENTER:
+    case NCKEY_ESC:
+    case 'q':
+    case 'Q':
+        UI_enqueue_(UI_quitEvt_());
         UI_wake_();
         return;
-    }
     default:
         break;
     }
 
+    // route everything else as key event
     if (r != 0U) {
         UI_KeyEvt *ke = (UI_KeyEvt *)UI_Alloc_(sizeof(UI_KeyEvt));
         ke->super.sig = UI_KEY_SIG;
@@ -199,24 +210,30 @@ static void UI_render_(void) {
     l_uiAo.dirty       = false;
     l_uiAo.lastRender  = now;
 
-    // TODO: render based on l_uiAo state
+    notcurses_render(l_uiAo.nc);
 }
 
 //============================================================================
-//=== Main loop
+//=== Prepare — init planes, eventfd, tick (no poll yet)
 
-void UI_run(struct notcurses *nc) {
+void UI_prepare(struct notcurses *nc) {
     DBC_REQUIRE(500, nc != (struct notcurses *)0);
 
     UI_AO_ctor(&l_uiAo);
     l_uiAo.nc = nc;
     UI_AO_init(&l_uiAo);
 
-    // register tick callback (SST thread → UI_TIMER_SIG)
     l_evfd = eventfd(0, EFD_NONBLOCK);
     DBC_REQUIRE(501, l_evfd >= 0);
-    BSP_registerTickHandler(&UI_onTick_);
 
+    // tick producer starts → events go to queue + evfd
+    BSP_registerTickHandler(&UI_onTick_);
+}
+
+//============================================================================
+//=== Main loop
+
+void UI_loop(void) {
     int ncFd = notcurses_inputready_fd(l_uiAo.nc);
     DBC_REQUIRE(502, ncFd >= 0);
 
@@ -253,10 +270,17 @@ void UI_run(struct notcurses *nc) {
         }
 
         // ================================================================
-        // Phase 3 — process one event
+        // Phase 3 — drain all pending events
         // ================================================================
 
-        UI_drainOne_();
+        {
+            UI_Evt *e;
+            while ((e = UI_dequeue_()) != (UI_Evt *)0) {
+                (*l_uiAo.dispatch)(&l_uiAo, e);
+                l_uiAo.dirty = true;
+                UI_Free_(e);
+            }
+        }
 
         // ================================================================
         // Phase 4 — render

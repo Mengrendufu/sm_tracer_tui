@@ -23,6 +23,9 @@ typedef struct {
     VC_Handler dispatch; // virtual: → SM_Hsm_dispatch_
 
     struct notcurses *nc;
+    struct ncplane   *statusPlane;
+    struct ncplane   *mainPlane;
+    struct ncplane   *keybarPlane;
     bool quit;
     bool dirty;
     struct timespec lastRender;
