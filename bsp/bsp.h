@@ -11,8 +11,12 @@
 #define BSP_H_
 
 //============================================================================
-#define BSP_TICKS_PER_SEC 100U
+#define BSP_TICKS_PER_SEC    100U
+#define BSP_MAX_TICK_HANDLERS_ 4U
 
-void BSP_init(void);
+typedef void (*BSP_TickHandler)(void);
+
+void BSP_registerTickHandler(BSP_TickHandler handler);
+void BSP_onTick(void);
 
 #endif // BSP_H_

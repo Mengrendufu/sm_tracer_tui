@@ -11,8 +11,10 @@
 //=== UI HSM — state definitions, handlers, virtual functions
 #include "sm_port.h"
 #include "sm_hsm.h"
+#include "dbc_assert.h"
 #include "ui.h"
 #include "ui_hsm.h"
+DBC_MODULE_NAME("ui_hsm")
 
 //============================================================================
 //=== State: active
@@ -54,6 +56,9 @@ static SM_RetState UI_activeHandler_(SM_Hsm * const me, void const * const e) {
     case UI_QUIT_SIG:
         ao->quit = true;
         return _SM_HANDLED();
+    case UI_TIMER_SIG:
+        // periodic tick — render gate advances here
+        return _SM_HANDLED();
     default:
         return _SM_SUPER();
     }
@@ -75,6 +80,8 @@ static void UI_AO_dispatch_(void * const me, void const * const e) SM_HSM_RETT {
 //=== Constructor
 
 void UI_AO_ctor(UI_AO * const me) {
+    DBC_REQUIRE(100, me != (UI_AO *)0);
+
     me->init     = (VC_Handler)UI_AO_init_;
     me->dispatch = (VC_Handler)UI_AO_dispatch_;
 
@@ -89,5 +96,7 @@ void UI_AO_ctor(UI_AO * const me) {
 //=== Init
 
 void UI_AO_init(UI_AO * const me) {
+    DBC_REQUIRE(200, me != (UI_AO *)0);
+    DBC_REQUIRE(201, me->init != (VC_Handler)0);
     (*me->init)(me, (void const *)0);
 }

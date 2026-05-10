@@ -35,7 +35,26 @@ void SST_onIdle(void) {
     // ao tick ---------------------------------------------------------------
     SST_TimeEvt_tick();
 
-    // thread tick -----------------------------------------------------------
+    // extension tick --------------------------------------------------------
+    BSP_onTick();
+}
+
+//============================================================================
+//=== Tick handler extension (for UI module etc.)
+
+static BSP_TickHandler l_tickHandlers_[BSP_MAX_TICK_HANDLERS_];
+static uint8_t l_tickHandlerNum_;
+
+void BSP_registerTickHandler(BSP_TickHandler handler) {
+    DBC_REQUIRE(400, handler != (BSP_TickHandler)0);
+    DBC_REQUIRE(401, l_tickHandlerNum_ < BSP_MAX_TICK_HANDLERS_);
+    l_tickHandlers_[l_tickHandlerNum_++] = handler;
+}
+
+void BSP_onTick(void) {
+    for (uint8_t i = 0U; i < l_tickHandlerNum_; ++i) {
+        (*l_tickHandlers_[i])();
+    }
 }
 
 //============================================================================

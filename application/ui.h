@@ -35,6 +35,7 @@ enum {
     UI_NULL_SIG = 0,
     UI_KEY_SIG,
     UI_QUIT_SIG,
+    UI_TIMER_SIG,
 };
 
 // Post a signal-only event to the UI (thread-safe, callable from SST AOs)

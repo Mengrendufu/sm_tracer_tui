@@ -61,6 +61,7 @@ set(STATIC_POOL_SRC ${CMAKE_SOURCE_DIR}/3rd_party/common_c/src/static_pool/stati
 #=============================================================================
 # ===Component BSP.
 set(BSP_SRC ${CMAKE_SOURCE_DIR}/bsp/bsp.c)
+set(BSP_INC ${CMAKE_SOURCE_DIR}/bsp)
 
 #=============================================================================
 # ===Collecting all sources.
@@ -75,6 +76,7 @@ set(SRC_ALL
 
 set(INC_ALL
     ${INC_LOCAL}
+    ${BSP_INC}
     ${NOTCURSES_INCLUDE_DIR}
     ${SST_INC}
     ${PORT_INC}

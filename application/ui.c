@@ -13,7 +13,11 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <time.h>
+#include <poll.h>
+#include <sys/eventfd.h>
+#include <unistd.h>
 #include "dbc_assert.h"
+#include "bsp.h"
 #include "ui.h"
 #include "ui_hsm.h"
 DBC_MODULE_NAME("ui")
@@ -22,7 +26,6 @@ DBC_MODULE_NAME("ui")
 //=== UI event queue (cross-thread ring buffer, holds UI-allocated events)
 
 #define UI_QLEN_ 16U
-#define UI_DRAIN_BUDGET_ 8U
 #define UI_FRAME_MS_ (1000U / 60U)
 
 typedef struct {
@@ -33,7 +36,8 @@ typedef struct {
     pthread_mutex_t mtx;
 } UI_EvtQueue;
 
-static UI_EvtQueue UI_q_ = { .mtx = PTHREAD_MUTEX_INITIALIZER };
+static UI_EvtQueue UI_q_  = { .mtx = PTHREAD_MUTEX_INITIALIZER };
+static int         l_evfd = -1; // eventfd for poll wake-up
 
 //============================================================================
 //=== UI module state
@@ -58,8 +62,10 @@ static void UI_Free_(void *p) {
 
 // enqueue (thread-safe, used by both router and SST→UI bridge)
 static void UI_enqueue_(UI_Evt *e) {
+    DBC_REQUIRE(200, e != (UI_Evt *)0);
+
     pthread_mutex_lock(&UI_q_.mtx);
-    DBC_REQUIRE(200, UI_q_.used < UI_QLEN_);
+    DBC_REQUIRE(201, UI_q_.used < UI_QLEN_);
 
     UI_q_.buf[UI_q_.head] = e;
     if (UI_q_.head == 0U) {
@@ -92,26 +98,55 @@ static UI_Evt *UI_dequeue_(void) {
     return e;
 }
 
-// drain → virtual dispatch → free (unified event dispatch point)
-static void UI_drain_(void) {
-    for (uint8_t i = 0U; i < UI_DRAIN_BUDGET_; ++i) {
-        UI_Evt *e = UI_dequeue_();
-        if (e == (UI_Evt *)0) {
-            break;
-        }
-        (*l_uiAo.dispatch)(&l_uiAo, e);
-        l_uiAo.dirty = true;
-        UI_Free_(e);
+// drain one event → HSM → free
+static void UI_drainOne_(void) {
+    UI_Evt *e = UI_dequeue_();
+    DBC_ENSURE(400, e != (UI_Evt *)0);
+
+    (*l_uiAo.dispatch)(&l_uiAo, e);
+    l_uiAo.dirty = true;
+    UI_Free_(e);
+
+    // chain: if more events remain, re-arm eventfd for immediate wake
+    pthread_mutex_lock(&UI_q_.mtx);
+    bool hasMore = (UI_q_.used > 0U);
+    pthread_mutex_unlock(&UI_q_.mtx);
+
+    if (hasMore) {
+        uint64_t one = 1ULL;
+        ssize_t  wr  = write(l_evfd, &one, sizeof(one));
+        (void)wr;
     }
 }
 
 //============================================================================
-//=== Cross-thread post (called from SST AOs)
+//=== Wake main loop after enqueue
+
+static void UI_wake_(void) {
+    uint64_t one = 1ULL;
+    ssize_t  wr  = write(l_evfd, &one, sizeof(one));
+    (void)wr;
+}
+
+//============================================================================
+//=== Cross-thread post (called from SST AOs or tick callback)
 
 void UI_postSignal(UI_Signal sig) {
+    DBC_REQUIRE(300, sig > UI_NULL_SIG);
+    DBC_REQUIRE(301, l_evfd >= 0);
+
     UI_Evt *ue = (UI_Evt *)UI_Alloc_(sizeof(UI_Evt));
     ue->sig = sig;
+
     UI_enqueue_(ue);
+    UI_wake_();
+}
+
+//============================================================================
+//=== BSP tick callback — posts UI_TIMER_SIG from SST thread
+
+static void UI_onTick_(void) {
+    UI_postSignal(UI_TIMER_SIG);
 }
 
 //============================================================================
@@ -126,6 +161,7 @@ static void UI_routeInput_(uint32_t r, ncinput const *ni) {
         UI_Evt *e = (UI_Evt *)UI_Alloc_(sizeof(UI_Evt));
         e->sig = UI_QUIT_SIG;
         UI_enqueue_(e);
+        UI_wake_();
         return;
     }
     default:
@@ -137,6 +173,7 @@ static void UI_routeInput_(uint32_t r, ncinput const *ni) {
         ke->super.sig = UI_KEY_SIG;
         ke->key       = r;
         UI_enqueue_((UI_Evt *)ke);
+        UI_wake_();
     }
 }
 
@@ -169,33 +206,64 @@ static void UI_render_(void) {
 //=== Main loop
 
 void UI_run(struct notcurses *nc) {
+    DBC_REQUIRE(500, nc != (struct notcurses *)0);
+
     UI_AO_ctor(&l_uiAo);
     l_uiAo.nc = nc;
     UI_AO_init(&l_uiAo);
 
-    struct timespec ts = { .tv_sec = 0, .tv_nsec = (long)(UI_FRAME_MS_) * 1000000L };
+    // register tick callback (SST thread → UI_TIMER_SIG)
+    l_evfd = eventfd(0, EFD_NONBLOCK);
+    DBC_REQUIRE(501, l_evfd >= 0);
+    BSP_registerTickHandler(&UI_onTick_);
+
+    int ncFd = notcurses_inputready_fd(l_uiAo.nc);
+    DBC_REQUIRE(502, ncFd >= 0);
+
+    struct pollfd fds[2];
+    fds[0].fd      = ncFd;
+    fds[0].events  = POLLIN;
+    fds[1].fd      = l_evfd;
+    fds[1].events  = POLLIN;
 
     while (!l_uiAo.quit) {
         // ================================================================
-        // Phase 1 — gather
+        // Phase 1 — block until event
         // ================================================================
-
-        // 1a. read notcurses input → route → enqueue
-        ncinput  ni;
-        uint32_t r = notcurses_get(l_uiAo.nc, &ts, &ni);
-        UI_routeInput_(r, &ni);
+        poll(fds, 2, -1);
 
         // ================================================================
-        // Phase 2 — process events
+        // Phase 2 — route: gather and enqueue
         // ================================================================
 
-        // drain queue → unified dispatch point → free
-        UI_drain_();
+        // 2a. notcurses input → route → enqueue (one at a time)
+        if (fds[0].revents & POLLIN) {
+            ncinput  ni;
+            uint32_t r = notcurses_get_nblock(l_uiAo.nc, &ni);
+            if (r != 0U) {
+                UI_routeInput_(r, &ni);
+            }
+        }
+
+        // 2b. drain eventfd (SST tick or cross-thread post)
+        if (fds[1].revents & POLLIN) {
+            uint64_t dummy;
+            ssize_t  rd = read(l_evfd, &dummy, sizeof(dummy));
+            (void)rd;
+        }
 
         // ================================================================
-        // Phase 3 — render
+        // Phase 3 — process one event
+        // ================================================================
+
+        UI_drainOne_();
+
+        // ================================================================
+        // Phase 4 — render
         // ================================================================
 
         UI_render_();
     }
+
+    close(l_evfd);
 }
