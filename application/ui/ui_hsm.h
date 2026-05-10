@@ -26,6 +26,7 @@ typedef struct {
     struct ncplane   *statusPlane;
     struct ncplane   *mainPlane;
     struct ncplane   *keybarPlane;
+    uint32_t          mainLines;
     bool quit;
     bool dirty;
     struct timespec lastRender;

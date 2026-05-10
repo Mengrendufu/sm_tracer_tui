@@ -131,8 +131,18 @@ static SM_RetState UI_activeHandler_(SM_Hsm * const me, void const * const e) {
         return _SM_HANDLED();
     case UI_BLINKY_TEXT_SIG: {
         UI_TextEvt const *te = (UI_TextEvt const *)e;
+
+        // scrollback cap: discard old lines when exceeding budget
+        enum { UI_MAIN_MAX_LINES_ = 10000U };
+        if (ao->mainLines >= UI_MAIN_MAX_LINES_) {
+            ncplane_scrollup(ao->mainPlane,
+                             (int)(ao->mainLines - UI_MAIN_MAX_LINES_ / 2U));
+            ao->mainLines = UI_MAIN_MAX_LINES_ / 2U;
+        }
+
         ncplane_puttext(ao->mainPlane, -1, NCALIGN_LEFT,
                         te->text, (size_t)0);
+        ++ao->mainLines;
         return _SM_HANDLED();
     }
     default:
@@ -165,6 +175,7 @@ void UI_AO_ctor(UI_AO * const me) {
     me->statusPlane = (struct ncplane *)0;
     me->mainPlane   = (struct ncplane *)0;
     me->keybarPlane = (struct ncplane *)0;
+    me->mainLines   = 0U;
     me->quit        = false;
     me->dirty       = false;
     me->lastRender.tv_sec  = 0;
