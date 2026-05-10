@@ -22,6 +22,8 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(ROOT_LOCAL ${CMAKE_SOURCE_DIR})
 set(INC_LOCAL
     ${ROOT_LOCAL}/application
+    ${ROOT_LOCAL}/application/ui
+    ${ROOT_LOCAL}/application/aos
 )
 file(GLOB_RECURSE SRC_LOCAL
     ${ROOT_LOCAL}/application/*.c
