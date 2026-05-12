@@ -26,10 +26,10 @@ static SM_UI SM_UI_inst;
 //============================================================================
 //=== BSP tick callback — posts UI_TIMER_SIG every Nth tick
 
-#define UI_TICK_DIV_ 3U
+#define UI_TICK_DIV_  BSP_TICKS_PER_SEC / 10U
 
 static void UI_onTick_(void) {
-    static uint8_t l_div;
+    static uint8_t l_div = 0;
     if (++l_div >= UI_TICK_DIV_) {
         l_div = 0U;
         UI_postSignal(UI_TIMER_SIG);
