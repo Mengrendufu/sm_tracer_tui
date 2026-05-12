@@ -112,15 +112,15 @@ void UI_postText(UI_Signal sig, char const *text) {
     DBC_REQUIRE(312, l_evfd >= 0);
 
     size_t len = strlen(text);
-    size_t size = sizeof(UI_Evt) + len + 1U;
-    UI_Evt *ue = (UI_Evt *)UI_Alloc_(size);
-    ue->sig          = sig;
-    ue->pld.msg.len  = len;
-    ue->pld.msg.text = (char *)(ue + 1);
-    memcpy(ue->pld.msg.text, text, len);
-    ue->pld.msg.text[len] = '\0';
+    size_t size = sizeof(UI_AppEvt) + len + 1U;
+    UI_AppEvt *ae = (UI_AppEvt *)UI_Alloc_(size);
+    ae->super.sig    = sig;
+    ae->pld.msg.len  = len;
+    ae->pld.msg.text = (char *)(ae + 1);
+    memcpy(ae->pld.msg.text, text, len);
+    ae->pld.msg.text[len] = '\0';
 
-    UI_enqueue_(ue);
+    UI_enqueue_((UI_Evt *)ae);
     UI_wake_();
 }
 

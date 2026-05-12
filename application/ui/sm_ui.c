@@ -24,7 +24,7 @@ DBC_MODULE_NAME("ui_hsm")
 static SM_StatePtr SM_UI_TOP_initial(SM_Hsm *me) SM_HSM_RETT;
 
 static void        SM_UI_active_entry_(SM_Hsm *me) SM_HSM_RETT;
-static SM_RetState SM_UI_active_(SM_Hsm *me, void const *e) SM_HSM_RETT;
+static SM_RetState SM_UI_active_(SM_Hsm *me, UI_Evt const *e) SM_HSM_RETT;
 SM_HsmState SM_HSM_ROM SM_UI_active = {
     (SM_StatePtr)0,                     // super (top)
     (SM_InitHandler)0,                  // init_ (leaf)
@@ -109,11 +109,10 @@ static void SM_UI_active_entry_(SM_Hsm * const me) SM_HSM_RETT {
     (void)me;
 }
 
-static SM_RetState SM_UI_active_(SM_Hsm * const me, void const * const e) {
-    SM_UI    *ao  = containerof(me, SM_UI, super);
-    UI_Evt const *ue = (UI_Evt const *)e;
+static SM_RetState SM_UI_active_(SM_Hsm * const me, UI_Evt const * const e) {
+    SM_UI *ao = containerof(me, SM_UI, super);
 
-    switch (ue->sig) {
+    switch (e->sig) {
     //------------------------------------------------------------------------
     //--- user input events
     case UI_KEY_ALT_Q_SIG: {
@@ -126,16 +125,17 @@ static SM_RetState SM_UI_active_(SM_Hsm * const me, void const * const e) {
     }
 
     case UI_BLINKY_TEXT_SIG: {
+        UI_AppEvt const *ae = (UI_AppEvt const *)e;
         enum { UI_MAIN_MAX_LINES_ = 10000U };
-        if (ao->mainLines >= UI_MAIN_MAX_LINES_) {
+        if (ao->mainLineCnt >= UI_MAIN_MAX_LINES_) {
             ncplane_scrollup(ao->mainPlane,
-                             (int)(ao->mainLines - UI_MAIN_MAX_LINES_ / 2U));
-            ao->mainLines = UI_MAIN_MAX_LINES_ / 2U;
+                             (int)(ao->mainLineCnt - UI_MAIN_MAX_LINES_ / 2U));
+            ao->mainLineCnt = UI_MAIN_MAX_LINES_ / 2U;
         }
 
         ncplane_puttext(ao->mainPlane, -1, NCALIGN_LEFT,
-                        ue->pld.msg.text, NULL);
-        ++ao->mainLines;
+                        ae->pld.msg.text, NULL);
+        ++ao->mainLineCnt;
         return _SM_HANDLED();
     }
 
@@ -170,7 +170,7 @@ void SM_UI_ctor(SM_UI * const me) {
     me->statusPlane = (struct ncplane *)0;
     me->mainPlane   = (struct ncplane *)0;
     me->keybarPlane = (struct ncplane *)0;
-    me->mainLines   = 0U;
+    me->mainLineCnt   = 0U;
     me->quit        = false;
     me->dirty       = false;
     me->lastRender.tv_sec  = 0;

@@ -19,16 +19,21 @@
 // UI signal type (independent from SST)
 typedef uint16_t UI_Signal;
 
-// UI event — single type, payload via union
+// Base UI event — signal only, used in HSM handler signatures
 typedef struct {
     UI_Signal sig;
+} UI_Evt;
+
+// Application event with payload — extends UI_Evt, allocated when data travels
+typedef struct {
+    UI_Evt super;
     union {
         struct {
             size_t len;
             char  *text; // points to extra alloc past struct
-        } msg;           // UI_BLINKY_TEXT_SIG etc
+        } msg;
     } pld;
-} UI_Evt;
+} UI_AppEvt;
 
 // UI signal values — concrete key combos, translated by UI_routeInput_
 enum {

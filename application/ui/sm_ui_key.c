@@ -22,7 +22,7 @@ DBC_MODULE_NAME("sm_ui_key")
 static SM_StatePtr SM_UI_Key_TOP_initial(SM_Hsm *me) SM_HSM_RETT;
 
 static void        SM_UI_Key_idle_entry_(SM_Hsm *me) SM_HSM_RETT;
-static SM_RetState SM_UI_Key_idle_(SM_Hsm *me, void const *e) SM_HSM_RETT;
+static SM_RetState SM_UI_Key_idle_(SM_Hsm *me, UI_Evt const *e) SM_HSM_RETT;
 SM_HsmState SM_HSM_ROM SM_UI_Key_idle = {
     (SM_StatePtr)0,                     // super (top)
     (SM_InitHandler)0,                  // init_ (leaf)
@@ -43,7 +43,7 @@ static void SM_UI_Key_idle_entry_(SM_Hsm * const me) SM_HSM_RETT {
     (void)me;
 }
 
-static SM_RetState SM_UI_Key_idle_(SM_Hsm * const me, void const * const e) {
+static SM_RetState SM_UI_Key_idle_(SM_Hsm * const me, UI_Evt const * const e) {
     (void)me;
     (void)e;
     return _SM_SUPER();
