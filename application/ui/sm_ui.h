@@ -7,13 +7,13 @@
 // To Public License, Version 2, as published by Sam Hocevar.
 // See http://www.wtfpl.net/ for more details.
 //============================================================================
-#ifndef UI_HSM_H_
-#define UI_HSM_H_
+#ifndef SM_UI_H_
+#define SM_UI_H_
 
 #include <stdbool.h>
 #include <time.h>
 #include "sm_hsm.h"
-#include "ui_cmd_hsm.h"
+#include "sm_ui_key.h"
 
 //============================================================================
 //=== UI Active Object — HSM host
@@ -33,10 +33,10 @@ typedef struct {
     struct timespec lastRender;
 
     // command subsystem (self-contained)
-    UI_CmdHsm cmdHsm;
-} UI_AO;
+    SM_UI_Key cmdHsm;
+} SM_UI;
 
-void UI_AO_ctor(UI_AO *me);
-void UI_AO_init(UI_AO *me);
+void SM_UI_ctor(SM_UI *me);
+void SM_UI_start(SM_UI *me);
 
-#endif // UI_HSM_H_
+#endif // SM_UI_H_

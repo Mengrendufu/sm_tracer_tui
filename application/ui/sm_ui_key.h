@@ -7,30 +7,19 @@
 // To Public License, Version 2, as published by Sam Hocevar.
 // See http://www.wtfpl.net/ for more details.
 //============================================================================
-#ifndef UI_CMD_HSM_H_
-#define UI_CMD_HSM_H_
+#ifndef SM_UI_KEY_H_
+#define SM_UI_KEY_H_
 
 #include "sm_hsm.h"
 
 //============================================================================
-//=== Command HSM — event-driven command line parser
+//=== Key HSM — placeholder (event-driven only)
 
 typedef struct {
     SM_Hsm super;
-    char   buf[128];
-    uint8_t len;
-    bool   active;
-} UI_CmdHsm;
+} SM_UI_Key;
 
-void UI_CmdHsm_ctor(UI_CmdHsm *me);
-void UI_CmdHsm_init(UI_CmdHsm *me);
+void SM_UI_Key_ctor(SM_UI_Key *me);
+void SM_UI_Key_init(SM_UI_Key *me);
 
-// query
-bool          UI_CmdHsm_isActive(UI_CmdHsm const *me);
-char const   *UI_CmdHsm_buf(UI_CmdHsm const *me);
-uint8_t       UI_CmdHsm_len(UI_CmdHsm const *me);
-
-// exposed for state comparison
-extern SM_HsmState SM_HSM_ROM Cmd_idle;
-
-#endif // UI_CMD_HSM_H_
+#endif // SM_UI_KEY_H_

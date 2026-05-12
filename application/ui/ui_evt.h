@@ -1,0 +1,65 @@
+//============================================================================
+// Copyright (C) 2026 Sunny Matato
+//
+// This program is free software. It comes without any warranty, to
+// the extent permitted by applicable law. You can redistribute it
+// and/or modify it under the terms of the Do What The Fuck You Want
+// To Public License, Version 2, as published by Sam Hocevar.
+// See http://www.wtfpl.net/ for more details.
+//============================================================================
+#ifndef UI_EVT_H_
+#define UI_EVT_H_
+
+#include <stddef.h>
+#include <stdint.h>
+
+//============================================================================
+//=== UI event system — independent from notcurses, usable from SST AOs
+
+// UI signal type (independent from SST)
+typedef uint16_t UI_Signal;
+
+// UI event — single type, payload via union
+typedef struct {
+    UI_Signal sig;
+    union {
+        struct {
+            size_t len;
+            char  *text; // points to extra alloc past struct
+        } msg;           // UI_BLINKY_TEXT_SIG etc
+    } pld;
+} UI_Evt;
+
+// UI signal values — concrete key combos, translated by UI_routeInput_
+enum {
+    UI_NULL_SIG = 0,
+    UI_KEY_ESC_SIG,       // ESC
+    UI_KEY_ALT_Q_SIG,     // Alt+Q — quit (Ctrl+Q blocked by Windows Terminal)
+    UI_TIMER_SIG,
+    UI_BLINKY_TEXT_SIG,
+};
+
+// Post a signal-only event to the UI (thread-safe, callable from SST AOs)
+void UI_postSignal(UI_Signal sig);
+
+// Post a text event to the UI (thread-safe, callable from SST AOs)
+void UI_postText(UI_Signal sig, char const *text);
+
+// --- internal: dequeue for the main loop ---
+
+// Opaque event queue handle (defined in ui_evt.c)
+typedef struct UI_EvtQueue UI_EvtQueue;
+
+// Initialize the event subsystem (call once before any post)
+void UI_evtInit(void);
+
+// Return the eventfd for poll (call after UI_evtInit)
+int UI_evtFd(void);
+
+// Dequeue one event (returns NULL if empty)
+UI_Evt *UI_evtDequeue(void);
+
+// Free an event (mirrors the internal allocator)
+void UI_evtFree(UI_Evt *e);
+
+#endif // UI_EVT_H_

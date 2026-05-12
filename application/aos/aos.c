@@ -20,9 +20,10 @@ DBC_MODULE_NAME("aos")
 
 void SST_start(void) {
     Blinky_ctor();
-    SST_Task_start(Blinky_getTask(),
-                   1U,            // priority
-                   Blinky_qBuf_,
-                   BLINKY_Q_LEN_,
+    static SST_Evt const * Blinky_qSto[16];
+    SST_Task_start(AO_Blinky,
+                   1U,                    // priority
+                   Blinky_qSto,
+                   sizeof(Blinky_qSto)/sizeof(Blinky_qSto[0]),
                    (SST_Evt const *)0);  // init event
 }
