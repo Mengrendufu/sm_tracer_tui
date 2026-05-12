@@ -12,10 +12,8 @@
 
 #include "sst.h"
 
-#define BLINKY_Q_LEN_ 8U
+extern SST_Task * const AO_Blinky;
 
 void Blinky_ctor(void);
-SST_Task *Blinky_task(void);
-SST_Evt const **Blinky_qBuf(void);
 
 #endif // BLINKY_H_

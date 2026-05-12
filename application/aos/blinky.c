@@ -27,10 +27,8 @@ typedef struct {
     SST_TimeEvt timer;
 } Blinky;
 
-#define BLINKY_Q_LEN_ 8U
-
-static Blinky l_blinky;
-static SST_Evt const *l_blinkyQ_[BLINKY_Q_LEN_];
+Blinky Blinky_inst;
+SST_Task * const AO_Blinky = &Blinky_inst.super;
 
 //============================================================================
 //=== HSM states
@@ -50,11 +48,11 @@ SM_HsmState SM_HSM_ROM Blinky_idle = {
 static void        Blinky_active_entry_(SM_Hsm *me) SM_HSM_RETT;
 static SM_RetState Blinky_active_(SM_Hsm *me, void const *e) SM_HSM_RETT;
 SM_HsmState SM_HSM_ROM Blinky_active = {
-    (SM_StatePtr)0,                         // super (top)
-    (SM_InitHandler)0,                      // init_ (leaf)
-    (SM_ActionHandler)&Blinky_active_entry_,// entry_
-    (SM_ActionHandler)0,                    // exit_
-    (SM_StateHandler)&Blinky_active_        // handler_
+    (SM_StatePtr)0,                          // super (top)
+    (SM_InitHandler)0,                       // init_ (leaf)
+    (SM_ActionHandler)&Blinky_active_entry_, // entry_
+    (SM_ActionHandler)0,                     // exit_
+    (SM_StateHandler)&Blinky_active_         // handler_
 };
 
 //============================================================================
@@ -65,7 +63,6 @@ static SM_StatePtr Blinky_TOP_initial(SM_Hsm * const me) SM_HSM_RETT {
     return _SM_INIT(&Blinky_idle);
 }
 
-// idle — arm timer, wait for timeout
 static void Blinky_idle_entry_(SM_Hsm * const me) SM_HSM_RETT {
     Blinky *b = containerof(me, Blinky, hsm);
     SST_TimeEvt_arm(&b->timer, BSP_TICKS_PER_SEC, 0U);
@@ -73,33 +70,24 @@ static void Blinky_idle_entry_(SM_Hsm * const me) SM_HSM_RETT {
 
 static SM_RetState Blinky_idle_(SM_Hsm * const me, void const * const e) {
     (void)me;
-
-    switch (((SST_Evt const *)e)->sig) {
-    case SST_TIMEOUT_SIG:
+    if (((SST_Evt const *)e)->sig == SST_TIMEOUT_SIG) {
         return _SM_TRAN(&Blinky_active);
-    default:
-        return _SM_SUPER();
     }
+    return _SM_SUPER();
 }
 
-// active — send text to UI, arm timer, wait for timeout
 static void Blinky_active_entry_(SM_Hsm * const me) SM_HSM_RETT {
     Blinky *b = containerof(me, Blinky, hsm);
-    (void)b;
-
     UI_postText(UI_BLINKY_TEXT_SIG, "blink on!", 9);
     SST_TimeEvt_arm(&b->timer, BSP_TICKS_PER_SEC, 0U);
 }
 
 static SM_RetState Blinky_active_(SM_Hsm * const me, void const * const e) {
     (void)me;
-
-    switch (((SST_Evt const *)e)->sig) {
-    case SST_TIMEOUT_SIG:
+    if (((SST_Evt const *)e)->sig == SST_TIMEOUT_SIG) {
         return _SM_TRAN(&Blinky_idle);
-    default:
-        return _SM_SUPER();
     }
+    return _SM_SUPER();
 }
 
 //============================================================================
@@ -117,19 +105,10 @@ static void Blinky_dispatch(SST_Task * const me, SST_Evt const * const e) {
 }
 
 //============================================================================
-//=== Constructor
+//=== Constructor / Start
 
 void Blinky_ctor(void) {
-    Blinky *me = &l_blinky;
-
+    Blinky *me = &Blinky_inst;
     SST_Task_ctor(&me->super, &Blinky_init, &Blinky_dispatch);
     SST_TimeEvt_ctor(&me->timer, SST_TIMEOUT_SIG, &me->super);
-}
-
-SST_Task *Blinky_task(void) {
-    return &l_blinky.super;
-}
-
-SST_Evt const **Blinky_qBuf(void) {
-    return l_blinkyQ_;
 }
