@@ -191,6 +191,23 @@ static void UI_routeInput_(uint32_t r, ncinput const *ni) {
 //============================================================================
 //=== Rendering
 
+static void UI_renderKeybar_(void) {
+    if (l_uiAo.keybarPlane == (struct ncplane *)0) {
+        return;
+    }
+    ncplane_erase(l_uiAo.keybarPlane);
+    if (UI_CmdHsm_isActive(&l_uiAo.cmdHsm)) {
+        char buf[128];
+        snprintf(buf, sizeof(buf), " :%s", UI_CmdHsm_buf(&l_uiAo.cmdHsm));
+        ncplane_puttext(l_uiAo.keybarPlane, 0, NCALIGN_LEFT,
+                        buf, (size_t)0);
+    } else {
+        ncplane_puttext(l_uiAo.keybarPlane, 0, NCALIGN_CENTER,
+                        " ESC:quit | :cmd | /menu | /connect ",
+                        (size_t)0);
+    }
+}
+
 static void UI_render_(void) {
     if (!l_uiAo.dirty) {
         return;
@@ -210,6 +227,7 @@ static void UI_render_(void) {
     l_uiAo.dirty       = false;
     l_uiAo.lastRender  = now;
 
+    UI_renderKeybar_();
     notcurses_render(l_uiAo.nc);
 }
 
@@ -219,12 +237,13 @@ static void UI_render_(void) {
 void UI_prepare(struct notcurses *nc) {
     DBC_REQUIRE(500, nc != (struct notcurses *)0);
 
+    // eventfd must exist before HSM init (cmd HSM posts CMD_IDLE on init)
+    l_evfd = eventfd(0, EFD_NONBLOCK);
+    DBC_REQUIRE(501, l_evfd >= 0);
+
     UI_AO_ctor(&l_uiAo);
     l_uiAo.nc = nc;
     UI_AO_init(&l_uiAo);
-
-    l_evfd = eventfd(0, EFD_NONBLOCK);
-    DBC_REQUIRE(501, l_evfd >= 0);
 
     // tick producer starts → events go to queue + evfd
     BSP_registerTickHandler(&UI_onTick_);

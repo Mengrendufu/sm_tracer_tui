@@ -44,6 +44,11 @@ enum {
     UI_QUIT_SIG,
     UI_TIMER_SIG,
     UI_BLINKY_TEXT_SIG,
+    UI_CMD_ACTIVE_SIG,
+    UI_CMD_IDLE_SIG,
+    UI_CMD_QUIT_SIG,
+    UI_CMD_MENU_SIG,
+    UI_CMD_CONNECT_SIG,
 };
 
 // Post a signal-only event to the UI (thread-safe, callable from SST AOs)

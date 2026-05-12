@@ -1,14 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <session version="5.2.3">
- <item name="license"></item>
+ <item name="license">GPL</item>
  <group name="locked"/>
  <group name="settings">
   <item name="tabs">1</item>
-  <item name="windows">0</item>
+  <item name="windows">1</item>
   <item name="grid">3</item>
   <item name="backups">0</item>
  </group>
- <group name="windows"/>
+ <group name="windows">
+  <item id="AOs::blinky::SM">58,14,441,747</item>
+  <item id=".::blinky.c">685,17,631,300,*</item>
+ </group>
  <group name="search">
   <item name="options">2032128</item>
   <item name="replace">0</item>

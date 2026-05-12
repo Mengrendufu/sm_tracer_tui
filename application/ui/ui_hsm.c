@@ -9,54 +9,155 @@
 //============================================================================
 //============================================================================
 //=== UI HSM — state definitions, handlers, virtual functions
+#include <string.h>
 #include "sm_port.h"
 #include "sm_hsm.h"
 #include "dbc_assert.h"
 #include "ui.h"
+#include "ui_cmd_hsm.h"
 #include "ui_hsm.h"
 DBC_MODULE_NAME("ui_hsm")
 
 //============================================================================
-//=== State: active
+//=== States — forward declarations
 
-static void        UI_activeEntry_(SM_Hsm *me) SM_HSM_RETT;
+// top-initial
+static SM_StatePtr UI_topInitial_(SM_Hsm *me) SM_HSM_RETT;
+
+// active (parent — holds shared logic)
+static SM_StatePtr UI_activeInit_(SM_Hsm *me) SM_HSM_RETT;
 static SM_RetState UI_activeHandler_(SM_Hsm *me, void const *e) SM_HSM_RETT;
-
 SM_HsmState SM_HSM_ROM UI_active_ = {
-    (SM_StatePtr)0,                     // super (top)
-    (SM_InitHandler)0,                  // init_ (leaf)
-    (SM_ActionHandler)&UI_activeEntry_, // entry_
-    (SM_ActionHandler)0,                // exit_
-    (SM_StateHandler)&UI_activeHandler_ // handler_
+    (SM_StatePtr)0,                      // super (top)
+    (SM_InitHandler)&UI_activeInit_,     // init_ → normal
+    (SM_ActionHandler)0,                 // entry_
+    (SM_ActionHandler)0,                 // exit_
+    (SM_StateHandler)&UI_activeHandler_  // handler_
+};
+
+// normal (sub-state of active)
+static SM_StatePtr UI_normalInit_(SM_Hsm *me) SM_HSM_RETT;
+static void        UI_normalEntry_(SM_Hsm *me) SM_HSM_RETT;
+static SM_RetState UI_normalHandler_(SM_Hsm *me, void const *e) SM_HSM_RETT;
+SM_HsmState SM_HSM_ROM UI_normal_ = {
+    (SM_StatePtr)&UI_active_,            // super
+    (SM_InitHandler)&UI_normalInit_,     // init_ → idle
+    (SM_ActionHandler)&UI_normalEntry_,  // entry_
+    (SM_ActionHandler)0,                 // exit_
+    (SM_StateHandler)&UI_normalHandler_  // handler_
+};
+
+// normal::idle
+static SM_RetState UI_normalIdleHandler_(SM_Hsm *me, void const *e) SM_HSM_RETT;
+SM_HsmState SM_HSM_ROM UI_normal_idle_ = {
+    (SM_StatePtr)&UI_normal_,                  // super
+    (SM_InitHandler)0,                         // leaf
+    (SM_ActionHandler)0,                       // entry_
+    (SM_ActionHandler)0,                       // exit_
+    (SM_StateHandler)&UI_normalIdleHandler_    // handler_
+};
+
+// normal::command
+static void        UI_normalCmdEntry_(SM_Hsm *me) SM_HSM_RETT;
+static SM_RetState UI_normalCmdHandler_(SM_Hsm *me, void const *e) SM_HSM_RETT;
+SM_HsmState SM_HSM_ROM UI_normal_command_ = {
+    (SM_StatePtr)&UI_normal_,                // super
+    (SM_InitHandler)0,                       // leaf
+    (SM_ActionHandler)&UI_normalCmdEntry_,   // entry_
+    (SM_ActionHandler)0,                     // exit_
+    (SM_StateHandler)&UI_normalCmdHandler_   // handler_
+};
+
+// menu (sub-state of active)
+static void        UI_menuEntry_(SM_Hsm *me) SM_HSM_RETT;
+static void        UI_menuExit_(SM_Hsm *me) SM_HSM_RETT;
+static SM_RetState UI_menuHandler_(SM_Hsm *me, void const *e) SM_HSM_RETT;
+SM_HsmState SM_HSM_ROM UI_menu_ = {
+    (SM_StatePtr)&UI_active_,          // super
+    (SM_InitHandler)0,                 // leaf
+    (SM_ActionHandler)&UI_menuEntry_,  // entry_
+    (SM_ActionHandler)&UI_menuExit_,   // exit_
+    (SM_StateHandler)&UI_menuHandler_  // handler_
+};
+
+// connect (sub-state of active)
+static void        UI_connectEntry_(SM_Hsm *me) SM_HSM_RETT;
+static void        UI_connectExit_(SM_Hsm *me) SM_HSM_RETT;
+static SM_RetState UI_connectHandler_(SM_Hsm *me, void const *e) SM_HSM_RETT;
+SM_HsmState SM_HSM_ROM UI_connect_ = {
+    (SM_StatePtr)&UI_active_,            // super
+    (SM_InitHandler)0,                   // leaf
+    (SM_ActionHandler)&UI_connectEntry_, // entry_
+    (SM_ActionHandler)&UI_connectExit_,  // exit_
+    (SM_StateHandler)&UI_connectHandler_ // handler_
 };
 
 //============================================================================
-//=== Top-initial
-
-static SM_StatePtr UI_topInitial_(SM_Hsm *me) SM_HSM_RETT;
+//=== HSM implementations — top / active
 
 static SM_StatePtr UI_topInitial_(SM_Hsm * const me) SM_HSM_RETT {
     (void)me;
     return _SM_INIT(&UI_active_);
 }
 
-//============================================================================
-//=== active entry — create nested-box TUI layout
+static SM_StatePtr UI_activeInit_(SM_Hsm * const me) SM_HSM_RETT {
+    (void)me;
+    return _SM_INIT(&UI_normal_);
+}
 
-static void UI_activeEntry_(SM_Hsm * const me) SM_HSM_RETT {
+static SM_RetState UI_activeHandler_(SM_Hsm * const me, void const * const e) {
+    UI_AO    *ao  = containerof(me, UI_AO, super);
+    UI_Signal sig = *(UI_Signal const *)e;
+
+    switch (sig) {
+    case UI_TIMER_SIG:
+        return _SM_HANDLED();
+
+    case UI_QUIT_SIG:
+    case UI_CMD_QUIT_SIG:
+        ao->quit = true;
+        return _SM_HANDLED();
+
+    case UI_CMD_ACTIVE_SIG:
+        ao->cmdHsm.active = true;
+        return _SM_HANDLED();
+
+    case UI_CMD_IDLE_SIG:
+        ao->cmdHsm.active = false;
+        return _SM_HANDLED();
+
+    case UI_CMD_MENU_SIG:
+        return _SM_TRAN(&UI_menu_);
+
+    case UI_CMD_CONNECT_SIG:
+        return _SM_TRAN(&UI_connect_);
+
+    default:
+        return _SM_SUPER();
+    }
+}
+
+//============================================================================
+//=== HSM implementations — normal
+
+static SM_StatePtr UI_normalInit_(SM_Hsm * const me) SM_HSM_RETT {
+    (void)me;
+    return _SM_INIT(&UI_normal_idle_);
+}
+
+static void UI_normalEntry_(SM_Hsm * const me) SM_HSM_RETT {
     UI_AO *ao = containerof(me, UI_AO, super);
     struct ncplane *std = notcurses_stdplane(ao->nc);
 
     unsigned dimY, dimX;
     ncplane_dim_yx(std, &dimY, &dimX);
 
-    // colour scheme
     uint64_t borderCh = NCCHANNELS_INITIALIZER(60, 60, 120, 15, 15, 35);
 
-    // outer box (full screen)
+    // outer box
     ncplane_ascii_box(std, 0, borderCh, dimY, dimX, 0);
 
-    // title row (row 1, inside outer box)
+    // title
     {
         ncplane_options nopts = {
             .y = 1, .x = 2, .rows = 1, .cols = dimX - 4, .name = "title"
@@ -69,7 +170,7 @@ static void UI_activeEntry_(SM_Hsm * const me) SM_HSM_RETT {
                         " termbox ─ sm_tracer ", (size_t)0);
     }
 
-    // status row (row 3)
+    // status
     {
         ncplane_options nopts = {
             .y = 3, .x = 2, .rows = 1, .cols = dimX - 4, .name = "status"
@@ -81,7 +182,7 @@ static void UI_activeEntry_(SM_Hsm * const me) SM_HSM_RETT {
                         " ● disconnected ", (size_t)0);
     }
 
-    // main box (rows 5 ~ dimY-4)
+    // main scroll
     {
         unsigned mainRows = dimY - 7;
         ncplane_options nopts = {
@@ -94,7 +195,7 @@ static void UI_activeEntry_(SM_Hsm * const me) SM_HSM_RETT {
         ncplane_ascii_box(ao->mainPlane, 0, borderCh, mainRows, dimX - 4, 0);
     }
 
-    // keybar row (row dimY-2)
+    // keybar
     {
         ncplane_options nopts = {
             .y = (int)(dimY - 2), .x = 2, .rows = 1, .cols = dimX - 4,
@@ -104,35 +205,18 @@ static void UI_activeEntry_(SM_Hsm * const me) SM_HSM_RETT {
         ncplane_set_bg_rgb8(ao->keybarPlane, 50, 50, 80);
         ncplane_set_fg_rgb8(ao->keybarPlane, 160, 160, 180);
         ncplane_puttext(ao->keybarPlane, 0, NCALIGN_CENTER,
-                        " ^Q:quit | F1:connect | F2:config | F5:clear ",
-                        (size_t)0);
+                        " ESC:quit | :cmd | /menu | /connect ", (size_t)0);
     }
 }
 
-//============================================================================
-//=== active handler
-
-static SM_RetState UI_activeHandler_(SM_Hsm * const me, void const * const e) {
-    UI_AO     *ao  = containerof(me, UI_AO, super);
-    UI_Signal  sig = *(UI_Signal const *)e;
+static SM_RetState UI_normalHandler_(SM_Hsm * const me, void const * const e) {
+    UI_AO    *ao  = containerof(me, UI_AO, super);
+    UI_Signal sig = *(UI_Signal const *)e;
 
     switch (sig) {
-    case UI_KEY_SIG: {
-        UI_KeyEvt const *ke = (UI_KeyEvt const *)e;
-        (void)ke;
-        // TODO: handle key
-        return _SM_HANDLED();
-    }
-    case UI_QUIT_SIG:
-        ao->quit = true;
-        return _SM_HANDLED();
-    case UI_TIMER_SIG:
-        // periodic tick — render gate advances here
-        return _SM_HANDLED();
     case UI_BLINKY_TEXT_SIG: {
         UI_TextEvt const *te = (UI_TextEvt const *)e;
 
-        // scrollback cap: discard old lines when exceeding budget
         enum { UI_MAIN_MAX_LINES_ = 10000U };
         if (ao->mainLines >= UI_MAIN_MAX_LINES_) {
             ncplane_scrollup(ao->mainPlane,
@@ -151,11 +235,125 @@ static SM_RetState UI_activeHandler_(SM_Hsm * const me, void const * const e) {
 }
 
 //============================================================================
+//=== HSM implementations — normal::idle
+
+static SM_RetState UI_normalIdleHandler_(SM_Hsm * const me,
+                                          void const * const e) {
+    UI_AO    *ao  = containerof(me, UI_AO, super);
+    UI_Signal sig = *(UI_Signal const *)e;
+
+    if (sig != UI_KEY_SIG) {
+        return _SM_SUPER();
+    }
+
+    UI_KeyEvt const *ke = (UI_KeyEvt const *)e;
+
+    switch (ke->key) {
+    case (uint32_t)':':
+        // activate command HSM, then enter command mode
+        SM_Hsm_dispatch_(&ao->cmdHsm.super, e);
+        return _SM_TRAN(&UI_normal_command_);
+
+    case NCKEY_ESC:
+    case (uint32_t)'q':
+    case (uint32_t)'Q':
+        UI_postSignal(UI_QUIT_SIG);
+        return _SM_HANDLED();
+
+    default:
+        return _SM_HANDLED();
+    }
+}
+
+//============================================================================
+//=== HSM implementations — normal::command
+
+static void UI_normalCmdEntry_(SM_Hsm * const me) SM_HSM_RETT {
+    (void)me;
+    // cmdHsm already activated by idle handler
+}
+
+static SM_RetState UI_normalCmdHandler_(SM_Hsm * const me,
+                                         void const * const e) {
+    UI_AO    *ao  = containerof(me, UI_AO, super);
+    UI_Signal sig = *(UI_Signal const *)e;
+
+    if (sig != UI_KEY_SIG) {
+        return _SM_SUPER();
+    }
+
+    // delegate to command HSM
+    SM_Hsm_dispatch_(&ao->cmdHsm.super, e);
+
+    // check if cmdHsm returned to idle → exit command mode
+    if (ao->cmdHsm.super.curr == &Cmd_idle_) {
+        return _SM_TRAN(&UI_normal_idle_);
+    }
+
+    return _SM_HANDLED();
+}
+
+//============================================================================
+//=== HSM implementations — menu (placeholder)
+
+static void UI_menuEntry_(SM_Hsm * const me) SM_HSM_RETT {
+    (void)me;
+    // TODO: create menu overlay
+}
+
+static void UI_menuExit_(SM_Hsm * const me) SM_HSM_RETT {
+    (void)me;
+    // TODO: destroy menu overlay
+}
+
+static SM_RetState UI_menuHandler_(SM_Hsm * const me, void const * const e) {
+    UI_Signal sig = *(UI_Signal const *)e;
+
+    if (sig == UI_KEY_SIG) {
+        UI_KeyEvt const *ke = (UI_KeyEvt const *)e;
+        if (ke->key == NCKEY_ESC) {
+            return _SM_TRAN(&UI_normal_);
+        }
+        return _SM_HANDLED();
+    }
+    return _SM_SUPER();
+}
+
+//============================================================================
+//=== HSM implementations — connect (placeholder)
+
+static void UI_connectEntry_(SM_Hsm * const me) SM_HSM_RETT {
+    (void)me;
+    // TODO: create connect dialog
+}
+
+static void UI_connectExit_(SM_Hsm * const me) SM_HSM_RETT {
+    (void)me;
+    // TODO: destroy connect dialog
+}
+
+static SM_RetState UI_connectHandler_(SM_Hsm * const me, void const * const e) {
+    UI_Signal sig = *(UI_Signal const *)e;
+
+    if (sig == UI_KEY_SIG) {
+        UI_KeyEvt const *ke = (UI_KeyEvt const *)e;
+        if (ke->key == NCKEY_ESC) {
+            return _SM_TRAN(&UI_normal_);
+        }
+        return _SM_HANDLED();
+    }
+    return _SM_SUPER();
+}
+
+//============================================================================
 //=== Virtual functions
 
 static void UI_AO_init_(void * const me, void const * const e) SM_HSM_RETT {
     (void)e;
-    SM_Hsm_init_(&((UI_AO *)me)->super, (SM_InitHandler)UI_topInitial_);
+    UI_AO *ao = (UI_AO *)me;
+    UI_CmdHsm_ctor(&ao->cmdHsm);
+    UI_CmdHsm_init(&ao->cmdHsm);
+    SM_Hsm_init_(&ao->super, (SM_InitHandler)UI_topInitial_);
 }
 
 static void UI_AO_dispatch_(void * const me, void const * const e) SM_HSM_RETT {
