@@ -58,7 +58,7 @@ static SM_StatePtr SM_UI_TOP_initial(SM_Hsm * const me) SM_HSM_RETT {
         ncplane_set_fg_rgb8(title, 230, 230, 255);
         ncplane_on_styles(title, NCSTYLE_BOLD);
         ncplane_puttext(title, 0, NCALIGN_CENTER,
-                        " termbox ─ sm_tracer ", (size_t)0);
+                        " termbox ─ sm_tracer ", NULL);
     }
 
     // status
@@ -70,7 +70,7 @@ static SM_StatePtr SM_UI_TOP_initial(SM_Hsm * const me) SM_HSM_RETT {
         ncplane_set_bg_rgb8(ao->statusPlane, 35, 35, 60);
         ncplane_set_fg_rgb8(ao->statusPlane, 200, 200, 200);
         ncplane_puttext(ao->statusPlane, 0, NCALIGN_LEFT,
-                        " ● disconnected ", (size_t)0);
+                        " ● disconnected ", NULL);
     }
 
     // main scroll
@@ -96,7 +96,7 @@ static SM_StatePtr SM_UI_TOP_initial(SM_Hsm * const me) SM_HSM_RETT {
         ncplane_set_bg_rgb8(ao->keybarPlane, 50, 50, 80);
         ncplane_set_fg_rgb8(ao->keybarPlane, 160, 160, 180);
         ncplane_puttext(ao->keybarPlane, 0, NCALIGN_CENTER,
-                        " Alt+Q:quit ", (size_t)0);
+                        " Alt+Q:quit ", NULL);
     }
 
     SM_UI_Key_ctor(&ao->cmdHsm);
@@ -134,7 +134,7 @@ static SM_RetState SM_UI_active_(SM_Hsm * const me, void const * const e) {
         }
 
         ncplane_puttext(ao->mainPlane, -1, NCALIGN_LEFT,
-                        ue->pld.msg.text, (size_t)0);
+                        ue->pld.msg.text, NULL);
         ++ao->mainLines;
         return _SM_HANDLED();
     }
