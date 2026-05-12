@@ -20,26 +20,26 @@ DBC_MODULE_NAME("ui_cmd_hsm")
 //============================================================================
 //=== States
 
-static SM_StatePtr Cmd_topInitial_(SM_Hsm *me) SM_HSM_RETT;
+static SM_StatePtr Cmd_TOP_initial(SM_Hsm *me) SM_HSM_RETT;
 
-static void        Cmd_idleEntry_(SM_Hsm *me) SM_HSM_RETT;
-static SM_RetState Cmd_idleHandler_(SM_Hsm *me, void const *e) SM_HSM_RETT;
-SM_HsmState SM_HSM_ROM Cmd_idle_ = {
-    (SM_StatePtr)0,                    // super (top)
-    (SM_InitHandler)0,                 // init_ (leaf)
-    (SM_ActionHandler)&Cmd_idleEntry_, // entry_
-    (SM_ActionHandler)0,               // exit_
-    (SM_StateHandler)&Cmd_idleHandler_ // handler_
-};
-
-static void        Cmd_gatherEntry_(SM_Hsm *me) SM_HSM_RETT;
-static SM_RetState Cmd_gatherHandler_(SM_Hsm *me, void const *e) SM_HSM_RETT;
-SM_HsmState SM_HSM_ROM Cmd_gather_ = {
+static void        Cmd_idle_entry_(SM_Hsm *me) SM_HSM_RETT;
+static SM_RetState Cmd_idle_(SM_Hsm *me, void const *e) SM_HSM_RETT;
+SM_HsmState SM_HSM_ROM Cmd_idle = {
     (SM_StatePtr)0,                     // super (top)
     (SM_InitHandler)0,                  // init_ (leaf)
-    (SM_ActionHandler)&Cmd_gatherEntry_, // entry_
+    (SM_ActionHandler)&Cmd_idle_entry_, // entry_
     (SM_ActionHandler)0,                // exit_
-    (SM_StateHandler)&Cmd_gatherHandler_ // handler_
+    (SM_StateHandler)&Cmd_idle_         // handler_
+};
+
+static void        Cmd_gather_entry_(SM_Hsm *me) SM_HSM_RETT;
+static SM_RetState Cmd_gather_(SM_Hsm *me, void const *e) SM_HSM_RETT;
+SM_HsmState SM_HSM_ROM Cmd_gather = {
+    (SM_StatePtr)0,                      // super (top)
+    (SM_InitHandler)0,                   // init_ (leaf)
+    (SM_ActionHandler)&Cmd_gather_entry_,// entry_
+    (SM_ActionHandler)0,                 // exit_
+    (SM_StateHandler)&Cmd_gather_        // handler_
 };
 
 //============================================================================
@@ -52,48 +52,40 @@ static void Cmd_postResult_(UI_Signal sig) {
 //============================================================================
 //=== HSM implementations
 
-static SM_StatePtr Cmd_topInitial_(SM_Hsm * const me) SM_HSM_RETT {
+static SM_StatePtr Cmd_TOP_initial(SM_Hsm * const me) SM_HSM_RETT {
     (void)me;
-    return _SM_INIT(&Cmd_idle_);
+    return _SM_INIT(&Cmd_idle);
 }
 
 // idle — waiting for : to activate
-static void Cmd_idleEntry_(SM_Hsm * const me) SM_HSM_RETT {
+static void Cmd_idle_entry_(SM_Hsm * const me) SM_HSM_RETT {
     (void)me;
-    // notify main HSM: command mode off
     UI_postSignal(UI_CMD_IDLE_SIG);
 }
 
-static SM_RetState Cmd_idleHandler_(SM_Hsm * const me, void const * const e) {
-    UI_Signal sig = *(UI_Signal const *)e;
-
-    if (sig == UI_KEY_SIG) {
-        UI_KeyEvt const *ke = (UI_KeyEvt const *)e;
-        if (ke->key == (uint32_t)':') {
-            return _SM_TRAN(&Cmd_gather_);
-        }
+static SM_RetState Cmd_idle_(SM_Hsm * const me, void const * const e) {
+    (void)me;
+    UI_Evt const *ue = (UI_Evt const *)e;
+    if (ue->sig == UI_KEY_SIG && ue->pld.key == (uint32_t)':') {
+        return _SM_TRAN(&Cmd_gather);
     }
     return _SM_SUPER();
 }
 
 // gathering — collect characters until Enter
-static void Cmd_gatherEntry_(SM_Hsm * const me) SM_HSM_RETT {
+static void Cmd_gather_entry_(SM_Hsm * const me) SM_HSM_RETT {
     UI_CmdHsm *cmd = containerof(me, UI_CmdHsm, super);
     cmd->len    = 0U;
     cmd->buf[0] = '\0';
     cmd->active = true;
-
-    // notify main HSM: command mode on
     UI_postSignal(UI_CMD_ACTIVE_SIG);
 }
 
 static void Cmd_parseAndPost_(UI_CmdHsm *cmd) {
     char const *s = cmd->buf;
-    // skip leading / if present
     if (cmd->buf[0] == '/') {
         ++s;
     }
-
     if (strcmp(s, "quit") == 0 || strcmp(s, "q") == 0) {
         Cmd_postResult_(UI_CMD_QUIT_SIG);
     } else if (strcmp(s, "menu") == 0) {
@@ -103,24 +95,21 @@ static void Cmd_parseAndPost_(UI_CmdHsm *cmd) {
     }
 }
 
-static SM_RetState Cmd_gatherHandler_(SM_Hsm * const me, void const * const e) {
+static SM_RetState Cmd_gather_(SM_Hsm * const me, void const * const e) {
     UI_CmdHsm *cmd = containerof(me, UI_CmdHsm, super);
-    UI_Signal sig = *(UI_Signal const *)e;
+    UI_Evt const *ue = (UI_Evt const *)e;
 
-    if (sig != UI_KEY_SIG) {
+    if (ue->sig != UI_KEY_SIG) {
         return _SM_SUPER();
     }
 
-    UI_KeyEvt const *ke = (UI_KeyEvt const *)e;
-    uint32_t key = ke->key;
-
-    switch (key) {
+    switch (ue->pld.key) {
     case NCKEY_ENTER:
         Cmd_parseAndPost_(cmd);
-        return _SM_TRAN(&Cmd_idle_);
+        return _SM_TRAN(&Cmd_idle);
 
     case NCKEY_ESC:
-        return _SM_TRAN(&Cmd_idle_);
+        return _SM_TRAN(&Cmd_idle);
 
     case NCKEY_BACKSPACE:
         if (cmd->len > 0U) {
@@ -130,10 +119,9 @@ static SM_RetState Cmd_gatherHandler_(SM_Hsm * const me, void const * const e) {
         return _SM_HANDLED();
 
     default:
-        // printable ASCII only
-        if (key >= 0x20U && key <= 0x7EU
+        if (ue->pld.key >= 0x20U && ue->pld.key <= 0x7EU
             && cmd->len + 1U < (uint8_t)sizeof(cmd->buf)) {
-            cmd->buf[cmd->len] = (char)key;
+            cmd->buf[cmd->len] = (char)ue->pld.key;
             ++cmd->len;
             cmd->buf[cmd->len] = '\0';
         }
@@ -168,5 +156,5 @@ void UI_CmdHsm_ctor(UI_CmdHsm * const me) {
 
 void UI_CmdHsm_init(UI_CmdHsm * const me) {
     DBC_REQUIRE(200, me != (UI_CmdHsm *)0);
-    SM_Hsm_init_(&me->super, (SM_InitHandler)Cmd_topInitial_);
+    SM_Hsm_init_(&me->super, (SM_InitHandler)Cmd_TOP_initial);
 }

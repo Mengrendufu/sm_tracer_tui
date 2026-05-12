@@ -27,61 +27,63 @@ typedef struct {
     SST_TimeEvt timer;
 } Blinky;
 
+#define BLINKY_Q_LEN_ 8U
+
 static Blinky l_blinky;
 static SST_Evt const *l_blinkyQ_[BLINKY_Q_LEN_];
 
 //============================================================================
 //=== HSM states
 
-static SM_StatePtr Blinky_topInitial_(SM_Hsm *me) SM_HSM_RETT;
+static SM_StatePtr Blinky_TOP_initial(SM_Hsm *me) SM_HSM_RETT;
 
-static void        Blinky_idleEntry_(SM_Hsm *me) SM_HSM_RETT;
-static SM_RetState Blinky_idleHandler_(SM_Hsm *me, void const *e) SM_HSM_RETT;
-SM_HsmState SM_HSM_ROM Blinky_idle_ = {
-    (SM_StatePtr)0,                       // super (top)
-    (SM_InitHandler)0,                    // init_ (leaf)
-    (SM_ActionHandler)&Blinky_idleEntry_, // entry_
-    (SM_ActionHandler)0,                  // exit_
-    (SM_StateHandler)&Blinky_idleHandler_ // handler_
-};
-
-static void        Blinky_activeEntry_(SM_Hsm *me) SM_HSM_RETT;
-static SM_RetState Blinky_activeHandler_(SM_Hsm *me, void const *e) SM_HSM_RETT;
-SM_HsmState SM_HSM_ROM Blinky_active_ = {
+static void        Blinky_idle_entry_(SM_Hsm *me) SM_HSM_RETT;
+static SM_RetState Blinky_idle_(SM_Hsm *me, void const *e) SM_HSM_RETT;
+SM_HsmState SM_HSM_ROM Blinky_idle = {
     (SM_StatePtr)0,                        // super (top)
     (SM_InitHandler)0,                     // init_ (leaf)
-    (SM_ActionHandler)&Blinky_activeEntry_, // entry_
+    (SM_ActionHandler)&Blinky_idle_entry_, // entry_
     (SM_ActionHandler)0,                   // exit_
-    (SM_StateHandler)&Blinky_activeHandler_ // handler_
+    (SM_StateHandler)&Blinky_idle_         // handler_
+};
+
+static void        Blinky_active_entry_(SM_Hsm *me) SM_HSM_RETT;
+static SM_RetState Blinky_active_(SM_Hsm *me, void const *e) SM_HSM_RETT;
+SM_HsmState SM_HSM_ROM Blinky_active = {
+    (SM_StatePtr)0,                         // super (top)
+    (SM_InitHandler)0,                      // init_ (leaf)
+    (SM_ActionHandler)&Blinky_active_entry_,// entry_
+    (SM_ActionHandler)0,                    // exit_
+    (SM_StateHandler)&Blinky_active_        // handler_
 };
 
 //============================================================================
 //=== HSM implementations
 
-static SM_StatePtr Blinky_topInitial_(SM_Hsm * const me) SM_HSM_RETT {
+static SM_StatePtr Blinky_TOP_initial(SM_Hsm * const me) SM_HSM_RETT {
     (void)me;
-    return _SM_INIT(&Blinky_idle_);
+    return _SM_INIT(&Blinky_idle);
 }
 
 // idle — arm timer, wait for timeout
-static void Blinky_idleEntry_(SM_Hsm * const me) SM_HSM_RETT {
+static void Blinky_idle_entry_(SM_Hsm * const me) SM_HSM_RETT {
     Blinky *b = containerof(me, Blinky, hsm);
     SST_TimeEvt_arm(&b->timer, BSP_TICKS_PER_SEC, 0U);
 }
 
-static SM_RetState Blinky_idleHandler_(SM_Hsm * const me, void const * const e) {
+static SM_RetState Blinky_idle_(SM_Hsm * const me, void const * const e) {
     (void)me;
 
     switch (((SST_Evt const *)e)->sig) {
     case SST_TIMEOUT_SIG:
-        return _SM_TRAN(&Blinky_active_);
+        return _SM_TRAN(&Blinky_active);
     default:
         return _SM_SUPER();
     }
 }
 
 // active — send text to UI, arm timer, wait for timeout
-static void Blinky_activeEntry_(SM_Hsm * const me) SM_HSM_RETT {
+static void Blinky_active_entry_(SM_Hsm * const me) SM_HSM_RETT {
     Blinky *b = containerof(me, Blinky, hsm);
     (void)b;
 
@@ -89,12 +91,12 @@ static void Blinky_activeEntry_(SM_Hsm * const me) SM_HSM_RETT {
     SST_TimeEvt_arm(&b->timer, BSP_TICKS_PER_SEC, 0U);
 }
 
-static SM_RetState Blinky_activeHandler_(SM_Hsm * const me, void const * const e) {
+static SM_RetState Blinky_active_(SM_Hsm * const me, void const * const e) {
     (void)me;
 
     switch (((SST_Evt const *)e)->sig) {
     case SST_TIMEOUT_SIG:
-        return _SM_TRAN(&Blinky_idle_);
+        return _SM_TRAN(&Blinky_idle);
     default:
         return _SM_SUPER();
     }
@@ -106,7 +108,7 @@ static SM_RetState Blinky_activeHandler_(SM_Hsm * const me, void const * const e
 static void Blinky_init(SST_Task * const me, SST_Evt const * const e) {
     (void)e;
     Blinky *b = (Blinky *)me;
-    SM_Hsm_init_(&b->hsm, (SM_InitHandler)Blinky_topInitial_);
+    SM_Hsm_init_(&b->hsm, (SM_InitHandler)Blinky_TOP_initial);
 }
 
 static void Blinky_dispatch(SST_Task * const me, SST_Evt const * const e) {

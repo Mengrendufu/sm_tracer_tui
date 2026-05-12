@@ -128,14 +128,15 @@ void UI_postText(UI_Signal sig, char const *text, size_t len) {
     DBC_REQUIRE(312, len  > 0U);
     DBC_REQUIRE(313, l_evfd >= 0);
 
-    size_t size = sizeof(UI_TextEvt) + len + 1U;
-    UI_TextEvt *te = (UI_TextEvt *)UI_Alloc_(size);
-    te->super.sig = sig;
-    te->len       = len;
-    memcpy(te->text, text, len);
-    te->text[len] = '\0';
+    size_t size = sizeof(UI_Evt) + len + 1U;
+    UI_Evt *ue = (UI_Evt *)UI_Alloc_(size);
+    ue->sig      = sig;
+    ue->pld.msg.len  = len;
+    ue->pld.msg.text = (char *)(ue + 1);
+    memcpy(ue->pld.msg.text, text, len);
+    ue->pld.msg.text[len] = '\0';
 
-    UI_enqueue_((UI_Evt *)te);
+    UI_enqueue_(ue);
     UI_wake_();
 }
 
@@ -180,10 +181,10 @@ static void UI_routeInput_(uint32_t r, ncinput const *ni) {
 
     // route everything else as key event
     if (r != 0U) {
-        UI_KeyEvt *ke = (UI_KeyEvt *)UI_Alloc_(sizeof(UI_KeyEvt));
-        ke->super.sig = UI_KEY_SIG;
-        ke->key       = r;
-        UI_enqueue_((UI_Evt *)ke);
+        UI_Evt *e = (UI_Evt *)UI_Alloc_(sizeof(UI_Evt));
+        e->sig      = UI_KEY_SIG;
+        e->pld.key      = r;
+        UI_enqueue_(e);
         UI_wake_();
     }
 }

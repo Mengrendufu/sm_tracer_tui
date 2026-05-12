@@ -31,6 +31,6 @@ char const   *UI_CmdHsm_buf(UI_CmdHsm const *me);
 uint8_t       UI_CmdHsm_len(UI_CmdHsm const *me);
 
 // exposed for state comparison
-extern SM_HsmState SM_HSM_ROM Cmd_idle_;
+extern SM_HsmState SM_HSM_ROM Cmd_idle;
 
 #endif // UI_CMD_HSM_H_

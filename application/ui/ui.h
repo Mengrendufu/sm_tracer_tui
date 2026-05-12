@@ -19,23 +19,17 @@
 // UI signal type (independent from SST)
 typedef uint16_t UI_Signal;
 
-// UI event base type
+// UI event — single type, payload via union
 typedef struct {
     UI_Signal sig;
+    union {
+        uint32_t key;    // UI_KEY_SIG
+        struct {
+            size_t len;
+            char  *text; // points to extra alloc past struct
+        } msg;           // UI_BLINKY_TEXT_SIG etc
+    } pld;
 } UI_Evt;
-
-// UI key event
-typedef struct {
-    UI_Evt super;
-    uint32_t key;
-} UI_KeyEvt;
-
-// UI text event (variable-length payload)
-typedef struct {
-    UI_Evt super;
-    size_t len;
-    char text[];
-} UI_TextEvt;
 
 // UI signal values
 enum {

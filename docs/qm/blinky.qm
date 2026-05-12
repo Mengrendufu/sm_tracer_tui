@@ -2,7 +2,7 @@
 <model version="5.2.3" links="0">
  <framework name="qpc"/>
  <package name="AOs" stereotype="0x00">
-  <class name="blinky" superclass="qpc::QActive">
+  <class name="Blinky" superclass="qpc::QActive">
    <statechart properties="0x00">
     <initial target="../1">
      <initial_glyph conn="4,4,4,0,2">
@@ -26,6 +26,24 @@
      <state_glyph node="2,18,18,10"/>
     </state>
     <state_diagram size="26,30"/>
+   </statechart>
+  </class>
+  <class name="UI" superclass="qpc::QActive">
+   <statechart properties="0x00">
+    <initial target="../1">
+     <initial_glyph conn="4,4,4,0,2">
+      <action box="0,-2,10,2"/>
+     </initial_glyph>
+    </initial>
+    <state name="active">
+     <state_glyph node="2,6,32,62"/>
+    </state>
+    <state_diagram size="38,74"/>
+   </statechart>
+  </class>
+  <class name="UI_Key" superclass="qpc::QActive">
+   <statechart properties="0x00">
+    <state_diagram size="38,58"/>
    </statechart>
   </class>
  </package>
