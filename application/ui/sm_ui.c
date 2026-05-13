@@ -53,7 +53,7 @@ static void        SM_UI_showMain_entry_(SM_Hsm *me) SM_HSM_RETT;
 static SM_RetState SM_UI_showMain_(SM_Hsm *me, UI_Evt const *e) SM_HSM_RETT;
 
 SM_HsmState SM_HSM_ROM SM_UI_showMain = {
-    &SM_UI_active,                            // super
+    (SM_StatePtr)&SM_UI_active,                // super
     (SM_InitHandler)0,                        // init_ (leaf)
     (SM_ActionHandler)&SM_UI_showMain_entry_, // entry_
     (SM_ActionHandler)0,                      // exit_
@@ -74,7 +74,7 @@ static char const * const SM_UI_menuItems_[MENU_NUM_ITEMS_] = {
 };
 
 SM_HsmState SM_HSM_ROM SM_UI_showMenu = {
-    &SM_UI_active,                             // super
+    (SM_StatePtr)&SM_UI_active,                // super
     (SM_InitHandler)0,                         // init_ (leaf)
     (SM_ActionHandler)&SM_UI_showMenu_entry_,  // entry_
     (SM_ActionHandler)&SM_UI_showMenu_exit_,   // exit_
@@ -102,6 +102,7 @@ static SM_StatePtr SM_UI_TOP_initial(SM_Hsm * const me) SM_HSM_RETT {
             .y = 1, .x = 2, .rows = 1, .cols = dimX - 4, .name = "title"
         };
         ao->titlePlane = ncplane_create(std, &nopts);
+        DBC_ENSURE(400, ao->titlePlane != (struct ncplane *)0);
         ncplane_set_bg_rgb8(ao->titlePlane, 60, 60, 120);
         ncplane_set_fg_rgb8(ao->titlePlane, 230, 230, 255);
         ncplane_on_styles(ao->titlePlane, NCSTYLE_BOLD);
@@ -115,19 +116,22 @@ static SM_StatePtr SM_UI_TOP_initial(SM_Hsm * const me) SM_HSM_RETT {
             .y = 3, .x = 2, .rows = 1, .cols = dimX - 4, .name = "status"
         };
         ao->statusPlane = ncplane_create(std, &nopts);
+        DBC_ENSURE(401, ao->statusPlane != (struct ncplane *)0);
         ncplane_set_bg_rgb8(ao->statusPlane, 35, 35, 60);
         ncplane_set_fg_rgb8(ao->statusPlane, 200, 200, 200);
         ncplane_puttext(ao->statusPlane, 0, NCALIGN_LEFT,
                         " ● disconnected ", NULL);
     }
 
-    // main scroll
+    // main scroll — container with border + scrolling content child
     {
         unsigned mainRows = dimY - 7;
+        unsigned mainCols = dimX - 4U;
         ncplane_options nopts = {
-            .y = 5, .x = 2, .rows = mainRows, .cols = dimX - 4, .name = "main"
+            .y = 5, .x = 2, .rows = mainRows, .cols = mainCols, .name = "main"
         };
         ao->mainPlane = ncplane_create(std, &nopts);
+        DBC_ENSURE(402, ao->mainPlane != (struct ncplane *)0);
         ncplane_set_bg_rgb8(ao->mainPlane, 25, 25, 40);
         ncplane_set_fg_rgb8(ao->mainPlane, 200, 220, 200);
         {
@@ -138,8 +142,28 @@ static SM_StatePtr SM_UI_TOP_initial(SM_Hsm * const me) SM_HSM_RETT {
             ncplane_set_base_cell(ao->mainPlane, &base);
             nccell_release(ao->mainPlane, &base);
         }
-        ncplane_set_scrolling(ao->mainPlane, true);
-        ncplane_ascii_box(ao->mainPlane, 0, borderCh, mainRows, dimX - 4, 0);
+        ncplane_ascii_box(ao->mainPlane, 0, borderCh, mainRows, mainCols, 0);
+
+        // child content plane (scrolling, no border)
+        unsigned contentRows = mainRows - 2U;
+        unsigned contentCols = mainCols - 2U;
+        ncplane_options cnopts = {
+            .y = 1, .x = 1, .rows = contentRows, .cols = contentCols,
+            .name = "mainContent"
+        };
+        ao->mainContentPlane = ncplane_create(ao->mainPlane, &cnopts);
+        DBC_ENSURE(405, ao->mainContentPlane != (struct ncplane *)0);
+        ncplane_set_bg_rgb8(ao->mainContentPlane, 25, 25, 40);
+        ncplane_set_fg_rgb8(ao->mainContentPlane, 200, 220, 200);
+        {
+            nccell base = NCCELL_TRIVIAL_INITIALIZER;
+            nccell_set_bg_rgb8(&base, 25, 25, 40);
+            nccell_set_fg_rgb8(&base, 200, 220, 200);
+            nccell_load_char(ao->mainContentPlane, &base, ' ');
+            ncplane_set_base_cell(ao->mainContentPlane, &base);
+            nccell_release(ao->mainContentPlane, &base);
+        }
+        ncplane_set_scrolling(ao->mainContentPlane, true);
     }
 
     // keybar
@@ -149,6 +173,7 @@ static SM_StatePtr SM_UI_TOP_initial(SM_Hsm * const me) SM_HSM_RETT {
             .name = "keybar"
         };
         ao->keybarPlane = ncplane_create(std, &nopts);
+        DBC_ENSURE(403, ao->keybarPlane != (struct ncplane *)0);
         SM_UI_setKeybarClosed_(ao->keybarPlane);
     }
 
@@ -182,16 +207,22 @@ static SM_RetState SM_UI_active_(SM_Hsm * const me, UI_Evt const * const e) {
         UI_AppEvt const *ae = (UI_AppEvt const *)e;
         enum { UI_MAIN_MAX_LINES_ = 10000U };
         if (ao->mainLineCnt >= UI_MAIN_MAX_LINES_) {
-            ncplane_scrollup(ao->mainPlane,
+            ncplane_scrollup(ao->mainContentPlane,
                              (int)(ao->mainLineCnt - UI_MAIN_MAX_LINES_ / 2U));
             ao->mainLineCnt = UI_MAIN_MAX_LINES_ / 2U;
         }
 
-        ncplane_set_bg_rgb8(ao->mainPlane, 25, 25, 40);
-        ncplane_set_fg_rgb8(ao->mainPlane, 200, 220, 200);
-        ncplane_puttext(ao->mainPlane, -1, NCALIGN_LEFT,
+        // count actual lines from \n (each \n produces a line,
+        // plus at least 1 for non-empty text)
+        uint32_t lines = 0U;
+        for (char const *p = ae->pld.msg.text; *p; ++p) {
+            if (*p == '\n') { ++lines; }
+        }
+        if (ae->pld.msg.len > 0U) { ++lines; }
+
+        ncplane_puttext(ao->mainContentPlane, -1, NCALIGN_LEFT,
                         ae->pld.msg.text, NULL);
-        ++ao->mainLineCnt;
+        ao->mainLineCnt += lines;
         return _SM_HANDLED();
     }
 
@@ -238,9 +269,9 @@ static void SM_UI_showMenu_entry_(SM_Hsm * const me) SM_HSM_RETT {
         .name = "menu"
     };
     ao->menuPlane = ncplane_create(std, &nopts);
+    DBC_ENSURE(404, ao->menuPlane != (struct ncplane *)0);
     ncplane_set_bg_rgb8(ao->menuPlane, 50, 50, 100);
     ncplane_set_fg_rgb8(ao->menuPlane, 200, 200, 220);
-    ncplane_erase(ao->menuPlane);
 
     // top border with title
     ncplane_cursor_move_yx(ao->menuPlane, 0, 0);
@@ -297,7 +328,7 @@ static SM_RetState SM_UI_showMenu_(SM_Hsm * const me, UI_Evt const * const e) {
     }
 
     case UI_KEY_ENTER_SIG: {
-        switch (SM_UI_execMenuAction_(ao->menuSel, ao->mainPlane, &ao->mainLineCnt)) {
+        switch (SM_UI_execMenuAction_(ao->menuSel, ao->mainContentPlane, &ao->mainLineCnt)) {
         case MENU_ACT_RESUME:
         case MENU_ACT_CLEAR:
         case MENU_ACT_ABOUT:
@@ -342,6 +373,7 @@ void SM_UI_ctor(SM_UI * const me) {
     me->titlePlane  = (struct ncplane *)0;
     me->statusPlane = (struct ncplane *)0;
     me->mainPlane   = (struct ncplane *)0;
+    me->mainContentPlane = (struct ncplane *)0;
     me->keybarPlane = (struct ncplane *)0;
     me->menuPlane   = (struct ncplane *)0;
     me->mainLineCnt   = 0U;
@@ -366,8 +398,8 @@ static void SM_UI_drawMenuItem_(struct ncplane * const mp, uint32_t const idx,
     DBC_REQUIRE(301, idx < MENU_NUM_ITEMS_);
     DBC_REQUIRE(302, mp != (struct ncplane *)0);
 
-    unsigned dimY, dimX;
-    ncplane_dim_yx(mp, &dimY, &dimX);
+    unsigned dimX;
+    ncplane_dim_yx(mp, NULL, &dimX);
 
     char line[32];
     (void)snprintf(line, sizeof(line), "| %-*s", (int)(dimX - 2),
@@ -395,12 +427,18 @@ static MenuAction SM_UI_execMenuAction_(uint32_t const sel,
         ncplane_erase(mp);
         *lineCnt = 0U;
         return MENU_ACT_CLEAR;
-    case 2U:
-        ncplane_puttext(mp, -1, NCALIGN_LEFT,
-                        "termbox v0.1 -- HSM demo\n"
-                        "notcurses + SST + sm_hsm\n", NULL);
-        ++(*lineCnt);
+    case 2U: {
+        char const *about = "termbox v0.1 -- HSM demo\n"
+                            "notcurses + SST + sm_hsm\n";
+        ncplane_puttext(mp, -1, NCALIGN_LEFT, about, NULL);
+        uint32_t n = 0U;
+        for (char const *p = about; *p; ++p) {
+            if (*p == '\n') { ++n; }
+        }
+        if (about[0] != '\0') { ++n; }
+        *lineCnt += n;
         return MENU_ACT_ABOUT;
+    }
     case 3U:
         return MENU_ACT_QUIT;
     default:
@@ -408,36 +446,38 @@ static MenuAction SM_UI_execMenuAction_(uint32_t const sel,
     }
 }
 
-static void SM_UI_setKeybarClosed_(struct ncplane * const kp) {
+typedef struct {
+    char const *key;   // bold yellow
+    char const *desc;  // normal gray
+} KeyItem_;
+
+static void SM_UI_setKeybar_(struct ncplane * const kp,
+                             KeyItem_ const *items, uint32_t nItems)
+{
     ncplane_erase(kp);
     ncplane_set_bg_rgb8(kp, 50, 50, 80);
-    ncplane_set_fg_rgb8(kp, 230, 200, 100);
-    ncplane_on_styles(kp, NCSTYLE_BOLD);
-    ncplane_putstr(kp, "  ctrl+/");
-    ncplane_off_styles(kp, NCSTYLE_BOLD);
-    ncplane_set_fg_rgb8(kp, 160, 160, 180);
-    ncplane_putstr(kp, " open menu");
+    for (uint32_t i = 0U; i < nItems; ++i) {
+        ncplane_set_fg_rgb8(kp, 230, 200, 100);
+        ncplane_on_styles(kp, NCSTYLE_BOLD);
+        ncplane_putstr(kp, items[i].key);
+        ncplane_off_styles(kp, NCSTYLE_BOLD);
+        ncplane_set_fg_rgb8(kp, 160, 160, 180);
+        ncplane_putstr(kp, items[i].desc);
+    }
+}
+
+static void SM_UI_setKeybarClosed_(struct ncplane * const kp) {
+    static KeyItem_ const items[] = {
+        { "  ctrl+/", " open menu" },
+    };
+    SM_UI_setKeybar_(kp, items, sizeof(items)/sizeof(items[0]));
 }
 
 static void SM_UI_setKeybarOpen_(struct ncplane * const kp) {
-    ncplane_erase(kp);
-    ncplane_set_bg_rgb8(kp, 50, 50, 80);
-    ncplane_set_fg_rgb8(kp, 230, 200, 100);
-    ncplane_on_styles(kp, NCSTYLE_BOLD);
-    ncplane_putstr(kp, "  ctrl+/");
-    ncplane_off_styles(kp, NCSTYLE_BOLD);
-    ncplane_set_fg_rgb8(kp, 160, 160, 180);
-    ncplane_putstr(kp, " close menu");
-    ncplane_set_fg_rgb8(kp, 230, 200, 100);
-    ncplane_on_styles(kp, NCSTYLE_BOLD);
-    ncplane_putstr(kp, "  j/k \xe2\x86\x91" "\xe2\x86\x93");
-    ncplane_off_styles(kp, NCSTYLE_BOLD);
-    ncplane_set_fg_rgb8(kp, 160, 160, 180);
-    ncplane_putstr(kp, " navigate");
-    ncplane_set_fg_rgb8(kp, 230, 200, 100);
-    ncplane_on_styles(kp, NCSTYLE_BOLD);
-    ncplane_putstr(kp, "  enter");
-    ncplane_off_styles(kp, NCSTYLE_BOLD);
-    ncplane_set_fg_rgb8(kp, 160, 160, 180);
-    ncplane_putstr(kp, " select");
+    static KeyItem_ const items[] = {
+        { "  ctrl+/", " close menu" },
+        { "  j/k \xe2\x86\x91\xe2\x86\x93", " navigate" },
+        { "  enter", " select" },
+    };
+    SM_UI_setKeybar_(kp, items, sizeof(items)/sizeof(items[0]));
 }

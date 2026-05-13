@@ -28,6 +28,7 @@ typedef struct {
     struct ncplane   *titlePlane;
     struct ncplane   *statusPlane;
     struct ncplane   *mainPlane;
+    struct ncplane   *mainContentPlane;
     struct ncplane   *keybarPlane;
     struct ncplane   *menuPlane;
     uint32_t          mainLineCnt;

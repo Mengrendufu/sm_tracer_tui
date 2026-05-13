@@ -79,10 +79,14 @@ static void UI_render_(void) {
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
 
-    long elapsed = (now.tv_sec  - SM_UI_inst.lastRender.tv_sec)  * 1000L
-                 + (now.tv_nsec - SM_UI_inst.lastRender.tv_nsec) / 1000000L;
+    uint64_t elapsed = ((uint64_t)now.tv_sec
+                        - (uint64_t)SM_UI_inst.lastRender.tv_sec)
+                       * 1000ULL
+                     + ((uint64_t)now.tv_nsec
+                        - (uint64_t)SM_UI_inst.lastRender.tv_nsec)
+                       / 1000000ULL;
 
-    if (elapsed < (long)UI_FRAME_MS_) {
+    if (elapsed < UI_FRAME_MS_) {
         return;
     }
 
