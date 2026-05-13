@@ -40,6 +40,7 @@ enum {
     UI_NULL_SIG = 0,
     UI_KEY_ESC_SIG,       // ESC
     UI_KEY_ALT_Q_SIG,     // Alt+Q — quit (Ctrl+Q blocked by Windows Terminal)
+    UI_KEY_DEBUG_SIG,     // any other key — routed to mainPlane for debug
     UI_TIMER_SIG,
     UI_BLINKY_TEXT_SIG,
 };

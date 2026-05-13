@@ -11,6 +11,7 @@
 //=== UI module — main loop, input router, render
 #include <stdbool.h>
 #include <poll.h>
+#include <stdio.h>
 #include <time.h>
 #include <unistd.h>
 #include "dbc_assert.h"
@@ -44,6 +45,11 @@ static void UI_routeInput_(uint32_t r, ncinput const *ni) {
 
     if (r == 'q' && (ni->modifiers & NCKEY_MOD_ALT)) {
         sig = UI_KEY_ALT_Q_SIG;
+    } else {
+        char buf[64];
+        (void)snprintf(buf, sizeof(buf),
+                       "key: r=0x%08X mod=%u\n", r, ni->modifiers);
+        UI_postText(UI_KEY_DEBUG_SIG, buf);
     }
 
     if (sig != UI_NULL_SIG) {

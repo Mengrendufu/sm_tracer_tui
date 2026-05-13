@@ -43,7 +43,15 @@
   </class>
   <class name="SM_UI_Key" superclass="qpc::QActive">
    <statechart properties="0x00">
-    <state_diagram size="40,58"/>
+    <initial target="../1">
+     <initial_glyph conn="4,4,4,0,2">
+      <action box="0,-2,10,2"/>
+     </initial_glyph>
+    </initial>
+    <state name="idle">
+     <state_glyph node="2,6,24,10"/>
+    </state>
+    <state_diagram size="32,58"/>
    </statechart>
   </class>
  </package>

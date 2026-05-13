@@ -124,7 +124,8 @@ static SM_RetState SM_UI_active_(SM_Hsm * const me, UI_Evt const * const e) {
         return _SM_HANDLED();
     }
 
-    case UI_BLINKY_TEXT_SIG: {
+    case UI_BLINKY_TEXT_SIG:
+    case UI_KEY_DEBUG_SIG: {
         UI_AppEvt const *ae = (UI_AppEvt const *)e;
         enum { UI_MAIN_MAX_LINES_ = 10000U };
         if (ao->mainLineCnt >= UI_MAIN_MAX_LINES_) {

@@ -9,8 +9,10 @@
   <item name="backups">0</item>
  </group>
  <group name="windows">
-  <item id="AOs::blinky::SM">58,14,441,747</item>
-  <item id=".::blinky.c">685,17,631,300,*</item>
+  <item id="AOs::Blinky::SM">16,12,346,408</item>
+  <item id=".::blinky.c">702,11,575,122</item>
+  <item id="AOs::SM_UI::SM">191,60,483,889</item>
+  <item id="AOs::SM_UI_Key::SM">718,157,506,752,*</item>
  </group>
  <group name="search">
   <item name="options">2032128</item>
