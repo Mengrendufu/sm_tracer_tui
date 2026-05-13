@@ -23,14 +23,39 @@ DBC_MODULE_NAME("ui_hsm")
 
 static SM_StatePtr SM_UI_TOP_initial(SM_Hsm *me) SM_HSM_RETT;
 
+static SM_StatePtr SM_UI_active_init_(SM_Hsm *me) SM_HSM_RETT;
 static void        SM_UI_active_entry_(SM_Hsm *me) SM_HSM_RETT;
 static SM_RetState SM_UI_active_(SM_Hsm *me, UI_Evt const *e) SM_HSM_RETT;
+
+static void        SM_UI_showMain_entry_(SM_Hsm *me) SM_HSM_RETT;
+static SM_RetState SM_UI_showMain_(SM_Hsm *me, UI_Evt const *e) SM_HSM_RETT;
+
+static void        SM_UI_showHelper_entry_(SM_Hsm *me) SM_HSM_RETT;
+static void        SM_UI_showHelper_exit_(SM_Hsm *me) SM_HSM_RETT;
+static SM_RetState SM_UI_showHelper_(SM_Hsm *me, UI_Evt const *e) SM_HSM_RETT;
+
 SM_HsmState SM_HSM_ROM SM_UI_active = {
-    (SM_StatePtr)0,                     // super (top)
-    (SM_InitHandler)0,                  // init_ (leaf)
-    (SM_ActionHandler)&SM_UI_active_entry_,// entry_
-    (SM_ActionHandler)0,                // exit_
-    (SM_StateHandler)&SM_UI_active_        // handler_
+    (SM_StatePtr)0,                           // super (top)
+    (SM_InitHandler)SM_UI_active_init_,       // init_ → showMain
+    (SM_ActionHandler)&SM_UI_active_entry_,   // entry_
+    (SM_ActionHandler)0,                      // exit_
+    (SM_StateHandler)&SM_UI_active_           // handler_
+};
+
+SM_HsmState SM_HSM_ROM SM_UI_showMain = {
+    &SM_UI_active,                            // super
+    (SM_InitHandler)0,                        // init_ (leaf)
+    (SM_ActionHandler)&SM_UI_showMain_entry_, // entry_
+    (SM_ActionHandler)0,                      // exit_
+    (SM_StateHandler)&SM_UI_showMain_         // handler_
+};
+
+SM_HsmState SM_HSM_ROM SM_UI_showHelper = {
+    &SM_UI_active,                             // super
+    (SM_InitHandler)0,                         // init_ (leaf)
+    (SM_ActionHandler)&SM_UI_showHelper_entry_,// entry_
+    (SM_ActionHandler)&SM_UI_showHelper_exit_, // exit_
+    (SM_StateHandler)&SM_UI_showHelper_        // handler_
 };
 
 //============================================================================
@@ -53,11 +78,11 @@ static SM_StatePtr SM_UI_TOP_initial(SM_Hsm * const me) SM_HSM_RETT {
         ncplane_options nopts = {
             .y = 1, .x = 2, .rows = 1, .cols = dimX - 4, .name = "title"
         };
-        struct ncplane *title = ncplane_create(std, &nopts);
-        ncplane_set_bg_rgb8(title, 60, 60, 120);
-        ncplane_set_fg_rgb8(title, 230, 230, 255);
-        ncplane_on_styles(title, NCSTYLE_BOLD);
-        ncplane_puttext(title, 0, NCALIGN_CENTER,
+        ao->titlePlane = ncplane_create(std, &nopts);
+        ncplane_set_bg_rgb8(ao->titlePlane, 60, 60, 120);
+        ncplane_set_fg_rgb8(ao->titlePlane, 230, 230, 255);
+        ncplane_on_styles(ao->titlePlane, NCSTYLE_BOLD);
+        ncplane_puttext(ao->titlePlane, 0, NCALIGN_LEFT,
                         " termbox ─ sm_tracer ", NULL);
     }
 
@@ -97,12 +122,18 @@ static SM_StatePtr SM_UI_TOP_initial(SM_Hsm * const me) SM_HSM_RETT {
         ncplane_set_fg_rgb8(ao->keybarPlane, 160, 160, 180);
         ncplane_puttext(ao->keybarPlane, 0, NCALIGN_CENTER,
                         " Alt+Q:quit ", NULL);
+        ncplane_move_yx(ao->keybarPlane, (int)dimY, 0); // hidden by default
     }
 
     SM_UI_Key_ctor(&ao->cmdHsm);
     SM_UI_Key_init(&ao->cmdHsm);
 
     return _SM_INIT(&SM_UI_active);
+}
+
+static SM_StatePtr SM_UI_active_init_(SM_Hsm * const me) SM_HSM_RETT {
+    (void)me;
+    return _SM_INIT(&SM_UI_showMain);
 }
 
 static void SM_UI_active_entry_(SM_Hsm * const me) SM_HSM_RETT {
@@ -146,6 +177,62 @@ static SM_RetState SM_UI_active_(SM_Hsm * const me, UI_Evt const * const e) {
     }
 }
 
+static void SM_UI_showMain_entry_(SM_Hsm * const me) SM_HSM_RETT {
+    (void)me;
+}
+
+static SM_RetState SM_UI_showMain_(SM_Hsm * const me, UI_Evt const * const e) {
+    (void)me;
+
+    switch (e->sig) {
+    case UI_KEY_CTRL_SLASH_SIG: {
+        return _SM_TRAN(&SM_UI_showHelper);
+    }
+
+    default: {
+        return _SM_SUPER();
+    }
+    }
+}
+
+static void SM_UI_showHelper_entry_(SM_Hsm * const me) SM_HSM_RETT {
+    SM_UI *ao = containerof(me, SM_UI, super);
+    struct ncplane *std = notcurses_stdplane(ao->nc);
+
+    unsigned dimY, dimX;
+    ncplane_dim_yx(std, &dimY, &dimX);
+
+    ncplane_move_yx(ao->keybarPlane, (int)(dimY / 2 - 1), (int)(dimX / 2 - 15));
+    ncplane_resize_simple(ao->keybarPlane, 3, 30);
+    ncplane_erase(ao->keybarPlane);
+    ncplane_puttext(ao->keybarPlane, 0, NCALIGN_CENTER,
+                    " Help \n Alt+Q:quit  Ctrl+/:help  ESC:close ", NULL);
+}
+
+static void SM_UI_showHelper_exit_(SM_Hsm * const me) SM_HSM_RETT {
+    SM_UI *ao = containerof(me, SM_UI, super);
+    struct ncplane *std = notcurses_stdplane(ao->nc);
+
+    unsigned dimY, dimX;
+    ncplane_dim_yx(std, &dimY, &dimX);
+
+    ncplane_move_yx(ao->keybarPlane, (int)dimY, 0);
+}
+
+static SM_RetState SM_UI_showHelper_(SM_Hsm * const me, UI_Evt const * const e) {
+    (void)me;
+
+    switch (e->sig) {
+    case UI_KEY_ESC_SIG: {
+        return _SM_TRAN(&SM_UI_showMain);
+    }
+
+    default: {
+        return _SM_SUPER();
+    }
+    }
+}
+
 //============================================================================
 //=== Virtual functions
 
@@ -168,6 +255,7 @@ void SM_UI_ctor(SM_UI * const me) {
     me->dispatch = (VC_Handler)SM_UI_dispatch;
 
     me->nc          = (struct notcurses *)0;
+    me->titlePlane  = (struct ncplane *)0;
     me->statusPlane = (struct ncplane *)0;
     me->mainPlane   = (struct ncplane *)0;
     me->keybarPlane = (struct ncplane *)0;

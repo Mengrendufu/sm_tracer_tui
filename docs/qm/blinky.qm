@@ -36,9 +36,50 @@
      </initial_glyph>
     </initial>
     <state name="active">
-     <state_glyph node="2,6,34,62"/>
+     <initial target="../6">
+      <initial_glyph conn="6,24,4,0,2">
+       <action box="0,-2,10,2"/>
+      </initial_glyph>
+     </initial>
+     <tran trig="UI_TIMER">
+      <tran_glyph conn="2,14,3,-1,14">
+       <action box="0,-2,9,2"/>
+      </tran_glyph>
+     </tran>
+     <tran trig="UI_KEY_ALT_Q">
+      <tran_glyph conn="2,16,3,-1,14">
+       <action box="0,-2,13,2"/>
+      </tran_glyph>
+     </tran>
+     <tran trig="UI_BLINKY_TEXT">
+      <tran_glyph conn="2,18,3,-1,14">
+       <action box="0,-2,14,2"/>
+      </tran_glyph>
+     </tran>
+     <tran trig="UI_KEY_DEBUG">
+      <tran_glyph conn="2,20,3,-1,14">
+       <action box="0,-2,13,2"/>
+      </tran_glyph>
+     </tran>
+     <state name="showHelper">
+      <tran trig="UI_KEY_ESC" target="../../6">
+       <tran_glyph conn="4,46,3,1,30,-18,-4">
+        <action box="0,-2,11,2"/>
+       </tran_glyph>
+      </tran>
+      <state_glyph node="4,38,26,10"/>
+     </state>
+     <state name="showMain">
+      <tran trig="UI_KEY_CTRL_SLASH" target="../../5">
+       <tran_glyph conn="4,34,3,1,28,6,-2">
+        <action box="0,-2,17,2"/>
+       </tran_glyph>
+      </tran>
+      <state_glyph node="4,26,26,10"/>
+     </state>
+     <state_glyph node="2,6,34,44"/>
     </state>
-    <state_diagram size="38,70"/>
+    <state_diagram size="38,54"/>
    </statechart>
   </class>
   <class name="SM_UI_Key" superclass="qpc::QActive">
@@ -58,10 +99,17 @@
  <directory name=".">
   <file name="blinky.c">
    <text>//===========================================================================
-$declare${AOs::blinky}
+$declare${AOs::Blinky}
 
 //===========================================================================
-$define${AOs::blinky}</text>
+$define${AOs::Blinky}</text>
+  </file>
+  <file name="sm_ui.c">
+   <text>//===========================================================================
+$declare${AOs::SM_UI}
+
+//===========================================================================
+$define${AOs::SM_UI}</text>
   </file>
  </directory>
 </model>

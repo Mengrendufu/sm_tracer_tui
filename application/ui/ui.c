@@ -45,6 +45,10 @@ static void UI_routeInput_(uint32_t r, ncinput const *ni) {
 
     if (r == 'q' && (ni->modifiers & NCKEY_MOD_ALT)) {
         sig = UI_KEY_ALT_Q_SIG;
+    } else if (r == 27) {
+        sig = UI_KEY_ESC_SIG;
+    } else if (r == 0x1F) {
+        sig = UI_KEY_CTRL_SLASH_SIG;
     } else {
         char buf[64];
         (void)snprintf(buf, sizeof(buf),

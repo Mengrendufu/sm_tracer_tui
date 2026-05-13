@@ -29,19 +29,19 @@
 */
 /*$endhead${.::blinky.c} ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^*/
 //===========================================================================
-/*$declare${AOs::blinky} vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv*/
+/*$declare${AOs::Blinky} vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv*/
 
-/*${AOs::blinky} ...........................................................*/
+/*${AOs::Blinky} ...........................................................*/
 typedef struct {
 /* protected: */
     QActive super;
-} blinky;
+} Blinky;
 
 /* protected: */
-static QState blinky_initial(blinky * const me, void const * const par);
-static QState blinky_on(blinky * const me, QEvt const * const e);
-static QState blinky_off(blinky * const me, QEvt const * const e);
-/*$enddecl${AOs::blinky} ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^*/
+static QState Blinky_initial(Blinky * const me, void const * const par);
+static QState Blinky_on(Blinky * const me, QEvt const * const e);
+static QState Blinky_off(Blinky * const me, QEvt const * const e);
+/*$enddecl${AOs::Blinky} ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^*/
 
 //===========================================================================
 /*$skip${QP_VERSION} vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv*/
@@ -51,23 +51,23 @@ static QState blinky_off(blinky * const me, QEvt const * const e);
 #endif
 /*$endskip${QP_VERSION} ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^*/
 
-/*$define${AOs::blinky} vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv*/
+/*$define${AOs::Blinky} vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv*/
 
-/*${AOs::blinky} ...........................................................*/
+/*${AOs::Blinky} ...........................................................*/
 
-/*${AOs::blinky::SM} .......................................................*/
-static QState blinky_initial(blinky * const me, void const * const par) {
-    /*${AOs::blinky::SM::initial} */
-    return Q_TRAN(&blinky_on);
+/*${AOs::Blinky::SM} .......................................................*/
+static QState Blinky_initial(Blinky * const me, void const * const par) {
+    /*${AOs::Blinky::SM::initial} */
+    return Q_TRAN(&Blinky_on);
 }
 
-/*${AOs::blinky::SM::on} ...................................................*/
-static QState blinky_on(blinky * const me, QEvt const * const e) {
+/*${AOs::Blinky::SM::on} ...................................................*/
+static QState Blinky_on(Blinky * const me, QEvt const * const e) {
     QState status_;
     switch (e->sig) {
-        /*${AOs::blinky::SM::on::TIMEOUT_SIG} */
+        /*${AOs::Blinky::SM::on::TIMEOUT_SIG} */
         case TIMEOUT_SIG_SIG: {
-            status_ = Q_TRAN(&blinky_off);
+            status_ = Q_TRAN(&Blinky_off);
             break;
         }
         default: {
@@ -78,13 +78,13 @@ static QState blinky_on(blinky * const me, QEvt const * const e) {
     return status_;
 }
 
-/*${AOs::blinky::SM::off} ..................................................*/
-static QState blinky_off(blinky * const me, QEvt const * const e) {
+/*${AOs::Blinky::SM::off} ..................................................*/
+static QState Blinky_off(Blinky * const me, QEvt const * const e) {
     QState status_;
     switch (e->sig) {
-        /*${AOs::blinky::SM::off::TIMEOUT_SIG} */
+        /*${AOs::Blinky::SM::off::TIMEOUT_SIG} */
         case TIMEOUT_SIG_SIG: {
-            status_ = Q_TRAN(&blinky_on);
+            status_ = Q_TRAN(&Blinky_on);
             break;
         }
         default: {
@@ -94,4 +94,4 @@ static QState blinky_off(blinky * const me, QEvt const * const e) {
     }
     return status_;
 }
-/*$enddef${AOs::blinky} ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^*/
+/*$enddef${AOs::Blinky} ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^*/
