@@ -42,13 +42,16 @@ static void UI_onTick_(void) {
 
 static void UI_routeInput_(uint32_t r, ncinput const *ni) {
     UI_Signal sig = UI_NULL_SIG;
-
-    if (r == 'q' && (ni->modifiers & NCKEY_MOD_ALT)) {
-        sig = UI_KEY_ALT_Q_SIG;
-    } else if (r == 27) {
+    if (r == 27) {
         sig = UI_KEY_ESC_SIG;
     } else if (r == 0x1F) {
         sig = UI_KEY_CTRL_SLASH_SIG;
+    } else if (r == NCKEY_UP) {
+        sig = UI_KEY_UP_SIG;
+    } else if (r == NCKEY_DOWN) {
+        sig = UI_KEY_DOWN_SIG;
+    } else if (r == NCKEY_ENTER) {
+        sig = UI_KEY_ENTER_SIG;
     } else {
         char buf[64];
         (void)snprintf(buf, sizeof(buf),

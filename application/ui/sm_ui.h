@@ -11,6 +11,7 @@
 #define SM_UI_H_
 
 #include <stdbool.h>
+#include <stdint.h>
 #include <time.h>
 #include "sm_hsm.h"
 #include "sm_ui_key.h"
@@ -28,7 +29,9 @@ typedef struct {
     struct ncplane   *statusPlane;
     struct ncplane   *mainPlane;
     struct ncplane   *keybarPlane;
+    struct ncplane   *menuPlane;
     uint32_t          mainLineCnt;
+    uint32_t          menuSel;
     bool quit;
     bool dirty;
     struct timespec lastRender;
