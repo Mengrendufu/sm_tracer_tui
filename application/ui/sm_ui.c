@@ -19,21 +19,27 @@
 DBC_MODULE_NAME("ui_hsm")
 
 //============================================================================
-//=== States
+//--- IO helpers ---
+typedef enum {
+    MENU_ACT_RESUME,
+    MENU_ACT_CLEAR,
+    MENU_ACT_ABOUT,
+    MENU_ACT_QUIT
+} MenuAction;
+
+static void        SM_UI_drawMenuItem_(struct ncplane *mp, uint32_t idx, uint32_t sel);
+static MenuAction  SM_UI_execMenuAction_(uint32_t sel, struct ncplane *mp, uint32_t *lineCnt);
+static void        SM_UI_setKeybarClosed_(struct ncplane *kp);
+static void        SM_UI_setKeybarOpen_(struct ncplane *kp);
+
+//============================================================================
+//=== State tables
 
 static SM_StatePtr SM_UI_TOP_initial(SM_Hsm *me) SM_HSM_RETT;
 
 static SM_StatePtr SM_UI_active_init_(SM_Hsm *me) SM_HSM_RETT;
 static void        SM_UI_active_entry_(SM_Hsm *me) SM_HSM_RETT;
 static SM_RetState SM_UI_active_(SM_Hsm *me, UI_Evt const *e) SM_HSM_RETT;
-
-static void        SM_UI_showMain_entry_(SM_Hsm *me) SM_HSM_RETT;
-static SM_RetState SM_UI_showMain_(SM_Hsm *me, UI_Evt const *e) SM_HSM_RETT;
-
-static void        SM_UI_drawMenuItem_(SM_UI *ao, uint32_t idx);
-static void        SM_UI_showMenu_entry_(SM_Hsm *me) SM_HSM_RETT;
-static void        SM_UI_showMenu_exit_(SM_Hsm *me) SM_HSM_RETT;
-static SM_RetState SM_UI_showMenu_(SM_Hsm *me, UI_Evt const *e) SM_HSM_RETT;
 
 SM_HsmState SM_HSM_ROM SM_UI_active = {
     (SM_StatePtr)0,                           // super (top)
@@ -43,6 +49,9 @@ SM_HsmState SM_HSM_ROM SM_UI_active = {
     (SM_StateHandler)&SM_UI_active_           // handler_
 };
 
+static void        SM_UI_showMain_entry_(SM_Hsm *me) SM_HSM_RETT;
+static SM_RetState SM_UI_showMain_(SM_Hsm *me, UI_Evt const *e) SM_HSM_RETT;
+
 SM_HsmState SM_HSM_ROM SM_UI_showMain = {
     &SM_UI_active,                            // super
     (SM_InitHandler)0,                        // init_ (leaf)
@@ -50,6 +59,10 @@ SM_HsmState SM_HSM_ROM SM_UI_showMain = {
     (SM_ActionHandler)0,                      // exit_
     (SM_StateHandler)&SM_UI_showMain_         // handler_
 };
+
+static void        SM_UI_showMenu_entry_(SM_Hsm *me) SM_HSM_RETT;
+static void        SM_UI_showMenu_exit_(SM_Hsm *me) SM_HSM_RETT;
+static SM_RetState SM_UI_showMenu_(SM_Hsm *me, UI_Evt const *e) SM_HSM_RETT;
 
 //--- menu items data ---
 #define MENU_NUM_ITEMS_ 4U
@@ -136,11 +149,7 @@ static SM_StatePtr SM_UI_TOP_initial(SM_Hsm * const me) SM_HSM_RETT {
             .name = "keybar"
         };
         ao->keybarPlane = ncplane_create(std, &nopts);
-        ncplane_set_bg_rgb8(ao->keybarPlane, 50, 50, 80);
-        ncplane_set_fg_rgb8(ao->keybarPlane, 160, 160, 180);
-        ncplane_puttext(ao->keybarPlane, 0, NCALIGN_CENTER,
-                        " Alt+Q:quit ", NULL);
-        ncplane_move_yx(ao->keybarPlane, (int)dimY, 0); // hidden by default
+        SM_UI_setKeybarClosed_(ao->keybarPlane);
     }
 
     SM_UI_Key_ctor(&ao->cmdHsm);
@@ -211,31 +220,6 @@ static SM_RetState SM_UI_showMain_(SM_Hsm * const me, UI_Evt const * const e) {
 }
 
 //============================================================================
-//=== Menu drawing -- single item, partial redraw
-
-static void SM_UI_drawMenuItem_(SM_UI * const ao, uint32_t const idx) {
-    DBC_REQUIRE(301, idx < MENU_NUM_ITEMS_);
-    DBC_REQUIRE(302, ao->menuPlane != (struct ncplane *)0);
-
-    unsigned dimY, dimX;
-    ncplane_dim_yx(ao->menuPlane, &dimY, &dimX);
-
-    char line[32];
-    (void)snprintf(line, sizeof(line), "| %-*s", (int)(dimX - 2),
-                   SM_UI_menuItems_[idx]);
-
-    if (idx == ao->menuSel) {
-        ncplane_set_bg_rgb8(ao->menuPlane, 80, 80, 160);
-        ncplane_set_fg_rgb8(ao->menuPlane, 255, 255, 255);
-    } else {
-        ncplane_set_bg_rgb8(ao->menuPlane, 50, 50, 100);
-        ncplane_set_fg_rgb8(ao->menuPlane, 200, 200, 220);
-    }
-    ncplane_cursor_move_yx(ao->menuPlane, (int)(idx + 1U), 0);
-    ncplane_putstr(ao->menuPlane, line);
-    ao->dirty = true;
-}
-
 static void SM_UI_showMenu_entry_(SM_Hsm * const me) SM_HSM_RETT {
     SM_UI *ao = containerof(me, SM_UI, super);
     struct ncplane *std = notcurses_stdplane(ao->nc);
@@ -270,8 +254,10 @@ static void SM_UI_showMenu_entry_(SM_Hsm * const me) SM_HSM_RETT {
 
     ao->menuSel = 0U;
     for (uint32_t i = 0U; i < MENU_NUM_ITEMS_; ++i) {
-        SM_UI_drawMenuItem_(ao, i);
+        SM_UI_drawMenuItem_(ao->menuPlane, i, ao->menuSel);
     }
+    SM_UI_setKeybarOpen_(ao->keybarPlane);
+    ao->dirty = true;
 }
 
 static void SM_UI_showMenu_exit_(SM_Hsm * const me) SM_HSM_RETT {
@@ -280,60 +266,48 @@ static void SM_UI_showMenu_exit_(SM_Hsm * const me) SM_HSM_RETT {
         ncplane_destroy(ao->menuPlane);
         ao->menuPlane = (struct ncplane *)0;
     }
+    SM_UI_setKeybarClosed_(ao->keybarPlane);
+    ao->dirty = true;
 }
 
 static SM_RetState SM_UI_showMenu_(SM_Hsm * const me, UI_Evt const * const e) {
     SM_UI *ao = containerof(me, SM_UI, super);
 
     switch (e->sig) {
-    case UI_KEY_DOWN_SIG: {
+    case UI_KEY_DOWN_SIG:
+    case UI_KEY_J_SIG: {
         uint32_t oldSel = ao->menuSel;
         uint32_t maxIdx = MENU_NUM_ITEMS_ - 1U;
         ao->menuSel = (ao->menuSel >= maxIdx) ? 0U : (ao->menuSel + 1U);
-        SM_UI_drawMenuItem_(ao, oldSel);
-        SM_UI_drawMenuItem_(ao, ao->menuSel);
+        SM_UI_drawMenuItem_(ao->menuPlane, oldSel, ao->menuSel);
+        SM_UI_drawMenuItem_(ao->menuPlane, ao->menuSel, ao->menuSel);
+        ao->dirty = true;
         return _SM_HANDLED();
     }
 
-    case UI_KEY_UP_SIG: {
+    case UI_KEY_UP_SIG:
+    case UI_KEY_K_SIG: {
         uint32_t oldSel = ao->menuSel;
         uint32_t maxIdx = MENU_NUM_ITEMS_ - 1U;
         ao->menuSel = (ao->menuSel == 0U) ? maxIdx : (ao->menuSel - 1U);
-        SM_UI_drawMenuItem_(ao, oldSel);
-        SM_UI_drawMenuItem_(ao, ao->menuSel);
+        SM_UI_drawMenuItem_(ao->menuPlane, oldSel, ao->menuSel);
+        SM_UI_drawMenuItem_(ao->menuPlane, ao->menuSel, ao->menuSel);
+        ao->dirty = true;
         return _SM_HANDLED();
     }
 
     case UI_KEY_ENTER_SIG: {
-        switch (ao->menuSel) {
-        case 0U:
+        switch (SM_UI_execMenuAction_(ao->menuSel, ao->mainPlane, &ao->mainLineCnt)) {
+        case MENU_ACT_RESUME:
+        case MENU_ACT_CLEAR:
+        case MENU_ACT_ABOUT:
             return _SM_TRAN(&SM_UI_showMain);
-
-        case 1U: {
-            ncplane_erase(ao->mainPlane);
-            ao->mainLineCnt = 0U;
-            return _SM_TRAN(&SM_UI_showMain);
-        }
-
-        case 2U: {
-            ncplane_puttext(ao->mainPlane, -1, NCALIGN_LEFT,
-                            "termbox v0.1 -- HSM demo\n"
-                            "notcurses + SST + sm_hsm\n", NULL);
-            ++ao->mainLineCnt;
-            return _SM_TRAN(&SM_UI_showMain);
-        }
-
-        case 3U: {
+        case MENU_ACT_QUIT:
             ao->quit = true;
-            return _SM_TRAN(&SM_UI_showMain);
-        }
-
-        default:
             return _SM_TRAN(&SM_UI_showMain);
         }
     }
 
-    case UI_KEY_ESC_SIG:
     case UI_KEY_CTRL_SLASH_SIG: {
         return _SM_TRAN(&SM_UI_showMain);
     }
@@ -382,4 +356,88 @@ void SM_UI_start(SM_UI * const me) {
     DBC_REQUIRE(200, me != (SM_UI *)0);
     DBC_REQUIRE(201, me->init != (VC_Handler)0);
     (*me->init)(me, (void const *)0);
+}
+
+//============================================================================
+//=== IO helpers
+
+static void SM_UI_drawMenuItem_(struct ncplane * const mp, uint32_t const idx,
+                               uint32_t const sel) {
+    DBC_REQUIRE(301, idx < MENU_NUM_ITEMS_);
+    DBC_REQUIRE(302, mp != (struct ncplane *)0);
+
+    unsigned dimY, dimX;
+    ncplane_dim_yx(mp, &dimY, &dimX);
+
+    char line[32];
+    (void)snprintf(line, sizeof(line), "| %-*s", (int)(dimX - 2),
+                   SM_UI_menuItems_[idx]);
+
+    if (idx == sel) {
+        ncplane_set_bg_rgb8(mp, 80, 80, 160);
+        ncplane_set_fg_rgb8(mp, 255, 255, 255);
+    } else {
+        ncplane_set_bg_rgb8(mp, 50, 50, 100);
+        ncplane_set_fg_rgb8(mp, 200, 200, 220);
+    }
+    ncplane_cursor_move_yx(mp, (int)(idx + 1U), 0);
+    ncplane_putstr(mp, line);
+}
+
+static MenuAction SM_UI_execMenuAction_(uint32_t const sel,
+                                       struct ncplane * const mp,
+                                       uint32_t * const lineCnt)
+{
+    switch (sel) {
+    case 0U:
+        return MENU_ACT_RESUME;
+    case 1U:
+        ncplane_erase(mp);
+        *lineCnt = 0U;
+        return MENU_ACT_CLEAR;
+    case 2U:
+        ncplane_puttext(mp, -1, NCALIGN_LEFT,
+                        "termbox v0.1 -- HSM demo\n"
+                        "notcurses + SST + sm_hsm\n", NULL);
+        ++(*lineCnt);
+        return MENU_ACT_ABOUT;
+    case 3U:
+        return MENU_ACT_QUIT;
+    default:
+        return MENU_ACT_RESUME;
+    }
+}
+
+static void SM_UI_setKeybarClosed_(struct ncplane * const kp) {
+    ncplane_erase(kp);
+    ncplane_set_bg_rgb8(kp, 50, 50, 80);
+    ncplane_set_fg_rgb8(kp, 230, 200, 100);
+    ncplane_on_styles(kp, NCSTYLE_BOLD);
+    ncplane_putstr(kp, "  ctrl+/");
+    ncplane_off_styles(kp, NCSTYLE_BOLD);
+    ncplane_set_fg_rgb8(kp, 160, 160, 180);
+    ncplane_putstr(kp, " open menu");
+}
+
+static void SM_UI_setKeybarOpen_(struct ncplane * const kp) {
+    ncplane_erase(kp);
+    ncplane_set_bg_rgb8(kp, 50, 50, 80);
+    ncplane_set_fg_rgb8(kp, 230, 200, 100);
+    ncplane_on_styles(kp, NCSTYLE_BOLD);
+    ncplane_putstr(kp, "  ctrl+/");
+    ncplane_off_styles(kp, NCSTYLE_BOLD);
+    ncplane_set_fg_rgb8(kp, 160, 160, 180);
+    ncplane_putstr(kp, " close menu");
+    ncplane_set_fg_rgb8(kp, 230, 200, 100);
+    ncplane_on_styles(kp, NCSTYLE_BOLD);
+    ncplane_putstr(kp, "  j/k \xe2\x86\x91" "\xe2\x86\x93");
+    ncplane_off_styles(kp, NCSTYLE_BOLD);
+    ncplane_set_fg_rgb8(kp, 160, 160, 180);
+    ncplane_putstr(kp, " navigate");
+    ncplane_set_fg_rgb8(kp, 230, 200, 100);
+    ncplane_on_styles(kp, NCSTYLE_BOLD);
+    ncplane_putstr(kp, "  enter");
+    ncplane_off_styles(kp, NCSTYLE_BOLD);
+    ncplane_set_fg_rgb8(kp, 160, 160, 180);
+    ncplane_putstr(kp, " select");
 }

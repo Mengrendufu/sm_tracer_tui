@@ -52,6 +52,10 @@ static void UI_routeInput_(uint32_t r, ncinput const *ni) {
         sig = UI_KEY_DOWN_SIG;
     } else if (r == NCKEY_ENTER) {
         sig = UI_KEY_ENTER_SIG;
+    } else if (r == 'j') {
+        sig = UI_KEY_J_SIG;
+    } else if (r == 'k') {
+        sig = UI_KEY_K_SIG;
     } else {
         char buf[64];
         (void)snprintf(buf, sizeof(buf),

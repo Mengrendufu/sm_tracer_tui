@@ -43,6 +43,8 @@ enum {
     UI_KEY_UP_SIG,          // arrow up
     UI_KEY_DOWN_SIG,        // arrow down
     UI_KEY_ENTER_SIG,       // enter / return
+    UI_KEY_J_SIG,           // j
+    UI_KEY_K_SIG,           // k
     UI_KEY_DEBUG_SIG,        // any other key — routed to mainPlane for debug
     UI_TIMER_SIG,
     UI_BLINKY_TEXT_SIG,
