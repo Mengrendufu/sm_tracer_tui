@@ -506,8 +506,11 @@ static void SM_UI_rebuildLayout_(SM_UI * const me) {
     unsigned keyR, keyC;
     ncplane_dim_yx(me->keybarPlane, &keyR, &keyC);
 
-    // std plane already reflects new terminal size
-    // (notcurses_render detected the resize in the previous loop iteration)
+    // force notcurses to detect terminal resize and update std plane
+    // (does NOT touch SM_UI_inst.lastRender — no throttle interference)
+    notcurses_render(me->nc);
+
+    // get updated terminal dimensions
     unsigned dimY, dimX;
     ncplane_dim_yx(std, &dimY, &dimX);
 
