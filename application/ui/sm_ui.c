@@ -31,6 +31,7 @@ static void        SM_UI_drawMenuItem_(struct ncplane *mp, uint32_t idx, uint32_
 static MenuAction  SM_UI_execMenuAction_(uint32_t sel, struct ncplane *mp, uint32_t *lineCnt);
 static void        SM_UI_setKeybarClosed_(struct ncplane *kp);
 static void        SM_UI_setKeybarOpen_(struct ncplane *kp);
+static void        SM_UI_rebuildLayout_(SM_UI *me);
 
 //============================================================================
 //=== State tables
@@ -199,6 +200,11 @@ static SM_RetState SM_UI_active_(SM_Hsm * const me, UI_Evt const * const e) {
     //------------------------------------------------------------------------
     //--- user input events
     case UI_TIMER_SIG: {
+        return _SM_HANDLED();
+    }
+
+    case UI_RESIZE_SIG: {
+        SM_UI_rebuildLayout_(ao);
         return _SM_HANDLED();
     }
 
@@ -480,4 +486,67 @@ static void SM_UI_setKeybarOpen_(struct ncplane * const kp) {
         { "  enter", " select" },
     };
     SM_UI_setKeybar_(kp, items, sizeof(items)/sizeof(items[0]));
+}
+
+//============================================================================
+//=== Layout rebuild on terminal resize
+
+static void SM_UI_rebuildLayout_(SM_UI * const me) {
+    struct ncplane *std = notcurses_stdplane(me->nc);
+
+    // save old plane dimensions for ncplane_resize keep-region
+    unsigned titleR, titleC;
+    ncplane_dim_yx(me->titlePlane, &titleR, &titleC);
+    unsigned statusR, statusC;
+    ncplane_dim_yx(me->statusPlane, &statusR, &statusC);
+    unsigned mainR, mainC;
+    ncplane_dim_yx(me->mainPlane, &mainR, &mainC);
+    unsigned contentR, contentC;
+    ncplane_dim_yx(me->mainContentPlane, &contentR, &contentC);
+    unsigned keyR, keyC;
+    ncplane_dim_yx(me->keybarPlane, &keyR, &keyC);
+
+    // std plane already reflects new terminal size
+    // (notcurses_render detected the resize in the previous loop iteration)
+    unsigned dimY, dimX;
+    ncplane_dim_yx(std, &dimY, &dimX);
+
+    uint64_t borderCh = NCCHANNELS_INITIALIZER(60, 60, 120, 15, 15, 35);
+
+    // redraw outer border (std resets on resize)
+    ncplane_ascii_box(std, 0, borderCh, dimY, dimX, 0);
+
+    // title — width changes only
+    ncplane_resize(me->titlePlane, 0, 0, titleR, titleC,
+                   0, 0, 1, dimX - 4U);
+
+    // status — width changes only
+    ncplane_resize(me->statusPlane, 0, 0, statusR, statusC,
+                   0, 0, 1, dimX - 4U);
+
+    // main container — full resize, redraw border
+    unsigned newMainRows = dimY - 7U;
+    unsigned newMainCols = dimX - 4U;
+    ncplane_resize(me->mainPlane, 0, 0, mainR, mainC,
+                   0, 0, newMainRows, newMainCols);
+    ncplane_ascii_box(me->mainPlane, 0, borderCh,
+                      newMainRows, newMainCols, 0);
+
+    // content plane (child) — preserves scrollback via overlap
+    ncplane_resize(me->mainContentPlane, 0, 0, contentR, contentC,
+                   0, 0, newMainRows - 2U, newMainCols - 2U);
+
+    // keybar — move to new Y then resize
+    ncplane_move_yx(me->keybarPlane, (int)(dimY - 2U), 2);
+    ncplane_resize(me->keybarPlane, 0, 0, keyR, keyC,
+                   0, 0, 1, dimX - 4U);
+    SM_UI_setKeybarClosed_(me->keybarPlane);
+
+    // close menu if open — too complex to reposition
+    if (me->menuPlane) {
+        ncplane_destroy(me->menuPlane);
+        me->menuPlane = (struct ncplane *)0;
+    }
+
+    me->dirty = true;
 }

@@ -48,6 +48,7 @@ enum {
     UI_KEY_DEBUG_SIG,        // any other key — routed to mainPlane for debug
     UI_TIMER_SIG,
     UI_BLINKY_TEXT_SIG,
+    UI_RESIZE_SIG,
 };
 
 // Post a signal-only event to the UI (thread-safe, callable from SST AOs)

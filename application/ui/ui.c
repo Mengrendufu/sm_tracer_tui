@@ -11,6 +11,7 @@
 //=== UI module — main loop, input router, render
 #include <stdbool.h>
 #include <poll.h>
+#include <signal.h>
 #include <stdio.h>
 #include <time.h>
 #include <unistd.h>
@@ -23,6 +24,16 @@ DBC_MODULE_NAME("ui")
 #define UI_FRAME_MS_ (1000U / 60U)
 
 static SM_UI SM_UI_inst;
+
+//============================================================================
+//=== SIGWINCH handler — posts UI_RESIZE_SIG on terminal resize
+
+static volatile sig_atomic_t l_winch;
+
+static void UI_sigwinch_(int sig) {
+    (void)sig;
+    l_winch = 1;
+}
 
 //============================================================================
 //=== BSP tick callback — posts UI_TIMER_SIG every Nth tick
@@ -109,6 +120,12 @@ void UI_prepare(struct notcurses *nc) {
     SM_UI_start(&SM_UI_inst);
 
     BSP_registerTickHandler(&UI_onTick_);
+
+    // SIGWINCH — terminal resize detection
+    struct sigaction sa = {0};
+    sa.sa_handler = UI_sigwinch_;
+    sa.sa_flags   = SA_RESTART;
+    sigaction(SIGWINCH, &sa, (struct sigaction *)0);
 }
 
 //============================================================================
@@ -128,6 +145,11 @@ void UI_loop(void) {
     fds[1].events  = POLLIN;
 
     while (!SM_UI_inst.quit) {
+        if (l_winch) {
+            l_winch = 0;
+            UI_postSignal(UI_RESIZE_SIG);
+        }
+
         poll(fds, 2, -1);
 
         if (fds[0].revents & POLLIN) {
