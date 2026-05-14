@@ -107,7 +107,7 @@ static SM_StatePtr SM_UI_TOP_initial(SM_Hsm * const me) SM_HSM_RETT {
     {
         ncplane_options nopts = {
             .y = 1, .x = 2, .rows = 1, .cols = dimX - 4, .name = "title",
-            .userptr = ao, .resizecb = (void *)0,
+            .userptr = ao, .resizecb = SM_UI_title_cb_,
         };
         ao->titlePlane = ncplane_create(std, &nopts);
         DBC_ENSURE(400, ao->titlePlane != (struct ncplane *)0);
@@ -122,7 +122,7 @@ static SM_StatePtr SM_UI_TOP_initial(SM_Hsm * const me) SM_HSM_RETT {
     {
         ncplane_options nopts = {
             .y = 3, .x = 2, .rows = 1, .cols = dimX - 4, .name = "status",
-            .userptr = ao, .resizecb = (void *)0,
+            .userptr = ao, .resizecb = SM_UI_status_cb_,
         };
         ao->statusPlane = ncplane_create(std, &nopts);
         DBC_ENSURE(401, ao->statusPlane != (struct ncplane *)0);
@@ -215,20 +215,27 @@ static SM_RetState SM_UI_active_(SM_Hsm * const me, UI_Evt const * const e) {
     }
 
     case UI_RESIZE_SIG: {
-        // force render: triggers resize detection + callback cascade
+        // force render: triggers resize detection + geometry-only callbacks
         notcurses_render(ao->nc);
-        // now std has new dims and all planes are auto-adjusted;
-        // redraw outer border (can't be done from std's resizecb)
-        struct ncplane *std = notcurses_stdplane(ao->nc);
+        // now std has new dims and all planes are geometry-adjusted;
+        // write all content (borders, keybar text) AFTER the render
         unsigned dy, dx;
+        struct ncplane *std = notcurses_stdplane(ao->nc);
         ncplane_dim_yx(std, &dy, &dx);
         uint64_t bc = NCCHANNELS_INITIALIZER(60, 60, 120, 15, 15, 35);
-        ncplane_ascii_box(std, 0, bc, dy, dx, 0);
+        ncplane_ascii_box(std, 0, bc, dy, dx, 0);          // outer box
+        unsigned mrows = dy - 7U;
+        unsigned mcols = dx - 4U;
+        ncplane_ascii_box(ao->mainPlane, 0, bc, mrows, mcols, 0); // main box
+        if (ao->menuPlane) {                                 // keybar: open
+            SM_UI_setKeybarOpen_(ao->keybarPlane);
+        } else {                                             // keybar: closed
+            SM_UI_setKeybarClosed_(ao->keybarPlane);
+        }
         // close menu if open (it has no resizecb)
         if (ao->menuPlane) {
             ncplane_destroy(ao->menuPlane);
             ao->menuPlane = (struct ncplane *)0;
-            SM_UI_setKeybarClosed_(ao->keybarPlane);
         }
         ao->dirty = true;
         return _SM_HANDLED();
@@ -543,9 +550,7 @@ static int SM_UI_main_cb_(struct ncplane * const n) {
     unsigned cols = px - 4U;
     ncplane_move_yx(n, 5, 2);
     ncplane_resize_simple(n, rows, cols);
-    uint64_t bc = NCCHANNELS_INITIALIZER(60, 60, 120, 15, 15, 35);
-    ncplane_ascii_box(n, 0, bc, rows, cols, 0);
-    // outer border: let UI_RESIZE_SIG handler redraw it via notcurses_render
+    // content writing (border, outer box) done in UI_RESIZE_SIG handler
     return 0;
 }
 
@@ -566,11 +571,6 @@ static int SM_UI_keybar_cb_(struct ncplane * const n) {
     ncplane_dim_yx(parent, &py, &px);
     ncplane_move_yx(n, (int)(py - 2U), 2);
     ncplane_resize_simple(n, 1, px - 4U);
-    SM_UI *ao = ncplane_userptr(n);
-    if (ao->menuPlane) {
-        SM_UI_setKeybarOpen_(n);
-    } else {
-        SM_UI_setKeybarClosed_(n);
-    }
+    // keybar text written in UI_RESIZE_SIG handler
     return 0;
 }
