@@ -107,7 +107,7 @@ static SM_StatePtr SM_UI_TOP_initial(SM_Hsm * const me) SM_HSM_RETT {
     {
         ncplane_options nopts = {
             .y = 1, .x = 2, .rows = 1, .cols = dimX - 4, .name = "title",
-            .userptr = ao, .resizecb = SM_UI_title_cb_,
+            .userptr = ao, .resizecb = (void *)0,
         };
         ao->titlePlane = ncplane_create(std, &nopts);
         DBC_ENSURE(400, ao->titlePlane != (struct ncplane *)0);
@@ -122,7 +122,7 @@ static SM_StatePtr SM_UI_TOP_initial(SM_Hsm * const me) SM_HSM_RETT {
     {
         ncplane_options nopts = {
             .y = 3, .x = 2, .rows = 1, .cols = dimX - 4, .name = "status",
-            .userptr = ao, .resizecb = SM_UI_status_cb_,
+            .userptr = ao, .resizecb = (void *)0,
         };
         ao->statusPlane = ncplane_create(std, &nopts);
         DBC_ENSURE(401, ao->statusPlane != (struct ncplane *)0);
