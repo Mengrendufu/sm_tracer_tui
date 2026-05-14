@@ -31,7 +31,13 @@ static void        SM_UI_drawMenuItem_(struct ncplane *mp, uint32_t idx, uint32_
 static MenuAction  SM_UI_execMenuAction_(uint32_t sel, struct ncplane *mp, uint32_t *lineCnt);
 static void        SM_UI_setKeybarClosed_(struct ncplane *kp);
 static void        SM_UI_setKeybarOpen_(struct ncplane *kp);
-static void        SM_UI_rebuildLayout_(SM_UI *me);
+
+// resize callbacks (registered via ncplane_options.resizecb)
+static int         SM_UI_title_cb_(struct ncplane *n);
+static int         SM_UI_status_cb_(struct ncplane *n);
+static int         SM_UI_main_cb_(struct ncplane *n);
+static int         SM_UI_content_cb_(struct ncplane *n);
+static int         SM_UI_keybar_cb_(struct ncplane *n);
 
 //============================================================================
 //=== State tables
@@ -100,7 +106,8 @@ static SM_StatePtr SM_UI_TOP_initial(SM_Hsm * const me) SM_HSM_RETT {
     // title
     {
         ncplane_options nopts = {
-            .y = 1, .x = 2, .rows = 1, .cols = dimX - 4, .name = "title"
+            .y = 1, .x = 2, .rows = 1, .cols = dimX - 4, .name = "title",
+            .userptr = ao, .resizecb = SM_UI_title_cb_,
         };
         ao->titlePlane = ncplane_create(std, &nopts);
         DBC_ENSURE(400, ao->titlePlane != (struct ncplane *)0);
@@ -114,7 +121,8 @@ static SM_StatePtr SM_UI_TOP_initial(SM_Hsm * const me) SM_HSM_RETT {
     // status
     {
         ncplane_options nopts = {
-            .y = 3, .x = 2, .rows = 1, .cols = dimX - 4, .name = "status"
+            .y = 3, .x = 2, .rows = 1, .cols = dimX - 4, .name = "status",
+            .userptr = ao, .resizecb = SM_UI_status_cb_,
         };
         ao->statusPlane = ncplane_create(std, &nopts);
         DBC_ENSURE(401, ao->statusPlane != (struct ncplane *)0);
@@ -129,7 +137,8 @@ static SM_StatePtr SM_UI_TOP_initial(SM_Hsm * const me) SM_HSM_RETT {
         unsigned mainRows = dimY - 7;
         unsigned mainCols = dimX - 4U;
         ncplane_options nopts = {
-            .y = 5, .x = 2, .rows = mainRows, .cols = mainCols, .name = "main"
+            .y = 5, .x = 2, .rows = mainRows, .cols = mainCols, .name = "main",
+            .userptr = ao, .resizecb = SM_UI_main_cb_,
         };
         ao->mainPlane = ncplane_create(std, &nopts);
         DBC_ENSURE(402, ao->mainPlane != (struct ncplane *)0);
@@ -150,7 +159,8 @@ static SM_StatePtr SM_UI_TOP_initial(SM_Hsm * const me) SM_HSM_RETT {
         unsigned contentCols = mainCols - 2U;
         ncplane_options cnopts = {
             .y = 1, .x = 1, .rows = contentRows, .cols = contentCols,
-            .name = "mainContent"
+            .name = "mainContent",
+            .userptr = ao, .resizecb = SM_UI_content_cb_,
         };
         ao->mainContentPlane = ncplane_create(ao->mainPlane, &cnopts);
         DBC_ENSURE(405, ao->mainContentPlane != (struct ncplane *)0);
@@ -171,7 +181,8 @@ static SM_StatePtr SM_UI_TOP_initial(SM_Hsm * const me) SM_HSM_RETT {
     {
         ncplane_options nopts = {
             .y = (int)(dimY - 2), .x = 2, .rows = 1, .cols = dimX - 4,
-            .name = "keybar"
+            .name = "keybar",
+            .userptr = ao, .resizecb = SM_UI_keybar_cb_,
         };
         ao->keybarPlane = ncplane_create(std, &nopts);
         DBC_ENSURE(403, ao->keybarPlane != (struct ncplane *)0);
@@ -204,7 +215,14 @@ static SM_RetState SM_UI_active_(SM_Hsm * const me, UI_Evt const * const e) {
     }
 
     case UI_RESIZE_SIG: {
-        SM_UI_rebuildLayout_(ao);
+        // layout adjusts automatically via ncplane_options.resizecb;
+        // just close menu if open (it has no resizecb)
+        if (ao->menuPlane) {
+            ncplane_destroy(ao->menuPlane);
+            ao->menuPlane = (struct ncplane *)0;
+            SM_UI_setKeybarClosed_(ao->keybarPlane);
+            ao->dirty = true;
+        }
         return _SM_HANDLED();
     }
 
@@ -489,67 +507,63 @@ static void SM_UI_setKeybarOpen_(struct ncplane * const kp) {
 }
 
 //============================================================================
-//=== Layout rebuild on terminal resize
+//=== Resize callbacks — auto-triggered by notcurses when parent plane resizes
 
-static void SM_UI_rebuildLayout_(SM_UI * const me) {
-    struct ncplane *std = notcurses_stdplane(me->nc);
+static int SM_UI_title_cb_(struct ncplane * const n) {
+    struct ncplane *parent = ncplane_parent(n);
+    unsigned px;
+    ncplane_dim_yx(parent, NULL, &px);
+    ncplane_move_yx(n, 1, 2);
+    ncplane_resize_simple(n, 1, px - 4U);
+    return 0;
+}
 
-    // save old plane dimensions for ncplane_resize keep-region
-    unsigned titleR, titleC;
-    ncplane_dim_yx(me->titlePlane, &titleR, &titleC);
-    unsigned statusR, statusC;
-    ncplane_dim_yx(me->statusPlane, &statusR, &statusC);
-    unsigned mainR, mainC;
-    ncplane_dim_yx(me->mainPlane, &mainR, &mainC);
-    unsigned contentR, contentC;
-    ncplane_dim_yx(me->mainContentPlane, &contentR, &contentC);
-    unsigned keyR, keyC;
-    ncplane_dim_yx(me->keybarPlane, &keyR, &keyC);
+static int SM_UI_status_cb_(struct ncplane * const n) {
+    struct ncplane *parent = ncplane_parent(n);
+    unsigned px;
+    ncplane_dim_yx(parent, NULL, &px);
+    ncplane_move_yx(n, 3, 2);
+    ncplane_resize_simple(n, 1, px - 4U);
+    return 0;
+}
 
-    // force notcurses to detect terminal resize and update std plane
-    // (does NOT touch SM_UI_inst.lastRender — no throttle interference)
-    notcurses_render(me->nc);
+static int SM_UI_main_cb_(struct ncplane * const n) {
+    struct ncplane *parent = ncplane_parent(n); // std
+    unsigned py, px;
+    ncplane_dim_yx(parent, &py, &px);
+    unsigned rows = py - 7U;
+    unsigned cols = px - 4U;
+    ncplane_move_yx(n, 5, 2);
+    ncplane_resize_simple(n, rows, cols);
+    uint64_t bc = NCCHANNELS_INITIALIZER(60, 60, 120, 15, 15, 35);
+    ncplane_ascii_box(n, 0, bc, rows, cols, 0);
+    // redraw outer border (std's own resizecb is not user-settable)
+    ncplane_ascii_box(parent, 0, bc, py, px, 0);
+    return 0;
+}
 
-    // get updated terminal dimensions
-    unsigned dimY, dimX;
-    ncplane_dim_yx(std, &dimY, &dimX);
-
-    uint64_t borderCh = NCCHANNELS_INITIALIZER(60, 60, 120, 15, 15, 35);
-
-    // redraw outer border (std resets on resize)
-    ncplane_ascii_box(std, 0, borderCh, dimY, dimX, 0);
-
-    // title — width changes only
-    ncplane_resize(me->titlePlane, 0, 0, titleR, titleC,
-                   0, 0, 1, dimX - 4U);
-
-    // status — width changes only
-    ncplane_resize(me->statusPlane, 0, 0, statusR, statusC,
-                   0, 0, 1, dimX - 4U);
-
-    // main container — full resize, redraw border
-    unsigned newMainRows = dimY - 7U;
-    unsigned newMainCols = dimX - 4U;
-    ncplane_resize(me->mainPlane, 0, 0, mainR, mainC,
-                   0, 0, newMainRows, newMainCols);
-    ncplane_ascii_box(me->mainPlane, 0, borderCh,
-                      newMainRows, newMainCols, 0);
-
-    // content plane (child) — preserves scrollback via overlap
-    ncplane_resize(me->mainContentPlane, 0, 0, contentR, contentC,
-                   0, 0, newMainRows - 2U, newMainCols - 2U);
-
-    // keybar — move to new Y then resize
-    ncplane_move_yx(me->keybarPlane, (int)(dimY - 2U), 2);
-    ncplane_resize(me->keybarPlane, 0, 0, keyR, keyC,
-                   0, 0, 1, dimX - 4U);
-    SM_UI_setKeybarClosed_(me->keybarPlane);
-
-    // close menu if open — too complex to reposition
-    if (me->menuPlane) {
-        ncplane_destroy(me->menuPlane);
-        me->menuPlane = (struct ncplane *)0;
+static int SM_UI_content_cb_(struct ncplane * const n) {
+    struct ncplane *parent = ncplane_parent(n); // mainPlane
+    unsigned py, px;
+    ncplane_dim_yx(parent, &py, &px);
+    ncplane_move_yx(n, 1, 1);
+    if (py >= 2U && px >= 2U) {
+        ncplane_resize_simple(n, py - 2U, px - 2U);
     }
+    return 0;
+}
 
-    me->dirty = true;
+static int SM_UI_keybar_cb_(struct ncplane * const n) {
+    struct ncplane *parent = ncplane_parent(n); // std
+    unsigned py, px;
+    ncplane_dim_yx(parent, &py, &px);
+    ncplane_move_yx(n, (int)(py - 2U), 2);
+    ncplane_resize_simple(n, 1, px - 4U);
+    SM_UI *ao = ncplane_userptr(n);
+    if (ao->menuPlane) {
+        SM_UI_setKeybarOpen_(n);
+    } else {
+        SM_UI_setKeybarClosed_(n);
+    }
+    return 0;
 }
