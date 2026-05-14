@@ -215,14 +215,22 @@ static SM_RetState SM_UI_active_(SM_Hsm * const me, UI_Evt const * const e) {
     }
 
     case UI_RESIZE_SIG: {
-        // layout adjusts automatically via ncplane_options.resizecb;
-        // just close menu if open (it has no resizecb)
+        // force render: triggers resize detection + callback cascade
+        notcurses_render(ao->nc);
+        // now std has new dims and all planes are auto-adjusted;
+        // redraw outer border (can't be done from std's resizecb)
+        struct ncplane *std = notcurses_stdplane(ao->nc);
+        unsigned dy, dx;
+        ncplane_dim_yx(std, &dy, &dx);
+        uint64_t bc = NCCHANNELS_INITIALIZER(60, 60, 120, 15, 15, 35);
+        ncplane_ascii_box(std, 0, bc, dy, dx, 0);
+        // close menu if open (it has no resizecb)
         if (ao->menuPlane) {
             ncplane_destroy(ao->menuPlane);
             ao->menuPlane = (struct ncplane *)0;
             SM_UI_setKeybarClosed_(ao->keybarPlane);
-            ao->dirty = true;
         }
+        ao->dirty = true;
         return _SM_HANDLED();
     }
 
@@ -537,8 +545,7 @@ static int SM_UI_main_cb_(struct ncplane * const n) {
     ncplane_resize_simple(n, rows, cols);
     uint64_t bc = NCCHANNELS_INITIALIZER(60, 60, 120, 15, 15, 35);
     ncplane_ascii_box(n, 0, bc, rows, cols, 0);
-    // redraw outer border (std's own resizecb is not user-settable)
-    ncplane_ascii_box(parent, 0, bc, py, px, 0);
+    // outer border: let UI_RESIZE_SIG handler redraw it via notcurses_render
     return 0;
 }
 

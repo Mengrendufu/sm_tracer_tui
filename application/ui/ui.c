@@ -58,6 +58,8 @@ static void UI_routeInput_(uint32_t r, ncinput const *ni) {
         sig = UI_KEY_K_SIG;
     } else if (r == NCKEY_RESIZE) {
         sig = UI_RESIZE_SIG;
+    } else if (r == NCKEY_EOF) {
+        // input stream closed — notcurses can't recover; ignore silently
     } else {
         char buf[64];
         (void)snprintf(buf, sizeof(buf),
