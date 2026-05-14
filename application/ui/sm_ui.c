@@ -215,24 +215,25 @@ static SM_RetState SM_UI_active_(SM_Hsm * const me, UI_Evt const * const e) {
     }
 
     case UI_RESIZE_SIG: {
-        // force render: triggers resize detection + geometry-only callbacks
-        notcurses_render(ao->nc);
-        // now std has new dims and all planes are geometry-adjusted;
-        // write all content (borders, keybar text) AFTER the render
-        unsigned dy, dx;
+        // no notcurses_render here — let UI_render_ handle the single render
+        // (two renders in quick succession cause visible flicker).
+        // Planes auto-adjust via resizecb callbacks during that render.
+        // Borders/keybar below are drawn at CURRENT (pre-resize) size and
+        // will be clipped/preserved by ncplane_resize_simple in the overlap.
+        // The next NCKEY_RESIZE will draw them at the correct size.
         struct ncplane *std = notcurses_stdplane(ao->nc);
+        unsigned dy, dx;
         ncplane_dim_yx(std, &dy, &dx);
         uint64_t bc = NCCHANNELS_INITIALIZER(60, 60, 120, 15, 15, 35);
-        ncplane_ascii_box(std, 0, bc, dy, dx, 0);          // outer box
+        ncplane_ascii_box(std, 0, bc, dy, dx, 0);
         unsigned mrows = dy - 7U;
         unsigned mcols = dx - 4U;
-        ncplane_ascii_box(ao->mainPlane, 0, bc, mrows, mcols, 0); // main box
-        if (ao->menuPlane) {                                 // keybar: open
+        ncplane_ascii_box(ao->mainPlane, 0, bc, mrows, mcols, 0);
+        if (ao->menuPlane) {
             SM_UI_setKeybarOpen_(ao->keybarPlane);
-        } else {                                             // keybar: closed
+        } else {
             SM_UI_setKeybarClosed_(ao->keybarPlane);
         }
-        // close menu if open (it has no resizecb)
         if (ao->menuPlane) {
             ncplane_destroy(ao->menuPlane);
             ao->menuPlane = (struct ncplane *)0;
