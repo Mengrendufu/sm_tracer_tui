@@ -12,6 +12,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <time.h>
 #include "sm_hsm.h"
 #include "sm_ui_key.h"
@@ -39,6 +40,14 @@ typedef struct {
 
     // command subsystem (self-contained)
     SM_UI_Key cmdHsm;
+
+    // line buffer for content replay
+#define LINE_BUF_CAP_ 1000U
+#define LINE_WIDTH_     512U
+    char    lineBuf[LINE_BUF_CAP_][LINE_WIDTH_];
+    uint32_t lineTotal;
+    uint32_t lineHead;
+    int32_t  scrollOff;
 } SM_UI;
 
 void SM_UI_ctor(SM_UI *me);

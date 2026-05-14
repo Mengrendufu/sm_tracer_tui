@@ -56,6 +56,10 @@ static void UI_routeInput_(uint32_t r, ncinput const *ni) {
         sig = UI_KEY_J_SIG;
     } else if (r == 'k') {
         sig = UI_KEY_K_SIG;
+    } else if (r == NCKEY_PGUP) {
+        sig = UI_KEY_PGUP_SIG;
+    } else if (r == NCKEY_PGDOWN) {
+        sig = UI_KEY_PGDN_SIG;
     } else if (r == NCKEY_RESIZE) {
         sig = UI_RESIZE_SIG;
     } else if (r == NCKEY_EOF) {

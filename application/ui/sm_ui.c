@@ -20,6 +20,7 @@ DBC_MODULE_NAME("ui_hsm")
 
 //============================================================================
 //--- IO helpers ---
+
 typedef enum {
     MENU_ACT_RESUME,
     MENU_ACT_CLEAR,
@@ -28,7 +29,10 @@ typedef enum {
 } MenuAction;
 
 static void        SM_UI_drawMenuItem_(struct ncplane *mp, uint32_t idx, uint32_t sel);
-static MenuAction  SM_UI_execMenuAction_(uint32_t sel, struct ncplane *mp, uint32_t *lineCnt);
+static MenuAction  SM_UI_execMenuAction_(uint32_t sel,
+                                       uint32_t *total,
+                                       uint32_t *head);
+static void        SM_UI_refreshMain_(SM_UI *ao);
 static void        SM_UI_setKeybarClosed_(struct ncplane *kp);
 static void        SM_UI_setKeybarOpen_(struct ncplane *kp);
 
@@ -156,7 +160,7 @@ static SM_StatePtr SM_UI_TOP_initial(SM_Hsm * const me) SM_HSM_RETT {
 
         // child content plane (scrolling, no border)
         unsigned contentRows = mainRows - 2U;
-        unsigned contentCols = mainCols - 2U;
+        unsigned contentCols = mainCols - 3U;
         ncplane_options cnopts = {
             .y = 1, .x = 1, .rows = contentRows, .cols = contentCols,
             .name = "mainContent",
@@ -174,7 +178,6 @@ static SM_StatePtr SM_UI_TOP_initial(SM_Hsm * const me) SM_HSM_RETT {
             ncplane_set_base_cell(ao->mainContentPlane, &base);
             nccell_release(ao->mainContentPlane, &base);
         }
-        ncplane_set_scrolling(ao->mainContentPlane, true);
     }
 
     // keybar
@@ -227,24 +230,50 @@ static SM_RetState SM_UI_active_(SM_Hsm * const me, UI_Evt const * const e) {
     case UI_BLINKY_TEXT_SIG:
     case UI_KEY_DEBUG_SIG: {
         UI_AppEvt const *ae = (UI_AppEvt const *)e;
-        enum { UI_MAIN_MAX_LINES_ = 10000U };
-        if (ao->mainLineCnt >= UI_MAIN_MAX_LINES_) {
-            ncplane_scrollup(ao->mainContentPlane,
-                             (int)(ao->mainLineCnt - UI_MAIN_MAX_LINES_ / 2U));
-            ao->mainLineCnt = UI_MAIN_MAX_LINES_ / 2U;
-        }
+        // split on \n and write each segment as a buffer line
+        uint32_t written = 0U;
+        char const *p = ae->pld.msg.text;
+        char const *end = p + ae->pld.msg.len;
+        while (p < end) {
+            char const *nl = strchr(p, '\n');
+            size_t segLen = nl ? (size_t)(nl - p) : (size_t)(end - p);
 
-        // count actual lines from \n (each \n produces a line,
-        // plus at least 1 for non-empty text)
-        uint32_t lines = 0U;
-        for (char const *p = ae->pld.msg.text; *p; ++p) {
-            if (*p == '\n') { ++lines; }
+            // circular buffer: advance head when full
+            uint32_t slot;
+            if (ao->lineTotal >= LINE_BUF_CAP_) {
+                slot = ao->lineHead;
+                ao->lineHead = (ao->lineHead + 1U) % LINE_BUF_CAP_;
+            } else {
+                slot = (ao->lineHead + ao->lineTotal) % LINE_BUF_CAP_;
+                ++ao->lineTotal;
+            }
+            size_t copyLen = (segLen < LINE_WIDTH_ - 1U) ? segLen : (LINE_WIDTH_ - 1U);
+            memcpy(ao->lineBuf[slot], p, copyLen);
+            ao->lineBuf[slot][copyLen] = '\0';
+            ++written;
+            p = nl ? (nl + 1) : end;
         }
-        if (ae->pld.msg.len > 0U) { ++lines; }
+        // keep view stable when scrolled up
+        if (ao->scrollOff > 0) {
+            ao->scrollOff += (int32_t)written;
+        }
+        SM_UI_refreshMain_(ao);
+        return _SM_HANDLED();
+    }
 
-        ncplane_puttext(ao->mainContentPlane, -1, NCALIGN_LEFT,
-                        ae->pld.msg.text, NULL);
-        ao->mainLineCnt += lines;
+    case UI_KEY_PGUP_SIG: {
+        unsigned rows;
+        ncplane_dim_yx(ao->mainContentPlane, &rows, NULL);
+        ao->scrollOff += (int32_t)(rows / 2U);
+        SM_UI_refreshMain_(ao);
+        return _SM_HANDLED();
+    }
+
+    case UI_KEY_PGDN_SIG: {
+        unsigned rows;
+        ncplane_dim_yx(ao->mainContentPlane, &rows, NULL);
+        ao->scrollOff -= (int32_t)(rows / 2U);
+        SM_UI_refreshMain_(ao);
         return _SM_HANDLED();
     }
 
@@ -350,15 +379,22 @@ static SM_RetState SM_UI_showMenu_(SM_Hsm * const me, UI_Evt const * const e) {
     }
 
     case UI_KEY_ENTER_SIG: {
-        switch (SM_UI_execMenuAction_(ao->menuSel, ao->mainContentPlane, &ao->mainLineCnt)) {
+        switch (SM_UI_execMenuAction_(ao->menuSel, &ao->lineTotal, &ao->lineHead)) {
         case MENU_ACT_RESUME:
         case MENU_ACT_CLEAR:
+            SM_UI_refreshMain_(ao);
+            return _SM_TRAN(&SM_UI_showMain);
         case MENU_ACT_ABOUT:
+            SM_UI_refreshMain_(ao);
             return _SM_TRAN(&SM_UI_showMain);
         case MENU_ACT_QUIT:
             ao->quit = true;
+            SM_UI_refreshMain_(ao);
             return _SM_TRAN(&SM_UI_showMain);
+        default:
+            break;
         }
+        return _SM_HANDLED();
     }
 
     case UI_KEY_CTRL_SLASH_SIG: {
@@ -398,7 +434,9 @@ void SM_UI_ctor(SM_UI * const me) {
     me->mainContentPlane = (struct ncplane *)0;
     me->keybarPlane = (struct ncplane *)0;
     me->menuPlane   = (struct ncplane *)0;
-    me->mainLineCnt   = 0U;
+    me->lineTotal     = 0U;
+    me->lineHead      = 0U;
+    me->scrollOff     = 0;
     me->menuSel       = 0U;
     me->quit        = false;
     me->dirty       = false;
@@ -439,33 +477,90 @@ static void SM_UI_drawMenuItem_(struct ncplane * const mp, uint32_t const idx,
 }
 
 static MenuAction SM_UI_execMenuAction_(uint32_t const sel,
-                                       struct ncplane * const mp,
-                                       uint32_t * const lineCnt)
+                                       uint32_t * const total,
+                                       uint32_t * const head)
 {
     switch (sel) {
     case 0U:
         return MENU_ACT_RESUME;
     case 1U:
-        ncplane_erase(mp);
-        *lineCnt = 0U;
+        *total = 0U;
+        *head = 0U;
         return MENU_ACT_CLEAR;
-    case 2U: {
-        char const *about = "termbox v0.1 -- HSM demo\n"
-                            "notcurses + SST + sm_hsm\n";
-        ncplane_puttext(mp, -1, NCALIGN_LEFT, about, NULL);
-        uint32_t n = 0U;
-        for (char const *p = about; *p; ++p) {
-            if (*p == '\n') { ++n; }
-        }
-        if (about[0] != '\0') { ++n; }
-        *lineCnt += n;
+    case 2U:
+        UI_postText(UI_BLINKY_TEXT_SIG,
+                    "termbox v0.1 -- HSM demo\n"
+                    "notcurses + SST + sm_hsm\n");
         return MENU_ACT_ABOUT;
-    }
     case 3U:
         return MENU_ACT_QUIT;
     default:
         return MENU_ACT_RESUME;
     }
+}
+
+static void SM_UI_refreshMain_(SM_UI * const ao) {
+    if (!ao->mainContentPlane) { return; }
+    ncplane_set_bg_rgb8(ao->mainContentPlane, 25, 25, 40);
+    ncplane_set_fg_rgb8(ao->mainContentPlane, 200, 220, 200);
+    ncplane_erase(ao->mainContentPlane);
+
+    unsigned rows, cols;
+    ncplane_dim_yx(ao->mainContentPlane, &rows, &cols);
+    if (rows == 0) { return; }
+
+    // clamp scroll offset
+    int32_t maxScroll = (ao->lineTotal > rows)
+                        ? (int32_t)(ao->lineTotal - rows) : 0;
+    if (ao->scrollOff > maxScroll) { ao->scrollOff = maxScroll; }
+    if (ao->scrollOff < 0)         { ao->scrollOff = 0; }
+
+    uint32_t start = (ao->lineTotal > rows)
+                     ? ao->lineTotal - rows - (uint32_t)ao->scrollOff
+                     : 0U;
+
+    // proportional thumb
+    uint32_t thumbHeight = 0U;
+    uint32_t thumbPos = 0U;
+    if (maxScroll > 0) {
+        thumbHeight = (uint64_t)rows * (uint64_t)rows / (uint64_t)ao->lineTotal;
+        if (thumbHeight < 1U) { thumbHeight = 1U; }
+        if (thumbHeight > rows) { thumbHeight = rows; }
+        uint32_t trackSlop = rows - thumbHeight;
+        uint32_t distFromBottom = (uint32_t)(maxScroll - ao->scrollOff);
+        thumbPos = (trackSlop > 0)
+            ? (uint32_t)((uint64_t)distFromBottom * trackSlop / (uint64_t)maxScroll)
+            : 0U;
+    }
+
+    for (uint32_t i = 0U; i < rows; ++i) {
+        // text line (only if content exists at this row)
+        uint32_t bufIdx = start + i;
+        if (cols > 1U && bufIdx < ao->lineTotal) {
+            uint32_t physIdx = (ao->lineHead + bufIdx) % LINE_BUF_CAP_;
+            char textLine[512];
+            int tw = (int)(cols - 1U);
+            (void)snprintf(textLine, sizeof(textLine), "%-*.*s",
+                           tw, tw, ao->lineBuf[physIdx]);
+            ncplane_cursor_move_yx(ao->mainContentPlane, (int)i, 0);
+            ncplane_set_bg_rgb8(ao->mainContentPlane, 25, 25, 40);
+            ncplane_set_fg_rgb8(ao->mainContentPlane, 200, 220, 200);
+            ncplane_putstr(ao->mainContentPlane, textLine);
+        }
+
+        // scrollbar at last column (drawn for ALL rows)
+        if (cols > 0U) {
+            ncplane_cursor_move_yx(ao->mainContentPlane, (int)i, (int)(cols - 1U));
+            if (thumbHeight > 0 && i >= thumbPos && i < thumbPos + thumbHeight) {
+                ncplane_set_fg_rgb8(ao->mainContentPlane, 140, 140, 200);
+                ncplane_putstr(ao->mainContentPlane, "\xe2\x96\x88");
+            } else if (maxScroll > 0) {
+                ncplane_set_fg_rgb8(ao->mainContentPlane, 60, 60, 100);
+                ncplane_putstr(ao->mainContentPlane, "\xe2\x96\x91");
+            }
+        }
+    }
+    ao->dirty = true;
 }
 
 typedef struct {
@@ -507,6 +602,8 @@ static void SM_UI_setKeybarOpen_(struct ncplane * const kp) {
 //============================================================================
 //=== Resize callbacks — auto-triggered by notcurses when parent plane resizes
 
+
+
 static int SM_UI_title_cb_(struct ncplane * const n) {
     struct ncplane *parent = ncplane_parent(n);
     unsigned px;
@@ -538,12 +635,14 @@ static int SM_UI_main_cb_(struct ncplane * const n) {
 }
 
 static int SM_UI_content_cb_(struct ncplane * const n) {
-    struct ncplane *parent = ncplane_parent(n); // mainPlane
+    struct ncplane *parent = ncplane_parent(n);
     unsigned py, px;
     ncplane_dim_yx(parent, &py, &px);
     if (py >= 2U && px >= 2U) {
-        ncplane_resize_simple(n, py - 2U, px - 2U);
+        ncplane_resize_simple(n, py - 2U, px - 3U);
     }
+    SM_UI *ao = ncplane_userptr(n);
+    SM_UI_refreshMain_(ao);
     return 0;
 }
 

@@ -17,7 +17,7 @@ A terminal-based HSM (Hierarchical State Machine) visualizer/demo using **notcur
 │       ├── ui.h
 │       ├── ui_evt.c      #   Thread-safe event queue (eventfd + ring buffer)
 │       ├── ui_evt.h      #   UI_Evt, UI_AppEvt, signal enum, cross-thread post
-│       ├── sm_ui.c       #   SM_UI HSM — showMain / showHelper states
+│       ├── sm_ui.c       #   SM_UI HSM — showMain / showMenu states
 │       ├── sm_ui.h
 │       ├── sm_ui_key.c   #   SM_UI_Key HSM — placeholder, idle-only
 │       └── sm_ui_key.h
@@ -162,16 +162,46 @@ me->dispatch = (VC_Handler)MyAO_dispatch;
 - **16-entry ring buffer** (`UI_QLEN_ = 16`), mutex-guarded, with eventfd for poll-based wake-up.
 - **UI_NULL_SIG** is reserved/invalid: `UI_postSignal` asserts `sig > UI_NULL_SIG`.
 - **UI_AppEvt** extends `UI_Evt` via `super` member (not pointer). Text payload is allocated inline: `sizeof(UI_AppEvt) + len + 1`, with `pld.msg.text` pointing past the struct.
-- Signals are routed via `UI_routeInput_()` in `ui.c`. Currently handles: `Alt+Q` (quit), `ESC`, `Ctrl+/`. Everything else goes to `UI_KEY_DEBUG_SIG` with a key code text.
+- **Signals** (in order): `UI_NULL_SIG`, `UI_KEY_ESC_SIG`, `UI_KEY_CTRL_SLASH_SIG`, `UI_KEY_UP_SIG`, `UI_KEY_DOWN_SIG`, `UI_KEY_ENTER_SIG`, `UI_KEY_J_SIG`, `UI_KEY_K_SIG`, `UI_KEY_DEBUG_SIG`, `UI_TIMER_SIG`, `UI_BLINKY_TEXT_SIG`.
 - `UI_evtFree` just does `free()` — no ref counting.
+- Quit is **only** accessible via the menu's "Quit" item. No key shortcut.
 
-## BSP and tick system
+## Interactive menu
+
+Opened by `Ctrl+/` (toggles open/close). Menu items are rendered in a centered `ncplane` with a solid background fill and a manual `|-----|` border.
+
+| Key | Action |
+|-----|--------|
+| `Ctrl+/` | Open / close menu |
+| `↑` `k` | Navigate up (wraps) |
+| `↓` `j` | Navigate down (wraps) |
+| `Enter` | Select highlighted item |
+
+**Menu items:** Resume, Clear screen, About, Quit.
+
+Menu selection dispatch uses a `MenuAction` enum (`MENU_ACT_RESUME`, `MENU_ACT_CLEAR`, `MENU_ACT_ABOUT`, `MENU_ACT_QUIT`) returned by an IO function (`SM_UI_execMenuAction_`). The HSM layer switches on the returned enum for state transitions.
+
+A **keybar** at the bottom of the screen shows context-sensitive hints:
+- Menu closed: `ctrl+/ open menu`
+- Menu open: `ctrl+/ close menu  j/k ↑↓ navigate  enter select`
+
+The keybar helpers (`SM_UI_setKeybarClosed_`, `SM_UI_setKeybarOpen_`) take a `struct ncplane *` directly, not the enclosing `SM_UI`.
 
 - `BSP_TICKS_PER_SEC = 100` — 100 Hz system tick.
 - `SST_onIdle()` does `nanosleep(tickRateMs)` → `SST_TimeEvt_tick()` → `BSP_onTick()`.
 - `BSP_onTick()` fanouts to registered tick handlers (`BSP_MAX_TICK_HANDLERS_ = 4`).
 - UI timer: `UI_onTick_()` fires every `BSP_TICKS_PER_SEC / 10 = 10` ticks → 10 Hz.
 - Render frame cap: 60 fps in `UI_render_()`.
+- `mainPlane` background is filled solid via `ncplane_set_base_cell` (opaque). Colors: `(25, 25, 40)` bg, `(200, 220, 200)` fg.
+
+## Code organization (sm_ui.c)
+
+The file is organized into clear sections:
+
+1. **Forward declarations** — HSM state handler signatures grouped together, followed by IO helper forward decls.
+2. **State tables** — Each state's forward decls sit immediately above its `SM_HsmState` table.
+3. **HSM implementations** — All state handlers, virtual functions (`init`/`dispatch`), and the AO constructor (`ctor`/`start`) in one contiguous block.
+4. **IO implementations** — `drawMenuItem_`, `execMenuAction_`, `setKeybarClosed_`, `setKeybarOpen_` at the end. These take specific `ncplane *` pointers rather than the enclosing `SM_UI *`.
 
 ## QM modeling
 
@@ -179,18 +209,32 @@ The HSM state diagrams are modeled in `docs/qm/` using **QM** (https://www.state
 
 Current implementation is handwritten (not QM-generated) but follows the QM model structure.
 
-## Known issues
-
-- `sm_ui.h:31` — missing `#include <stdint.h>` for `uint32_t` (clangd error, build still works because it's included transitively).
+- `stdint.h` include added to `sm_ui.h` (was missing, caused clangd error).
 - Several unused-include warnings from LSP; these are cosmetic.
 - `sm_tracer` (from sm_hsm) is compiled but never used.
 - No test suite.
 
+## Color scheme
+
+| Element | Bg (RGB) | Fg (RGB) |
+|---------|----------|----------|
+| Outer box border | — | `(60, 60, 120)` / `(15, 15, 35)` |
+| Title plane | `(60, 60, 120)` | `(230, 230, 255)` bold |
+| Status plane | `(35, 35, 60)` | `(200, 200, 200)` |
+| **Main plane** | `(25, 25, 40)` | `(200, 220, 200)` |
+| Main plane border | — | `(60, 60, 120)` / `(15, 15, 35)` |
+| Menu plane bg | `(50, 50, 100)` | `(200, 200, 220)` |
+| Menu border / title | `(50, 50, 100)` | `(140, 140, 200)` |
+| Menu selected item | `(80, 80, 160)` | `(255, 255, 255)` |
+| Keybar bg | `(50, 50, 80)` | — |
+| Keybar shortcut (gold) | — | `(230, 200, 100)` bold |
+| Keybar description (muted) | — | `(160, 160, 180)` |
+
 ## Conventions
 
-- Opening braces inline: `void func(void) {`
+- Opening braces inline for single-line signatures; for multi-line parameter lists the `{` goes on its own line.
 - Asterisk binds left on pointer types: `char *p`, `SM_UI * const me`
-- `const` after `*`: `SST_Evt const *`
+- `const` after `*`: `SST_Evt const *`, `struct ncplane * const`
 - Single underscore suffix for private/static functions: `UI_onTick_`, `UI_routeInput_`
 - `U` suffix for unsigned literals: `0U`, `1U`, `16U`
 - Indentation: 4 spaces (no tabs)
@@ -198,3 +242,4 @@ Current implementation is handwritten (not QM-generated) but follows the QM mode
 - File comments section separator: `//====` ruler blocks
 - Function names: `Module_action_qualifier` pattern (`SM_UI_active_init_`, `UI_evtDequeue`)
 - `(void)e;` for unused parameters
+- IO functions take specific `ncplane *` pointers, not the full enclosing struct
