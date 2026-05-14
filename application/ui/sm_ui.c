@@ -215,21 +215,12 @@ static SM_RetState SM_UI_active_(SM_Hsm * const me, UI_Evt const * const e) {
     }
 
     case UI_RESIZE_SIG: {
-        // callbacks (main_cb_, keybar_cb_) fire during render and draw
-        // borders + keybar text at the correct new size.
-        // redraw title/status here since their callbacks are geometry-only.
-        struct ncplane *std = notcurses_stdplane(ao->nc);
-        unsigned dy, dx;
-        ncplane_dim_yx(std, &dy, &dx);
-        ncplane_puttext(ao->titlePlane, 0, NCALIGN_LEFT,
-                        " termbox ─ sm_tracer ", NULL);
-        ncplane_puttext(ao->statusPlane, 0, NCALIGN_LEFT,
-                        " ● disconnected ", NULL);
+        // callbacks handle geometry + borders/keybar text at new size.
+        // title/status text is preserved by ncplane_resize_simple overlap.
         if (ao->menuPlane) {
             ncplane_destroy(ao->menuPlane);
             ao->menuPlane = (struct ncplane *)0;
         }
-        ao->dirty = true;
         return _SM_HANDLED();
     }
 
@@ -520,7 +511,6 @@ static int SM_UI_title_cb_(struct ncplane * const n) {
     struct ncplane *parent = ncplane_parent(n);
     unsigned px;
     ncplane_dim_yx(parent, NULL, &px);
-    ncplane_move_yx(n, 1, 2);
     ncplane_resize_simple(n, 1, px - 4U);
     return 0;
 }
@@ -529,7 +519,6 @@ static int SM_UI_status_cb_(struct ncplane * const n) {
     struct ncplane *parent = ncplane_parent(n);
     unsigned px;
     ncplane_dim_yx(parent, NULL, &px);
-    ncplane_move_yx(n, 3, 2);
     ncplane_resize_simple(n, 1, px - 4U);
     return 0;
 }
@@ -540,7 +529,6 @@ static int SM_UI_main_cb_(struct ncplane * const n) {
     ncplane_dim_yx(parent, &py, &px);
     unsigned rows = py - 7U;
     unsigned cols = px - 4U;
-    ncplane_move_yx(n, 5, 2);
     ncplane_resize_simple(n, rows, cols);
     // draw borders here — callback fires AFTER std has new dims
     uint64_t bc = NCCHANNELS_INITIALIZER(60, 60, 120, 15, 15, 35);
@@ -553,7 +541,6 @@ static int SM_UI_content_cb_(struct ncplane * const n) {
     struct ncplane *parent = ncplane_parent(n); // mainPlane
     unsigned py, px;
     ncplane_dim_yx(parent, &py, &px);
-    ncplane_move_yx(n, 1, 1);
     if (py >= 2U && px >= 2U) {
         ncplane_resize_simple(n, py - 2U, px - 2U);
     }
