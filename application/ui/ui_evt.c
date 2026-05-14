@@ -18,7 +18,7 @@
 #include "ui_evt.h"
 DBC_MODULE_NAME("ui_evt")
 
-#define UI_QLEN_ 16U
+#define UI_QLEN_ 128U
 
 struct UI_EvtQueue {
     UI_Evt *buf[UI_QLEN_];

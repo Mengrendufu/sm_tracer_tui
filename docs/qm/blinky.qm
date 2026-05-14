@@ -62,9 +62,9 @@
       </tran_glyph>
      </tran>
      <state name="showHelper">
-      <tran trig="UI_KEY_ESC" target="../../6">
+      <tran trig="UI_KEY_CTRL_SLASH" target="../../6">
        <tran_glyph conn="4,46,3,1,30,-18,-4">
-        <action box="0,-2,11,2"/>
+        <action box="0,-2,18,2"/>
        </tran_glyph>
       </tran>
       <state_glyph node="4,38,26,10"/>
