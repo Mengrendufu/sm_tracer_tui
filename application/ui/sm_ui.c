@@ -215,25 +215,16 @@ static SM_RetState SM_UI_active_(SM_Hsm * const me, UI_Evt const * const e) {
     }
 
     case UI_RESIZE_SIG: {
-        // no notcurses_render here — let UI_render_ handle the single render
-        // (two renders in quick succession cause visible flicker).
-        // Planes auto-adjust via resizecb callbacks during that render.
-        // Borders/keybar below are drawn at CURRENT (pre-resize) size and
-        // will be clipped/preserved by ncplane_resize_simple in the overlap.
-        // The next NCKEY_RESIZE will draw them at the correct size.
+        // callbacks (main_cb_, keybar_cb_) fire during render and draw
+        // borders + keybar text at the correct new size.
+        // redraw title/status here since their callbacks are geometry-only.
         struct ncplane *std = notcurses_stdplane(ao->nc);
         unsigned dy, dx;
         ncplane_dim_yx(std, &dy, &dx);
-        uint64_t bc = NCCHANNELS_INITIALIZER(60, 60, 120, 15, 15, 35);
-        ncplane_ascii_box(std, 0, bc, dy, dx, 0);
-        unsigned mrows = dy - 7U;
-        unsigned mcols = dx - 4U;
-        ncplane_ascii_box(ao->mainPlane, 0, bc, mrows, mcols, 0);
-        if (ao->menuPlane) {
-            SM_UI_setKeybarOpen_(ao->keybarPlane);
-        } else {
-            SM_UI_setKeybarClosed_(ao->keybarPlane);
-        }
+        ncplane_puttext(ao->titlePlane, 0, NCALIGN_LEFT,
+                        " termbox ─ sm_tracer ", NULL);
+        ncplane_puttext(ao->statusPlane, 0, NCALIGN_LEFT,
+                        " ● disconnected ", NULL);
         if (ao->menuPlane) {
             ncplane_destroy(ao->menuPlane);
             ao->menuPlane = (struct ncplane *)0;
@@ -551,7 +542,10 @@ static int SM_UI_main_cb_(struct ncplane * const n) {
     unsigned cols = px - 4U;
     ncplane_move_yx(n, 5, 2);
     ncplane_resize_simple(n, rows, cols);
-    // content writing (border, outer box) done in UI_RESIZE_SIG handler
+    // draw borders here — callback fires AFTER std has new dims
+    uint64_t bc = NCCHANNELS_INITIALIZER(60, 60, 120, 15, 15, 35);
+    ncplane_ascii_box(n, 0, bc, rows, cols, 0);
+    ncplane_ascii_box(parent, 0, bc, py, px, 0);
     return 0;
 }
 
@@ -572,6 +566,11 @@ static int SM_UI_keybar_cb_(struct ncplane * const n) {
     ncplane_dim_yx(parent, &py, &px);
     ncplane_move_yx(n, (int)(py - 2U), 2);
     ncplane_resize_simple(n, 1, px - 4U);
-    // keybar text written in UI_RESIZE_SIG handler
+    SM_UI *ao = ncplane_userptr(n);
+    if (ao->menuPlane) {
+        SM_UI_setKeybarOpen_(n);
+    } else {
+        SM_UI_setKeybarClosed_(n);
+    }
     return 0;
 }
