@@ -34,8 +34,7 @@ A terminal-based HSM (Hierarchical State Machine) visualizer/demo using **notcur
 │   ├── sm_hsm/              # HSM engine (https://github.com/Mengrendufu/sm_hsm)
 │   └── common_c/            # Common C lib (static_pool, etc.)
 ├── docs/qm/                  # QM model files (State Machine modeling tool)
-│   ├── blinky.qm
-│   └── sm_ui.qm
+│   └── blinky.qm
 ├── CMakeLists.txt
 ├── CMakePresets.json        # Ninja Multi-Config presets
 └── toolchain_gcc.cmake      # gcc, -Wall -Wextra -Wpedantic
@@ -159,10 +158,10 @@ me->dispatch = (VC_Handler)MyAO_dispatch;
 
 ## UI event system
 
-- **16-entry ring buffer** (`UI_QLEN_ = 16`), mutex-guarded, with eventfd for poll-based wake-up.
+- **128-entry ring buffer** (`UI_QLEN_ = 128`), mutex-guarded, with eventfd for poll-based wake-up.
 - **UI_NULL_SIG** is reserved/invalid: `UI_postSignal` asserts `sig > UI_NULL_SIG`.
 - **UI_AppEvt** extends `UI_Evt` via `super` member (not pointer). Text payload is allocated inline: `sizeof(UI_AppEvt) + len + 1`, with `pld.msg.text` pointing past the struct.
-- **Signals** (in order): `UI_NULL_SIG`, `UI_KEY_ESC_SIG`, `UI_KEY_CTRL_SLASH_SIG`, `UI_KEY_UP_SIG`, `UI_KEY_DOWN_SIG`, `UI_KEY_ENTER_SIG`, `UI_KEY_J_SIG`, `UI_KEY_K_SIG`, `UI_KEY_DEBUG_SIG`, `UI_TIMER_SIG`, `UI_BLINKY_TEXT_SIG`.
+- **Signals** (in order): `UI_NULL_SIG`, `UI_KEY_ESC_SIG`, `UI_KEY_CTRL_SLASH_SIG`, `UI_KEY_UP_SIG`, `UI_KEY_DOWN_SIG`, `UI_KEY_ENTER_SIG`, `UI_KEY_J_SIG`, `UI_KEY_K_SIG`, `UI_KEY_PGUP_SIG`, `UI_KEY_PGDN_SIG`, `UI_KEY_DEBUG_SIG`, `UI_TIMER_SIG`, `UI_BLINKY_TEXT_SIG`, `UI_RESIZE_SIG`.
 - `UI_evtFree` just does `free()` — no ref counting.
 - Quit is **only** accessible via the menu's "Quit" item. No key shortcut.
 
@@ -205,13 +204,12 @@ The file is organized into clear sections:
 
 ## QM modeling
 
-The HSM state diagrams are modeled in `docs/qm/` using **QM** (https://www.state-machine.com/qm). The `.qm` file references QPC framework classes (`qpc::QActive`). QM generates into `docs/qm/sm_ui.qm` and `docs/qm/blinky.qm`.
+The HSM state diagrams are modeled in `docs/qm/` using **QM** (https://www.state-machine.com/qm). The `.qm` file references QPC framework classes (`qpc::QActive`). All three models (Blinky, SM_UI, SM_UI_Key) are in `docs/qm/blinky.qm`.
 
 Current implementation is handwritten (not QM-generated) but follows the QM model structure.
 
 - `stdint.h` include added to `sm_ui.h` (was missing, caused clangd error).
 - Several unused-include warnings from LSP; these are cosmetic.
-- `sm_tracer` (from sm_hsm) is compiled but never used.
 - No test suite.
 
 ## Color scheme
