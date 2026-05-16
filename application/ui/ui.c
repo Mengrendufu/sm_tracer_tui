@@ -101,7 +101,7 @@ static void UI_render_(void) {
     SM_UI_inst.dirty       = false;
     SM_UI_inst.lastRender  = now;
 
-    notcurses_render(SM_UI_inst.nc);
+    notcurses_render(SM_UI_inst.disp.nc);
 }
 
 //============================================================================
@@ -113,7 +113,7 @@ void UI_prepare(struct notcurses *nc) {
     UI_evtInit();
 
     SM_UI_ctor(&SM_UI_inst);
-    SM_UI_inst.nc = nc;
+    SM_UI_inst.disp.nc = nc;
     SM_UI_start(&SM_UI_inst);
 
     BSP_registerTickHandler(&UI_onTick_);
@@ -123,7 +123,7 @@ void UI_prepare(struct notcurses *nc) {
 //=== Main loop
 
 void UI_loop(void) {
-    int ncFd = notcurses_inputready_fd(SM_UI_inst.nc);
+    int ncFd = notcurses_inputready_fd(SM_UI_inst.disp.nc);
     DBC_REQUIRE(502, ncFd >= 0);
 
     int evFd = UI_evtFd();
@@ -140,7 +140,7 @@ void UI_loop(void) {
 
         if (fds[0].revents & POLLIN) {
             ncinput  ni;
-            uint32_t r = notcurses_get_nblock(SM_UI_inst.nc, &ni);
+            uint32_t r = notcurses_get_nblock(SM_UI_inst.disp.nc, &ni);
             if (r != 0U) {
                 UI_routeInput_(r, &ni);
             }

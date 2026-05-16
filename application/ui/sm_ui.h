@@ -12,42 +12,49 @@
 
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdlib.h>
 #include <time.h>
 #include "sm_hsm.h"
 #include "sm_ui_key.h"
+#include "text_buffer_view.h"
+
+struct notcurses;
+struct ncplane;
 
 //============================================================================
-//=== UI Active Object — HSM host
+//=== Menu: popup panel + selection state.
+struct Menu {
+    struct ncplane *plane;
+    uint32_t        sel;
+};
 
-typedef struct {
-    SM_Hsm super;
-    VC_Handler init;     // virtual: → SM_Hsm_init_
-    VC_Handler dispatch; // virtual: → SM_Hsm_dispatch_
-
+//============================================================================
+//=== notcurses display tree.
+struct NcDisp {
     struct notcurses *nc;
     struct ncplane   *titlePlane;
     struct ncplane   *statusPlane;
-    struct ncplane   *mainPlane;
-    struct ncplane   *mainContentPlane;
+    struct TextBufferView mainBuffer;
     struct ncplane   *keybarPlane;
-    struct ncplane   *menuPlane;
-    uint32_t          mainLineCnt;
-    uint32_t          menuSel;
+    struct Menu       menu;
+};
+
+//============================================================================
+//=== UI Active Object — HSM host
+typedef struct {
+    // --- HSM virtual table ---
+    SM_Hsm super;
+    VC_Handler init;
+    VC_Handler dispatch;
+
+    // --- notcurses display ---
+    struct NcDisp disp;
+
+    // --- command substate machine ---
+    SM_UI_Key cmdHsm;
+
     bool quit;
     bool dirty;
     struct timespec lastRender;
-
-    // command subsystem (self-contained)
-    SM_UI_Key cmdHsm;
-
-    // line buffer for content replay
-#define LINE_BUF_CAP_ 1000U
-#define LINE_WIDTH_     512U
-    char    lineBuf[LINE_BUF_CAP_][LINE_WIDTH_];
-    uint32_t lineTotal;
-    uint32_t lineHead;
-    int32_t  scrollOff;
 } SM_UI;
 
 void SM_UI_ctor(SM_UI *me);
