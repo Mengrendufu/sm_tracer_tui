@@ -25,6 +25,7 @@ struct ncplane;
 struct Menu {
     struct ncplane *plane;
     uint32_t        sel;
+    bool            visible;
 };
 
 //============================================================================

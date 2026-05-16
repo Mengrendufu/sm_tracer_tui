@@ -28,7 +28,13 @@ typedef enum {
     MENU_ACT_QUIT
 } MenuAction;
 
-static void        SM_UI_drawMenuItem_(struct ncplane *mp, uint32_t idx, uint32_t sel);
+static void        SM_UI_drawMenuItem_(struct ncplane *mp, uint32_t idx,
+                                       uint32_t sel, uint32_t width);
+static void        SM_UI_menuCreate_(SM_UI *ao, struct ncplane *parent);
+static void        SM_UI_menuLayout_(SM_UI *ao);
+static void        SM_UI_menuDraw_(SM_UI *ao);
+static void        SM_UI_menuShow_(SM_UI *ao);
+static void        SM_UI_menuHide_(SM_UI *ao);
 static MenuAction  SM_UI_decodeMenuAction_(uint32_t sel);
 static void        SM_UI_drawTextArea_(struct TextBufferView *view,
                                        uint32_t rows,
@@ -46,6 +52,7 @@ static int         SM_UI_status_cb_(struct ncplane *n);
 static int         SM_UI_main_cb_(struct ncplane *n);
 static int         SM_UI_content_cb_(struct ncplane *n);
 static int         SM_UI_keybar_cb_(struct ncplane *n);
+static int         SM_UI_menu_cb_(struct ncplane *n);
 
 //============================================================================
 //=== State tables
@@ -80,7 +87,9 @@ static void        SM_UI_showMenu_exit_(SM_Hsm *me) SM_HSM_RETT;
 static SM_RetState SM_UI_showMenu_(SM_Hsm *me, UI_Evt const *e) SM_HSM_RETT;
 
 //--- menu items data ---
+#define MENU_W_ 24U
 #define MENU_NUM_ITEMS_ 4U
+#define MENU_H_ (MENU_NUM_ITEMS_ + 2U)
 static char const * const SM_UI_menuItems_[MENU_NUM_ITEMS_] = {
     "Resume",
     "Clear screen",
@@ -196,6 +205,8 @@ static SM_StatePtr SM_UI_TOP_initial(SM_Hsm * const me) SM_HSM_RETT {
         SM_UI_setKeybarClosed_(ao->disp.keybarPlane);
     }
 
+    SM_UI_menuCreate_(ao, std);
+
     SM_UI_Key_ctor(&ao->cmdHsm);
     SM_UI_Key_init(&ao->cmdHsm);
 
@@ -224,9 +235,10 @@ static SM_RetState SM_UI_active_(SM_Hsm * const me, UI_Evt const * const e) {
     case UI_RESIZE_SIG: {
         // callbacks handle geometry + borders/keybar text at new size.
         // title/status text is preserved by ncplane_resize_simple overlap.
-        if (ao->disp.menu.plane) {
-            ncplane_destroy(ao->disp.menu.plane);
-            ao->disp.menu.plane = (struct ncplane *)0;
+        if (ao->disp.menu.visible) {
+            SM_UI_menuShow_(ao);
+        } else {
+            SM_UI_menuHide_(ao);
         }
         return _SM_HANDLED();
     }
@@ -284,50 +296,16 @@ static SM_RetState SM_UI_showMain_(SM_Hsm * const me, UI_Evt const * const e) {
 //============================================================================
 static void SM_UI_showMenu_entry_(SM_Hsm * const me) SM_HSM_RETT {
     SM_UI *ao = containerof(me, SM_UI, super);
-    struct ncplane *std = notcurses_stdplane(ao->disp.nc);
-
-    unsigned dimY, dimX;
-    ncplane_dim_yx(std, &dimY, &dimX);
-
-    uint32_t menuW = 24U;
-    uint32_t menuH = MENU_NUM_ITEMS_ + 2U;
-    int menuY = (int)(dimY / 2U - menuH / 2U);
-    int menuX = (int)(dimX / 2U - menuW / 2U);
-
-    ncplane_options nopts = {
-        .y = menuY, .x = menuX,
-        .rows = menuH, .cols = menuW,
-        .name = "menu"
-    };
-    ao->disp.menu.plane = ncplane_create(std, &nopts);
-    DBC_ENSURE(404, ao->disp.menu.plane != (struct ncplane *)0);
-    ncplane_set_bg_rgb8(ao->disp.menu.plane, 50, 50, 100);
-    ncplane_set_fg_rgb8(ao->disp.menu.plane, 200, 200, 220);
-
-    // top border with title
-    ncplane_cursor_move_yx(ao->disp.menu.plane, 0, 0);
-    ncplane_set_bg_rgb8(ao->disp.menu.plane, 50, 50, 100);
-    ncplane_set_fg_rgb8(ao->disp.menu.plane, 140, 140, 200);
-    ncplane_putstr(ao->disp.menu.plane, "|     ----menu----     |");
-
-    // bottom border
-    ncplane_cursor_move_yx(ao->disp.menu.plane, MENU_NUM_ITEMS_ + 1U, 0);
-    ncplane_putstr(ao->disp.menu.plane, "|----------------------|");
 
     ao->disp.menu.sel = 0U;
-    for (uint32_t i = 0U; i < MENU_NUM_ITEMS_; ++i) {
-        SM_UI_drawMenuItem_(ao->disp.menu.plane, i, ao->disp.menu.sel);
-    }
+    SM_UI_menuShow_(ao);
     SM_UI_setKeybarOpen_(ao->disp.keybarPlane);
     ao->dirty = true;
 }
 
 static void SM_UI_showMenu_exit_(SM_Hsm * const me) SM_HSM_RETT {
     SM_UI *ao = containerof(me, SM_UI, super);
-    if (ao->disp.menu.plane) {
-        ncplane_destroy(ao->disp.menu.plane);
-        ao->disp.menu.plane = (struct ncplane *)0;
-    }
+    SM_UI_menuHide_(ao);
     SM_UI_setKeybarClosed_(ao->disp.keybarPlane);
     ao->dirty = true;
 }
@@ -341,8 +319,10 @@ static SM_RetState SM_UI_showMenu_(SM_Hsm * const me, UI_Evt const * const e) {
         uint32_t oldSel = ao->disp.menu.sel;
         uint32_t maxIdx = MENU_NUM_ITEMS_ - 1U;
         ao->disp.menu.sel = (ao->disp.menu.sel >= maxIdx) ? 0U : (ao->disp.menu.sel + 1U);
-        SM_UI_drawMenuItem_(ao->disp.menu.plane, oldSel, ao->disp.menu.sel);
-        SM_UI_drawMenuItem_(ao->disp.menu.plane, ao->disp.menu.sel, ao->disp.menu.sel);
+        SM_UI_drawMenuItem_(ao->disp.menu.plane, oldSel,
+                            ao->disp.menu.sel, MENU_W_);
+        SM_UI_drawMenuItem_(ao->disp.menu.plane, ao->disp.menu.sel,
+                            ao->disp.menu.sel, MENU_W_);
         ao->dirty = true;
         return _SM_HANDLED();
     }
@@ -352,8 +332,10 @@ static SM_RetState SM_UI_showMenu_(SM_Hsm * const me, UI_Evt const * const e) {
         uint32_t oldSel = ao->disp.menu.sel;
         uint32_t maxIdx = MENU_NUM_ITEMS_ - 1U;
         ao->disp.menu.sel = (ao->disp.menu.sel == 0U) ? maxIdx : (ao->disp.menu.sel - 1U);
-        SM_UI_drawMenuItem_(ao->disp.menu.plane, oldSel, ao->disp.menu.sel);
-        SM_UI_drawMenuItem_(ao->disp.menu.plane, ao->disp.menu.sel, ao->disp.menu.sel);
+        SM_UI_drawMenuItem_(ao->disp.menu.plane, oldSel,
+                            ao->disp.menu.sel, MENU_W_);
+        SM_UI_drawMenuItem_(ao->disp.menu.plane, ao->disp.menu.sel,
+                            ao->disp.menu.sel, MENU_W_);
         ao->dirty = true;
         return _SM_HANDLED();
     }
@@ -424,6 +406,7 @@ void SM_UI_ctor(SM_UI * const me) {
     me->disp.keybarPlane = (struct ncplane *)0;
     me->disp.menu.plane = (struct ncplane *)0;
     me->disp.menu.sel    = 0U;
+    me->disp.menu.visible = false;
     me->quit        = false;
     me->dirty       = false;
     me->lastRender.tv_sec  = 0;
@@ -439,16 +422,102 @@ void SM_UI_start(SM_UI * const me) {
 //============================================================================
 //=== IO helpers
 
+static void SM_UI_menuCreate_(SM_UI * const ao,
+                              struct ncplane * const parent)
+{
+    DBC_REQUIRE(304, ao != (SM_UI *)0);
+    DBC_REQUIRE(305, parent != (struct ncplane *)0);
+
+    ncplane_options nopts = {
+        .y = 0, .x = 0,
+        .rows = MENU_H_, .cols = MENU_W_,
+        .name = "menu",
+        .userptr = ao, .resizecb = SM_UI_menu_cb_,
+    };
+    ao->disp.menu.plane = ncplane_create(parent, &nopts);
+    DBC_ENSURE(404, ao->disp.menu.plane != (struct ncplane *)0);
+    ao->disp.menu.visible = false;
+    SM_UI_menuHide_(ao);
+}
+
+static void SM_UI_menuLayout_(SM_UI * const ao) {
+    DBC_REQUIRE(306, ao != (SM_UI *)0);
+    DBC_REQUIRE(307, ao->disp.menu.plane != (struct ncplane *)0);
+
+    struct ncplane * const std = notcurses_stdplane(ao->disp.nc);
+    unsigned dimY;
+    unsigned dimX;
+    ncplane_dim_yx(std, &dimY, &dimX);
+
+    int menuY = 0;
+    int menuX = 0;
+    if (dimY > MENU_H_) {
+        menuY = (int)((dimY - MENU_H_) / 2U);
+    }
+    if (dimX > MENU_W_) {
+        menuX = (int)((dimX - MENU_W_) / 2U);
+    }
+
+    struct ncplane * const mp = ao->disp.menu.plane;
+    ncplane_move_yx(mp, menuY, menuX);
+
+    unsigned rows;
+    unsigned cols;
+    ncplane_dim_yx(mp, &rows, &cols);
+    if (rows != MENU_H_ || cols != MENU_W_) {
+        ncplane_resize_simple(mp, MENU_H_, MENU_W_);
+    }
+}
+
+static void SM_UI_menuDraw_(SM_UI * const ao) {
+    DBC_REQUIRE(308, ao != (SM_UI *)0);
+    DBC_REQUIRE(309, ao->disp.menu.plane != (struct ncplane *)0);
+
+    struct ncplane * const mp = ao->disp.menu.plane;
+    ncplane_erase(mp);
+
+    ncplane_set_bg_rgb8(mp, 50, 50, 100);
+    ncplane_set_fg_rgb8(mp, 140, 140, 200);
+    ncplane_cursor_move_yx(mp, 0, 0);
+    ncplane_putstr(mp, "|     ----menu----     |");
+
+    ncplane_cursor_move_yx(mp, MENU_NUM_ITEMS_ + 1U, 0);
+    ncplane_putstr(mp, "|----------------------|");
+
+    for (uint32_t i = 0U; i < MENU_NUM_ITEMS_; ++i) {
+        SM_UI_drawMenuItem_(mp, i, ao->disp.menu.sel, MENU_W_);
+    }
+}
+
+static void SM_UI_menuShow_(SM_UI * const ao) {
+    DBC_REQUIRE(310, ao != (SM_UI *)0);
+    DBC_REQUIRE(311, ao->disp.menu.plane != (struct ncplane *)0);
+
+    ao->disp.menu.visible = true;
+    SM_UI_menuLayout_(ao);
+    SM_UI_menuDraw_(ao);
+    ncplane_move_top(ao->disp.menu.plane);
+}
+
+static void SM_UI_menuHide_(SM_UI * const ao) {
+    DBC_REQUIRE(312, ao != (SM_UI *)0);
+    DBC_REQUIRE(313, ao->disp.menu.plane != (struct ncplane *)0);
+
+    ao->disp.menu.visible = false;
+    SM_UI_menuLayout_(ao);
+    ncplane_erase(ao->disp.menu.plane);
+    ncplane_move_bottom(ao->disp.menu.plane);
+}
+
 static void SM_UI_drawMenuItem_(struct ncplane * const mp, uint32_t const idx,
-                               uint32_t const sel) {
+                                uint32_t const sel, uint32_t const width)
+{
     DBC_REQUIRE(301, idx < MENU_NUM_ITEMS_);
     DBC_REQUIRE(302, mp != (struct ncplane *)0);
-
-    unsigned dimX;
-    ncplane_dim_yx(mp, NULL, &dimX);
+    DBC_REQUIRE(303, width >= 3U);
 
     char line[32];
-    (void)snprintf(line, sizeof(line), "| %-*s", (int)(dimX - 2),
+    (void)snprintf(line, sizeof(line), "| %-*s|", (int)(width - 3U),
                    SM_UI_menuItems_[idx]);
 
     if (idx == sel) {
@@ -639,10 +708,21 @@ static int SM_UI_keybar_cb_(struct ncplane * const n) {
     ncplane_move_yx(n, (int)(py - 2U), 2);
     ncplane_resize_simple(n, 1, px - 4U);
     SM_UI *ao = ncplane_userptr(n);
-    if (ao->disp.menu.plane) {
+    if (ao->disp.menu.visible) {
         SM_UI_setKeybarOpen_(n);
     } else {
         SM_UI_setKeybarClosed_(n);
+    }
+    return 0;
+}
+
+static int SM_UI_menu_cb_(struct ncplane * const n) {
+    SM_UI *ao = ncplane_userptr(n);
+    DBC_REQUIRE(314, ao != (SM_UI *)0);
+    if (ao->disp.menu.visible) {
+        SM_UI_menuShow_(ao);
+    } else {
+        SM_UI_menuHide_(ao);
     }
     return 0;
 }

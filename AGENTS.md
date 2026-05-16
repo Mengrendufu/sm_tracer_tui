@@ -230,7 +230,10 @@ Current implementation is handwritten (not QM-generated) but follows the QM mode
 
 ## Conventions
 
-- Opening braces inline for single-line signatures; for multi-line parameter lists the `{` goes on its own line.
+- These C style rules apply to `application/`, `bsp/`, and `ports/`.
+- Opening braces are inline for single-line function signatures.
+- For multi-line function parameter lists, put the `{` on its own line.
+- Keep code lines within 78 ASCII characters.
 - Asterisk binds left on pointer types: `char *p`, `SM_UI * const me`
 - `const` after `*`: `SST_Evt const *`, `struct ncplane * const`
 - Single underscore suffix for private/static functions: `UI_onTick_`, `UI_routeInput_`
