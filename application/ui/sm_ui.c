@@ -315,6 +315,7 @@ static SM_RetState SM_UI_showMenu_(SM_Hsm * const me, UI_Evt const * const e) {
 
     switch (e->sig) {
     case UI_KEY_DOWN_SIG:
+    case UI_KEY_CTRL_N_SIG:
     case UI_KEY_J_SIG: {
         uint32_t oldSel = ao->disp.menu.sel;
         uint32_t maxIdx = MENU_NUM_ITEMS_ - 1U;
@@ -328,6 +329,7 @@ static SM_RetState SM_UI_showMenu_(SM_Hsm * const me, UI_Evt const * const e) {
     }
 
     case UI_KEY_UP_SIG:
+    case UI_KEY_CTRL_P_SIG:
     case UI_KEY_K_SIG: {
         uint32_t oldSel = ao->disp.menu.sel;
         uint32_t maxIdx = MENU_NUM_ITEMS_ - 1U;
@@ -370,6 +372,10 @@ static SM_RetState SM_UI_showMenu_(SM_Hsm * const me, UI_Evt const * const e) {
     }
 
     case UI_KEY_CTRL_SLASH_SIG: {
+        return _SM_TRAN(&SM_UI_showMain);
+    }
+
+    case UI_KEY_ESC_SIG: {
         return _SM_TRAN(&SM_UI_showMain);
     }
 

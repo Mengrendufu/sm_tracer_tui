@@ -45,6 +45,8 @@ enum {
     UI_KEY_ENTER_SIG,       // enter / return
     UI_KEY_J_SIG,           // j
     UI_KEY_K_SIG,           // k
+    UI_KEY_CTRL_N_SIG,      // Ctrl+n
+    UI_KEY_CTRL_P_SIG,      // Ctrl+p
     UI_KEY_PGUP_SIG,        // page up
     UI_KEY_PGDN_SIG,        // page down
     UI_KEY_DEBUG_SIG,        // any other key — routed to mainPlane for debug

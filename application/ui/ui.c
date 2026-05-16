@@ -60,6 +60,10 @@ static void UI_routeInput_(uint32_t r, ncinput const *ni) {
         sig = UI_KEY_J_SIG;
     } else if (r == 'k') {
         sig = UI_KEY_K_SIG;
+    } else if (r == 0x0E || (r == 'N' && ncinput_ctrl_p(ni))) {
+        sig = UI_KEY_CTRL_N_SIG;
+    } else if (r == 0x10 || (r == 'P' && ncinput_ctrl_p(ni))) {
+        sig = UI_KEY_CTRL_P_SIG;
     } else if (r == NCKEY_PGUP) {
         sig = UI_KEY_PGUP_SIG;
     } else if (r == NCKEY_PGDOWN) {
