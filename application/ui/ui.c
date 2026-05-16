@@ -10,6 +10,7 @@
 //============================================================================
 //=== UI module — main loop, input router, render
 #include <stdbool.h>
+#include <stdint.h>
 #include <poll.h>
 #include <stdio.h>
 #include <time.h>
@@ -21,6 +22,9 @@
 DBC_MODULE_NAME("ui")
 
 #define UI_FRAME_MS_ (1000U / 60U)
+#define UI_MS_PER_SEC_ 1000ULL
+#define UI_NS_PER_MS_  1000000L
+#define UI_NS_PER_SEC_ 1000000000L
 
 static SM_UI SM_UI_inst;
 
@@ -79,6 +83,53 @@ static void UI_routeInput_(uint32_t r, ncinput const *ni) {
 //============================================================================
 //=== Rendering
 
+static uint64_t UI_elapsedMs_(struct timespec const * const now,
+                              struct timespec const * const then)
+{
+    DBC_REQUIRE(504, now != (struct timespec const *)0);
+    DBC_REQUIRE(505, then != (struct timespec const *)0);
+    DBC_REQUIRE(506, now->tv_nsec >= 0);
+    DBC_REQUIRE(507, now->tv_nsec < UI_NS_PER_SEC_);
+    DBC_REQUIRE(508, then->tv_nsec >= 0);
+    DBC_REQUIRE(509, then->tv_nsec < UI_NS_PER_SEC_);
+
+    if (now->tv_sec < then->tv_sec) {
+        return 0U;
+    }
+
+    uint64_t sec = (uint64_t)now->tv_sec - (uint64_t)then->tv_sec;
+    long nsec = now->tv_nsec - then->tv_nsec;
+    if (nsec < 0) {
+        if (sec == 0U) {
+            return 0U;
+        }
+        --sec;
+        nsec += UI_NS_PER_SEC_;
+    }
+
+    if (sec > UINT64_MAX / UI_MS_PER_SEC_) {
+        return UINT64_MAX;
+    }
+
+    return sec * UI_MS_PER_SEC_ + (uint64_t)nsec / (uint64_t)UI_NS_PER_MS_;
+}
+
+static int UI_renderPollTimeoutMs_(void) {
+    if (!SM_UI_inst.dirty) {
+        return -1;
+    }
+
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+
+    uint64_t const elapsed = UI_elapsedMs_(&now, &SM_UI_inst.lastRender);
+    if (elapsed >= UI_FRAME_MS_) {
+        return 0;
+    }
+
+    return (int)(UI_FRAME_MS_ - elapsed);
+}
+
 static void UI_render_(void) {
     if (!SM_UI_inst.dirty) {
         return;
@@ -87,13 +138,7 @@ static void UI_render_(void) {
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
 
-    uint64_t elapsed = ((uint64_t)now.tv_sec
-                        - (uint64_t)SM_UI_inst.lastRender.tv_sec)
-                       * 1000ULL
-                     + ((uint64_t)now.tv_nsec
-                        - (uint64_t)SM_UI_inst.lastRender.tv_nsec)
-                       / 1000000ULL;
-
+    uint64_t const elapsed = UI_elapsedMs_(&now, &SM_UI_inst.lastRender);
     if (elapsed < UI_FRAME_MS_) {
         return;
     }
@@ -136,7 +181,7 @@ void UI_loop(void) {
     fds[1].events  = POLLIN;
 
     while (!SM_UI_inst.quit) {
-        poll(fds, 2, -1);
+        poll(fds, 2, UI_renderPollTimeoutMs_());
 
         if (fds[0].revents & POLLIN) {
             ncinput  ni;
