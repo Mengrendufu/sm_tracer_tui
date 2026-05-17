@@ -57,6 +57,15 @@ static void            TextBufferView_content_drawScrollBar_(
                            int x,
                            ScrollBar const *bar,
                            ScrollBar_Thumb const *thumb);
+static bool            TextBufferView_content_canPutStr_(
+                           struct ncplane *contentPlane,
+                           unsigned x,
+                           char const *text);
+static bool            TextBufferView_content_putStrYx_(
+                           struct ncplane *contentPlane,
+                           int y,
+                           unsigned x,
+                           char const *text);
 
 // Interaction handlers:
 // - create wires frame and content as one view component.
@@ -356,8 +365,10 @@ static struct ncplane *TextBufferView_content_create_(
 {
     DBC_REQUIRE(413, framePlane != (struct ncplane *)0);
 
+    unsigned const contentRows = (rows > 2U) ? (rows - 2U) : 1U;
+    unsigned const contentCols = (cols > 3U) ? (cols - 3U) : 1U;
     ncplane_options nopts = {
-        .y = 1, .x = 1, .rows = rows - 2U, .cols = cols - 3U,
+        .y = 1, .x = 1, .rows = contentRows, .cols = contentCols,
         .name = "mainContent",
         .userptr = owner, .resizecb = resizeCb,
     };
@@ -384,6 +395,41 @@ static void TextBufferView_content_clear_(
     ncplane_erase(contentPlane);
 }
 
+static bool TextBufferView_content_canPutStr_(
+    struct ncplane * const contentPlane,
+    unsigned const x,
+    char const * const text)
+{
+    DBC_REQUIRE(426, contentPlane != (struct ncplane *)0);
+    DBC_REQUIRE(427, text != (char const *)0);
+
+    unsigned cols;
+    ncplane_dim_yx(contentPlane, NULL, &cols);
+
+    int const width = ncstrwidth(text, NULL, NULL);
+    if (width < 0) {
+        return false;
+    }
+
+    return x < cols && (unsigned)width <= (cols - x);
+}
+
+static bool TextBufferView_content_putStrYx_(
+    struct ncplane * const contentPlane,
+    int const y,
+    unsigned const x,
+    char const * const text)
+{
+    DBC_REQUIRE(428, contentPlane != (struct ncplane *)0);
+    DBC_REQUIRE(429, text != (char const *)0);
+
+    if (!TextBufferView_content_canPutStr_(contentPlane, x, text)) {
+        return false;
+    }
+
+    return ncplane_putstr_yx(contentPlane, y, (int)x, text) >= 0;
+}
+
 static void TextBufferView_content_drawText_(
     struct TextBufferView * const view,
     uint32_t const rows,
@@ -402,9 +448,9 @@ static void TextBufferView_content_drawText_(
             int const tw = (int)(cols - 1U);
             (void)snprintf(textLine, sizeof(textLine), "%-*.*s",
                            tw, tw, TextArea_lineAt(&view->textArea, bufIdx));
-            ncplane_cursor_move_yx(view->contentPlane, (int)i, 0);
             TextBufferView_plane_setMainStyle_(view->contentPlane);
-            ncplane_putstr(view->contentPlane, textLine);
+            (void)TextBufferView_content_putStrYx_(
+                view->contentPlane, (int)i, 0U, textLine);
         }
     }
 }
@@ -428,14 +474,13 @@ static void TextBufferView_content_drawScrollBar_(
     for (uint32_t i = 0U; i < rows; ++i) {
         uint32_t const ch = ScrollBar_cellCh(thumb, i);
         if (ch) {
-            ncplane_cursor_move_yx(contentPlane, (int)i, x);
             ScrollBar_Color const * const color = (ch == 0x2588U)
                                                   ? &bar->style.thumb
                                                   : &bar->style.track;
             ncplane_set_fg_rgb8(contentPlane, color->r, color->g, color->b);
-            ncplane_putstr(contentPlane,
-                           ch == 0x2588U ? "\xe2\x96\x88"
-                                         : "\xe2\x96\x91");
+            (void)TextBufferView_content_putStrYx_(
+                contentPlane, (int)i, (unsigned)x,
+                ch == 0x2588U ? "\xe2\x96\x88" : "\xe2\x96\x91");
         }
     }
 }
@@ -582,7 +627,7 @@ void TextBufferView_resizeContent(struct ncplane * const framePlane,
     unsigned rows;
     unsigned cols;
     ncplane_dim_yx(framePlane, &rows, &cols);
-    if (rows >= 2U && cols >= 2U) {
-        ncplane_resize_simple(contentPlane, rows - 2U, cols - 3U);
-    }
+    uint32_t const contentRows = (rows > 2U) ? (rows - 2U) : 1U;
+    uint32_t const contentCols = (cols > 3U) ? (cols - 3U) : 1U;
+    ncplane_resize_simple(contentPlane, contentRows, contentCols);
 }

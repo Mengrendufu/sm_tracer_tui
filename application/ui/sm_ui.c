@@ -28,10 +28,22 @@ struct Menu {
     bool            visible;
 };
 
+struct StatusLine {
+    char const *connection;
+    char const *port;
+    char const *baud;
+    char const *dataBits;
+    char const *stopBits;
+    char const *parity;
+    char const *flow;
+    char const *protocol;
+};
+
 struct NcDisp {
     struct notcurses *nc;
     struct ncplane   *titlePlane;
     struct ncplane   *statusPlane;
+    struct StatusLine status;
     struct TextBufferView mainBuffer;
     struct ncplane   *keybarPlane;
     struct Menu       menu;
@@ -71,6 +83,21 @@ typedef struct {
     unsigned cols;
 } SM_UI_MainBufferMetrics_;
 
+static bool        SM_UI_plane_strWidth_(char const *text,
+                                         unsigned *width);
+static bool        SM_UI_plane_canPutStr_(struct ncplane *plane,
+                                          unsigned x,
+                                          char const *text,
+                                          unsigned *width);
+static bool        SM_UI_plane_putStrYx_(struct ncplane *plane,
+                                         int y,
+                                         unsigned x,
+                                         char const *text);
+static bool        SM_UI_plane_putStr_(struct ncplane *plane,
+                                       char const *text);
+static unsigned    SM_UI_std_panelCols_(unsigned cols);
+static int         SM_UI_std_keybarY_(unsigned rows);
+
 // Component IO helper declarations:
 // - touches one component or one direct parent-child geometry relation.
 // - does not know HSM transitions.
@@ -92,11 +119,18 @@ static void        SM_UI_std_title_resize_(struct ncplane *stdPlane,
 // - local IO writes status-local style and text only.
 // - std/status IO allocates or resizes status against the stdplane.
 // Status-local IO.
-static void        SM_UI_status_draw_(struct ncplane *statusPlane);
+static void        SM_UI_status_init_(struct StatusLine *status);
+static void        SM_UI_status_draw_(struct ncplane *statusPlane,
+                                      struct StatusLine const *status);
+static void        SM_UI_status_drawCell_(struct ncplane *statusPlane,
+                                          unsigned *x,
+                                          char const *label,
+                                          char const *value);
 
 // Std/status plane IO.
 static struct ncplane *SM_UI_status_create_(struct ncplane *stdPlane,
-                                            void *owner, unsigned cols);
+                                            void *owner, unsigned cols,
+                                            struct StatusLine const *status);
 static void        SM_UI_std_status_resize_(struct ncplane *stdPlane,
                                             struct ncplane *statusPlane);
 
@@ -243,6 +277,12 @@ static void        SM_UI_showMenu_exit_(SM_Hsm *me) SM_HSM_RETT;
 static SM_RetState SM_UI_showMenu_(SM_Hsm *me, UI_Evt const *e) SM_HSM_RETT;
 
 //--- menu items data ---
+#define SM_UI_PLANE_X_ 2U
+#define SM_UI_MAIN_Y_  5U
+#define SM_UI_MAIN_MIN_ROWS_ 3U
+#define SM_UI_MAIN_MIN_COLS_ 4U
+#define SM_UI_SIDE_MARGIN_COLS_ 4U
+#define SM_UI_MAIN_BOTTOM_ROWS_ 2U
 #define MENU_W_ 24U
 #define MENU_NUM_ITEMS_ 4U
 #define MENU_H_ (MENU_NUM_ITEMS_ + 2U)
@@ -436,6 +476,7 @@ static void SM_UI_ctor_(SM_UI * const me) {
     me->disp.nc          = (struct notcurses *)0;
     me->disp.titlePlane  = (struct ncplane *)0;
     me->disp.statusPlane = (struct ncplane *)0;
+    SM_UI_status_init_(&me->disp.status);
     TextBufferView_init(&me->disp.mainBuffer);
     me->disp.keybarPlane = (struct ncplane *)0;
     me->disp.menu.plane = (struct ncplane *)0;
@@ -504,6 +545,80 @@ void SM_UI_dispatchEvt(UI_Evt const * const e) {
 // operate on a single component or on one direct parent-child plane relation.
 // They do not know about HSM transitions or coordinate unrelated components.
 
+static bool SM_UI_plane_strWidth_(char const * const text,
+                                  unsigned * const width)
+{
+    DBC_REQUIRE(338, text != (char const *)0);
+    DBC_REQUIRE(339, width != (unsigned *)0);
+
+    int const textWidth = ncstrwidth(text, NULL, NULL);
+    if (textWidth < 0) {
+        return false;
+    }
+
+    *width = (unsigned)textWidth;
+    return true;
+}
+
+static bool SM_UI_plane_canPutStr_(struct ncplane * const plane,
+                                   unsigned const x,
+                                   char const * const text,
+                                   unsigned * const width)
+{
+    DBC_REQUIRE(340, plane != (struct ncplane *)0);
+    DBC_REQUIRE(341, text != (char const *)0);
+    DBC_REQUIRE(366, width != (unsigned *)0);
+
+    unsigned cols;
+    ncplane_dim_yx(plane, NULL, &cols);
+    if (!SM_UI_plane_strWidth_(text, width)) {
+        return false;
+    }
+
+    return x < cols && *width <= (cols - x);
+}
+
+static bool SM_UI_plane_putStrYx_(struct ncplane * const plane,
+                                  int const y,
+                                  unsigned const x,
+                                  char const * const text)
+{
+    DBC_REQUIRE(367, plane != (struct ncplane *)0);
+    DBC_REQUIRE(368, text != (char const *)0);
+
+    unsigned width;
+    if (!SM_UI_plane_canPutStr_(plane, x, text, &width)) {
+        return false;
+    }
+
+    return ncplane_putstr_yx(plane, y, (int)x, text) >= 0;
+}
+
+static bool SM_UI_plane_putStr_(struct ncplane * const plane,
+                                char const * const text)
+{
+    DBC_REQUIRE(369, plane != (struct ncplane *)0);
+    DBC_REQUIRE(370, text != (char const *)0);
+
+    unsigned y;
+    unsigned x;
+    ncplane_cursor_yx(plane, &y, &x);
+    return SM_UI_plane_putStrYx_(plane, (int)y, x, text);
+}
+
+static unsigned SM_UI_std_panelCols_(unsigned const cols) {
+    if (cols > SM_UI_SIDE_MARGIN_COLS_) {
+        return cols - SM_UI_SIDE_MARGIN_COLS_;
+    }
+    return 1U;
+}
+
+static int SM_UI_std_keybarY_(unsigned const rows) {
+    SM_UI_MainBufferMetrics_ const main =
+        SM_UI_std_mainBufferMetrics_(rows, SM_UI_MAIN_MIN_COLS_);
+    return (int)(SM_UI_MAIN_Y_ + main.rows);
+}
+
 static struct ncplane *SM_UI_title_create_(struct ncplane * const stdPlane,
                                            void * const owner,
                                            unsigned const cols)
@@ -523,6 +638,7 @@ static struct ncplane *SM_UI_title_create_(struct ncplane * const stdPlane,
 static void SM_UI_title_draw_(struct ncplane * const titlePlane) {
     DBC_REQUIRE(321, titlePlane != (struct ncplane *)0);
 
+    ncplane_erase(titlePlane);
     ncplane_set_bg_rgb8(titlePlane, 60, 60, 120);
     ncplane_set_fg_rgb8(titlePlane, 230, 230, 255);
     ncplane_on_styles(titlePlane, NCSTYLE_BOLD);
@@ -538,14 +654,30 @@ static void SM_UI_std_title_resize_(struct ncplane * const stdPlane,
 
     unsigned cols;
     ncplane_dim_yx(stdPlane, NULL, &cols);
-    ncplane_resize_simple(titlePlane, 1, cols - 4U);
+    ncplane_resize_simple(titlePlane, 1, SM_UI_std_panelCols_(cols));
 }
 
-static struct ncplane *SM_UI_status_create_(struct ncplane * const stdPlane,
-                                            void * const owner,
-                                            unsigned const cols)
+static void SM_UI_status_init_(struct StatusLine * const status) {
+    DBC_REQUIRE(328, status != (struct StatusLine *)0);
+
+    status->connection = "disconnected";
+    status->port       = "none";
+    status->baud       = "115200";
+    status->dataBits   = "8";
+    status->stopBits   = "1";
+    status->parity     = "none";
+    status->flow       = "none";
+    status->protocol   = "none";
+}
+
+static struct ncplane *SM_UI_status_create_(
+                           struct ncplane * const stdPlane,
+                           void * const owner,
+                           unsigned const cols,
+                           struct StatusLine const * const status)
 {
     DBC_REQUIRE(324, stdPlane != (struct ncplane *)0);
+    DBC_REQUIRE(329, status != (struct StatusLine const *)0);
 
     ncplane_options nopts = {
         .y = 3, .x = 2, .rows = 1, .cols = cols, .name = "status",
@@ -553,16 +685,57 @@ static struct ncplane *SM_UI_status_create_(struct ncplane * const stdPlane,
     };
     struct ncplane * const statusPlane = ncplane_create(stdPlane, &nopts);
     DBC_ENSURE(401, statusPlane != (struct ncplane *)0);
-    SM_UI_status_draw_(statusPlane);
+    SM_UI_status_draw_(statusPlane, status);
     return statusPlane;
 }
 
-static void SM_UI_status_draw_(struct ncplane * const statusPlane) {
+static void SM_UI_status_draw_(struct ncplane * const statusPlane,
+                               struct StatusLine const * const status)
+{
     DBC_REQUIRE(325, statusPlane != (struct ncplane *)0);
+    DBC_REQUIRE(330, status != (struct StatusLine const *)0);
 
+    ncplane_erase(statusPlane);
     ncplane_set_bg_rgb8(statusPlane, 35, 35, 60);
     ncplane_set_fg_rgb8(statusPlane, 200, 200, 200);
-    ncplane_puttext(statusPlane, 0, NCALIGN_LEFT, " ● disconnected ", NULL);
+
+    unsigned x = 0U;
+    SM_UI_status_drawCell_(statusPlane, &x, "●", status->connection);
+    SM_UI_status_drawCell_(statusPlane, &x, "port", status->port);
+    SM_UI_status_drawCell_(statusPlane, &x, "baud", status->baud);
+    SM_UI_status_drawCell_(statusPlane, &x, "data", status->dataBits);
+    SM_UI_status_drawCell_(statusPlane, &x, "stop", status->stopBits);
+    SM_UI_status_drawCell_(statusPlane, &x, "parity", status->parity);
+    SM_UI_status_drawCell_(statusPlane, &x, "flow", status->flow);
+    SM_UI_status_drawCell_(statusPlane, &x, "proto", status->protocol);
+}
+
+static void SM_UI_status_drawCell_(struct ncplane * const statusPlane,
+                                   unsigned * const x,
+                                   char const * const label,
+                                   char const * const value)
+{
+    DBC_REQUIRE(331, statusPlane != (struct ncplane *)0);
+    DBC_REQUIRE(332, x != (unsigned *)0);
+    DBC_REQUIRE(333, label != (char const *)0);
+    DBC_REQUIRE(334, value != (char const *)0);
+
+    char cell[32];
+    int const n = snprintf(cell, sizeof(cell), " %s %s ", label, value);
+    DBC_REQUIRE(335, n >= 0);
+    if ((unsigned)n >= sizeof(cell)) {
+        ncplane_dim_yx(statusPlane, NULL, x);
+        return;
+    }
+
+    unsigned width;
+    if (!SM_UI_plane_canPutStr_(statusPlane, *x, cell, &width)) {
+        ncplane_dim_yx(statusPlane, NULL, x);
+        return;
+    }
+
+    ncplane_putstr_yx(statusPlane, 0, (int)*x, cell);
+    *x += width + 2U;
 }
 
 static void SM_UI_std_status_resize_(struct ncplane * const stdPlane,
@@ -573,7 +746,7 @@ static void SM_UI_std_status_resize_(struct ncplane * const stdPlane,
 
     unsigned cols;
     ncplane_dim_yx(stdPlane, NULL, &cols);
-    ncplane_resize_simple(statusPlane, 1, cols - 4U);
+    ncplane_resize_simple(statusPlane, 1, SM_UI_std_panelCols_(cols));
 }
 
 static void SM_UI_menu_create_(struct Menu * const menu,
@@ -648,11 +821,10 @@ static void SM_UI_menu_draw_(struct Menu const * const menu) {
 
     ncplane_set_bg_rgb8(mp, 50, 50, 100);
     ncplane_set_fg_rgb8(mp, 140, 140, 200);
-    ncplane_cursor_move_yx(mp, 0, 0);
-    ncplane_putstr(mp, "|     ----menu----     |");
-
-    ncplane_cursor_move_yx(mp, MENU_NUM_ITEMS_ + 1U, 0);
-    ncplane_putstr(mp, "|----------------------|");
+    (void)SM_UI_plane_putStrYx_(mp, 0, 0U,
+                                "|     ----menu----     |");
+    (void)SM_UI_plane_putStrYx_(mp, (int)(MENU_NUM_ITEMS_ + 1U), 0U,
+                                "|----------------------|");
 
     for (uint32_t i = 0U; i < MENU_NUM_ITEMS_; ++i) {
         SM_UI_menu_drawItem_(menu, i);
@@ -695,8 +867,7 @@ static void SM_UI_menu_drawItem_(struct Menu const * const menu,
         ncplane_set_bg_rgb8(menu->plane, 50, 50, 100);
         ncplane_set_fg_rgb8(menu->plane, 200, 200, 220);
     }
-    ncplane_cursor_move_yx(menu->plane, (int)(idx + 1U), 0);
-    ncplane_putstr(menu->plane, line);
+    (void)SM_UI_plane_putStrYx_(menu->plane, (int)(idx + 1U), 0U, line);
 }
 
 static void SM_UI_menu_selectNext_(struct Menu * const menu) {
@@ -744,7 +915,8 @@ static struct ncplane *SM_UI_keybar_create_(struct ncplane * const stdPlane,
     DBC_REQUIRE(342, stdPlane != (struct ncplane *)0);
 
     ncplane_options nopts = {
-        .y = (int)(rows - 2U), .x = 2, .rows = 1, .cols = cols - 4U,
+        .y = SM_UI_std_keybarY_(rows), .x = SM_UI_PLANE_X_,
+        .rows = 1, .cols = SM_UI_std_panelCols_(cols),
         .name = "keybar",
         .userptr = owner, .resizecb = SM_UI_keybar_cb_,
     };
@@ -766,10 +938,15 @@ static void SM_UI_keybar_set_(struct ncplane * const keybarPlane,
     for (uint32_t i = 0U; i < nItems; ++i) {
         ncplane_set_fg_rgb8(keybarPlane, 230, 200, 100);
         ncplane_on_styles(keybarPlane, NCSTYLE_BOLD);
-        ncplane_putstr(keybarPlane, items[i].key);
+        if (!SM_UI_plane_putStr_(keybarPlane, items[i].key)) {
+            ncplane_off_styles(keybarPlane, NCSTYLE_BOLD);
+            break;
+        }
         ncplane_off_styles(keybarPlane, NCSTYLE_BOLD);
         ncplane_set_fg_rgb8(keybarPlane, 160, 160, 180);
-        ncplane_putstr(keybarPlane, items[i].desc);
+        if (!SM_UI_plane_putStr_(keybarPlane, items[i].desc)) {
+            break;
+        }
     }
 }
 
@@ -798,8 +975,8 @@ static void SM_UI_std_keybar_resize_(struct ncplane * const stdPlane,
     unsigned rows;
     unsigned cols;
     ncplane_dim_yx(stdPlane, &rows, &cols);
-    ncplane_move_yx(keybarPlane, (int)(rows - 2U), 2);
-    ncplane_resize_simple(keybarPlane, 1, cols - 4U);
+    ncplane_move_yx(keybarPlane, SM_UI_std_keybarY_(rows), SM_UI_PLANE_X_);
+    ncplane_resize_simple(keybarPlane, 1, SM_UI_std_panelCols_(cols));
 }
 
 //============================================================================
@@ -824,9 +1001,25 @@ static SM_UI_MainBufferMetrics_ SM_UI_std_mainBufferMetrics_(
     unsigned const rows,
     unsigned const cols)
 {
+    unsigned mainRows = SM_UI_MAIN_MIN_ROWS_;
+    if (rows > (SM_UI_MAIN_Y_ + SM_UI_MAIN_BOTTOM_ROWS_)) {
+        mainRows = rows - SM_UI_MAIN_Y_ - SM_UI_MAIN_BOTTOM_ROWS_;
+        if (mainRows < SM_UI_MAIN_MIN_ROWS_) {
+            mainRows = SM_UI_MAIN_MIN_ROWS_;
+        }
+    }
+
+    unsigned mainCols = SM_UI_MAIN_MIN_COLS_;
+    if (cols > SM_UI_SIDE_MARGIN_COLS_) {
+        mainCols = cols - SM_UI_SIDE_MARGIN_COLS_;
+        if (mainCols < SM_UI_MAIN_MIN_COLS_) {
+            mainCols = SM_UI_MAIN_MIN_COLS_;
+        }
+    }
+
     SM_UI_MainBufferMetrics_ const metrics = {
-        .rows = rows - 7U,
-        .cols = cols - 4U,
+        .rows = mainRows,
+        .cols = mainCols,
     };
     return metrics;
 }
@@ -907,12 +1100,11 @@ static void SM_UI_std_mainBufferFrame_resize_(
     unsigned cols;
     ncplane_dim_yx(stdPlane, &rows, &cols);
 
-    uint64_t const borderCh = SM_UI_std_borderCh_();
     SM_UI_MainBufferMetrics_ const main =
         SM_UI_std_mainBufferMetrics_(rows, cols);
 
-    ncplane_ascii_box(stdPlane, 0, borderCh, rows, cols, 0);
-    TextBufferView_resizeFrame(framePlane, main.rows, main.cols, borderCh);
+    TextBufferView_resizeFrame(framePlane, main.rows, main.cols,
+                               SM_UI_std_borderCh_());
 }
 
 //----------------------------------------------------------------------------
@@ -942,8 +1134,11 @@ static void SM_UI_disp_create_(struct NcDisp * const disp,
 
     ncplane_ascii_box(std, 0, borderCh, dimY, dimX, 0);
 
-    disp->titlePlane = SM_UI_title_create_(std, owner, dimX - 4U);
-    disp->statusPlane = SM_UI_status_create_(std, owner, dimX - 4U);
+    disp->titlePlane =
+        SM_UI_title_create_(std, owner, SM_UI_std_panelCols_(dimX));
+    disp->statusPlane =
+        SM_UI_status_create_(std, owner, SM_UI_std_panelCols_(dimX),
+                             &disp->status);
     TextBufferView_create(&disp->mainBuffer, std, owner,
                           main.rows, main.cols, borderCh,
                           SM_UI_main_cb_, SM_UI_content_cb_);
