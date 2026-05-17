@@ -11,54 +11,17 @@
 #define SM_UI_H_
 
 #include <stdbool.h>
-#include <stdint.h>
 #include <time.h>
-#include "sm_hsm.h"
-#include "sm_ui_key.h"
-#include "text_buffer_view.h"
+#include "ui_evt.h"
 
 struct notcurses;
-struct ncplane;
 
-//============================================================================
-//=== Menu: popup panel + selection state.
-struct Menu {
-    struct ncplane *plane;
-    uint32_t        sel;
-    bool            visible;
-};
-
-//============================================================================
-//=== notcurses display tree.
-struct NcDisp {
-    struct notcurses *nc;
-    struct ncplane   *titlePlane;
-    struct ncplane   *statusPlane;
-    struct TextBufferView mainBuffer;
-    struct ncplane   *keybarPlane;
-    struct Menu       menu;
-};
-
-//============================================================================
-//=== UI Active Object — HSM host
-typedef struct {
-    // --- HSM virtual table ---
-    SM_Hsm super;
-    VC_Handler init;
-    VC_Handler dispatch;
-
-    // --- notcurses display ---
-    struct NcDisp disp;
-
-    // --- command substate machine ---
-    SM_UI_Key cmdHsm;
-
-    bool quit;
-    bool dirty;
-    struct timespec lastRender;
-} SM_UI;
-
-void SM_UI_ctor(SM_UI *me);
-void SM_UI_start(SM_UI *me);
+void SM_UI_setup(struct notcurses *nc);
+bool SM_UI_shouldQuit(void);
+bool SM_UI_needsRender(void);
+struct timespec SM_UI_lastRender(void);
+void SM_UI_onRenderFrame(struct timespec const *now);
+struct notcurses *SM_UI_nc(void);
+void SM_UI_dispatchEvt(UI_Evt const *e);
 
 #endif // SM_UI_H_

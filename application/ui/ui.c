@@ -26,8 +26,6 @@ DBC_MODULE_NAME("ui")
 #define UI_NS_PER_MS_  1000000L
 #define UI_NS_PER_SEC_ 1000000000L
 
-static SM_UI SM_UI_inst;
-
 //============================================================================
 //=== BSP tick callback — posts UI_TIMER_SIG every Nth tick
 
@@ -119,14 +117,15 @@ static uint64_t UI_elapsedMs_(struct timespec const * const now,
 }
 
 static int UI_renderPollTimeoutMs_(void) {
-    if (!SM_UI_inst.dirty) {
+    if (!SM_UI_needsRender()) {
         return -1;
     }
 
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
 
-    uint64_t const elapsed = UI_elapsedMs_(&now, &SM_UI_inst.lastRender);
+    struct timespec const lastRender = SM_UI_lastRender();
+    uint64_t const elapsed = UI_elapsedMs_(&now, &lastRender);
     if (elapsed >= UI_FRAME_MS_) {
         return 0;
     }
@@ -135,22 +134,22 @@ static int UI_renderPollTimeoutMs_(void) {
 }
 
 static void UI_render_(void) {
-    if (!SM_UI_inst.dirty) {
+    if (!SM_UI_needsRender()) {
         return;
     }
 
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
 
-    uint64_t const elapsed = UI_elapsedMs_(&now, &SM_UI_inst.lastRender);
+    struct timespec const lastRender = SM_UI_lastRender();
+    uint64_t const elapsed = UI_elapsedMs_(&now, &lastRender);
     if (elapsed < UI_FRAME_MS_) {
         return;
     }
 
-    SM_UI_inst.dirty       = false;
-    SM_UI_inst.lastRender  = now;
+    SM_UI_onRenderFrame(&now);
 
-    notcurses_render(SM_UI_inst.disp.nc);
+    notcurses_render(SM_UI_nc());
 }
 
 //============================================================================
@@ -161,9 +160,7 @@ void UI_prepare(struct notcurses *nc) {
 
     UI_evtInit();
 
-    SM_UI_ctor(&SM_UI_inst);
-    SM_UI_inst.disp.nc = nc;
-    SM_UI_start(&SM_UI_inst);
+    SM_UI_setup(nc);
 
     BSP_registerTickHandler(&UI_onTick_);
 }
@@ -172,7 +169,7 @@ void UI_prepare(struct notcurses *nc) {
 //=== Main loop
 
 void UI_loop(void) {
-    int ncFd = notcurses_inputready_fd(SM_UI_inst.disp.nc);
+    int ncFd = notcurses_inputready_fd(SM_UI_nc());
     DBC_REQUIRE(502, ncFd >= 0);
 
     int evFd = UI_evtFd();
@@ -184,12 +181,12 @@ void UI_loop(void) {
     fds[1].fd      = evFd;
     fds[1].events  = POLLIN;
 
-    while (!SM_UI_inst.quit) {
+    while (!SM_UI_shouldQuit()) {
         poll(fds, 2, UI_renderPollTimeoutMs_());
 
         if (fds[0].revents & POLLIN) {
             ncinput  ni;
-            uint32_t r = notcurses_get_nblock(SM_UI_inst.disp.nc, &ni);
+            uint32_t r = notcurses_get_nblock(SM_UI_nc(), &ni);
             if (r != 0U) {
                 UI_routeInput_(r, &ni);
             }
@@ -204,8 +201,7 @@ void UI_loop(void) {
         {
             UI_Evt *e;
             while ((e = UI_evtDequeue()) != (UI_Evt *)0) {
-                (*SM_UI_inst.dispatch)(&SM_UI_inst, e);
-                SM_UI_inst.dirty = true;
+                SM_UI_dispatchEvt(e);
                 UI_evtFree(e);
             }
         }

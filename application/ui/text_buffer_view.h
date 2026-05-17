@@ -32,10 +32,13 @@ void TextArea_init(struct TextArea *ta);
 void TextArea_clear(struct TextArea *ta);
 
 uint32_t TextArea_push(struct TextArea *ta, char const *text, size_t len);
-void     TextArea_preserveScrollOnAppend(struct TextArea *ta, uint32_t addedLines);
+void     TextArea_preserveScrollOnAppend(struct TextArea *ta,
+                                         uint32_t addedLines);
 
-void     TextArea_scrollBy(struct TextArea *ta, int32_t delta, uint32_t visibleRows);
-uint32_t TextArea_firstVisible(struct TextArea const *ta, uint32_t visibleRows);
+void     TextArea_scrollBy(struct TextArea *ta, int32_t delta,
+                           uint32_t visibleRows);
+uint32_t TextArea_firstVisible(struct TextArea const *ta,
+                               uint32_t visibleRows);
 char const *TextArea_lineAt(struct TextArea const *ta, uint32_t logicalIdx);
 uint32_t TextArea_total(struct TextArea const *ta);
 int32_t  TextArea_scrollOffset(struct TextArea const *ta);
@@ -85,6 +88,28 @@ struct TextBufferView {
     ScrollBar       scrollBar;
 };
 
+typedef int (*TextBufferView_ResizeCb)(struct ncplane *plane);
+
 void TextBufferView_init(struct TextBufferView *view);
+void TextBufferView_create(struct TextBufferView *view,
+                           struct ncplane *stdPlane,
+                           void *owner,
+                           unsigned rows,
+                           unsigned cols,
+                           uint64_t borderCh,
+                           TextBufferView_ResizeCb frameCb,
+                           TextBufferView_ResizeCb contentCb);
+void TextBufferView_pushText(struct TextBufferView *view,
+                             char const *text, size_t len);
+void TextBufferView_clear(struct TextBufferView *view);
+void TextBufferView_scrollPageUp(struct TextBufferView *view);
+void TextBufferView_scrollPageDown(struct TextBufferView *view);
+void TextBufferView_refresh(struct TextBufferView *view);
+void TextBufferView_resizeFrame(struct ncplane *framePlane,
+                                unsigned rows,
+                                unsigned cols,
+                                uint64_t borderCh);
+void TextBufferView_resizeContent(struct ncplane *framePlane,
+                                  struct ncplane *contentPlane);
 
 #endif // TEXT_BUFFER_VIEW_H_
