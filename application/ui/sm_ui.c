@@ -28,15 +28,21 @@ struct Menu {
     bool            visible;
 };
 
+enum {
+    SM_UI_STATUS_SHORT_LEN_ = 16,
+    SM_UI_STATUS_PORT_LEN_  = 128,
+    SM_UI_STATUS_PROTO_LEN_ = 32
+};
+
 struct StatusLine {
-    char const *connection;
-    char const *port;
-    char const *baud;
-    char const *dataBits;
-    char const *stopBits;
-    char const *parity;
-    char const *flow;
-    char const *protocol;
+    char connection[SM_UI_STATUS_SHORT_LEN_];
+    char port[SM_UI_STATUS_PORT_LEN_];
+    char baud[SM_UI_STATUS_SHORT_LEN_];
+    char dataBits[SM_UI_STATUS_SHORT_LEN_];
+    char stopBits[SM_UI_STATUS_SHORT_LEN_];
+    char parity[SM_UI_STATUS_SHORT_LEN_];
+    char flow[SM_UI_STATUS_SHORT_LEN_];
+    char protocol[SM_UI_STATUS_PROTO_LEN_];
 };
 
 struct NcDisp {
@@ -120,6 +126,21 @@ static void        SM_UI_std_title_resize_(struct ncplane *stdPlane,
 // - std/status IO allocates or resizes status against the stdplane.
 // Status-local IO.
 static void        SM_UI_status_init_(struct StatusLine *status);
+static void        SM_UI_status_setText_(char *dst, size_t dstLen,
+                                         char const *value,
+                                         char const *fallback);
+static void        SM_UI_status_setConnection_(struct StatusLine *status,
+                                               bool connected);
+static void        SM_UI_status_setSerial_(
+                        struct StatusLine *status,
+                        char const *port,
+                        char const *baud,
+                        char const *dataBits,
+                        char const *stopBits,
+                        char const *parity,
+                        char const *flow);
+static void        SM_UI_status_setProtocol_(struct StatusLine *status,
+                                             char const *protocol);
 static void        SM_UI_status_draw_(struct ncplane *statusPlane,
                                       struct StatusLine const *status);
 static void        SM_UI_status_drawCell_(struct ncplane *statusPlane,
@@ -640,10 +661,22 @@ static void SM_UI_title_draw_(struct ncplane * const titlePlane) {
 
     ncplane_erase(titlePlane);
     ncplane_set_bg_rgb8(titlePlane, 60, 60, 120);
-    ncplane_set_fg_rgb8(titlePlane, 230, 230, 255);
+    ncplane_off_styles(titlePlane, NCSTYLE_BOLD);
+    ncplane_set_fg_rgb8(titlePlane, 170, 175, 215);
+    (void)SM_UI_plane_putStrYx_(titlePlane, 0, 0U, " sm_tracer_tui: ");
+
     ncplane_on_styles(titlePlane, NCSTYLE_BOLD);
-    ncplane_puttext(titlePlane, 0, NCALIGN_LEFT,
-                    " termbox ─ sm_tracer ", NULL);
+    ncplane_set_fg_rgb8(titlePlane, 235, 235, 255);
+    (void)SM_UI_plane_putStr_(titlePlane, "v0.0.1");
+
+    ncplane_off_styles(titlePlane, NCSTYLE_BOLD);
+    ncplane_set_fg_rgb8(titlePlane, 140, 145, 185);
+    (void)SM_UI_plane_putStr_(titlePlane, " ");
+
+    ncplane_on_styles(titlePlane, NCSTYLE_BOLD);
+    ncplane_set_fg_rgb8(titlePlane, 170, 230, 210);
+    (void)SM_UI_plane_putStr_(titlePlane, "notcurses ");
+    ncplane_off_styles(titlePlane, NCSTYLE_BOLD);
 }
 
 static void SM_UI_std_title_resize_(struct ncplane * const stdPlane,
@@ -660,14 +693,70 @@ static void SM_UI_std_title_resize_(struct ncplane * const stdPlane,
 static void SM_UI_status_init_(struct StatusLine * const status) {
     DBC_REQUIRE(328, status != (struct StatusLine *)0);
 
-    status->connection = "disconnected";
-    status->port       = "none";
-    status->baud       = "115200";
-    status->dataBits   = "8";
-    status->stopBits   = "1";
-    status->parity     = "none";
-    status->flow       = "none";
-    status->protocol   = "none";
+    SM_UI_status_setConnection_(status, false);
+    SM_UI_status_setSerial_(status, (char const *)0, (char const *)0,
+                            (char const *)0, (char const *)0,
+                            (char const *)0, (char const *)0);
+    SM_UI_status_setProtocol_(status, (char const *)0);
+}
+
+static void SM_UI_status_setText_(char * const dst,
+                                  size_t const dstLen,
+                                  char const * const value,
+                                  char const * const fallback)
+{
+    DBC_REQUIRE(371, dst != (char *)0);
+    DBC_REQUIRE(372, dstLen > 0U);
+    DBC_REQUIRE(373, fallback != (char const *)0);
+
+    char const * const src =
+        (value != (char const *)0) ? value : fallback;
+    int const n = snprintf(dst, dstLen, "%s", src);
+    DBC_REQUIRE(374, n >= 0);
+    DBC_ENSURE(402, dst[dstLen - 1U] == '\0');
+}
+
+static void SM_UI_status_setConnection_(struct StatusLine * const status,
+                                        bool const connected)
+{
+    DBC_REQUIRE(375, status != (struct StatusLine *)0);
+
+    SM_UI_status_setText_(status->connection,
+                          sizeof(status->connection),
+                          connected ? "connected" : "disconnected",
+                          "disconnected");
+}
+
+static void SM_UI_status_setSerial_(
+    struct StatusLine * const status,
+    char const * const port,
+    char const * const baud,
+    char const * const dataBits,
+    char const * const stopBits,
+    char const * const parity,
+    char const * const flow)
+{
+    DBC_REQUIRE(376, status != (struct StatusLine *)0);
+
+    SM_UI_status_setText_(status->port, sizeof(status->port), port, "none");
+    SM_UI_status_setText_(status->baud, sizeof(status->baud),
+                          baud, "115200");
+    SM_UI_status_setText_(status->dataBits, sizeof(status->dataBits),
+                          dataBits, "8");
+    SM_UI_status_setText_(status->stopBits, sizeof(status->stopBits),
+                          stopBits, "1");
+    SM_UI_status_setText_(status->parity, sizeof(status->parity),
+                          parity, "none");
+    SM_UI_status_setText_(status->flow, sizeof(status->flow), flow, "none");
+}
+
+static void SM_UI_status_setProtocol_(struct StatusLine * const status,
+                                      char const * const protocol)
+{
+    DBC_REQUIRE(377, status != (struct StatusLine *)0);
+
+    SM_UI_status_setText_(status->protocol, sizeof(status->protocol),
+                          protocol, "none");
 }
 
 static struct ncplane *SM_UI_status_create_(
@@ -700,7 +789,7 @@ static void SM_UI_status_draw_(struct ncplane * const statusPlane,
     ncplane_set_fg_rgb8(statusPlane, 200, 200, 200);
 
     unsigned x = 0U;
-    SM_UI_status_drawCell_(statusPlane, &x, "●", status->connection);
+    SM_UI_status_drawCell_(statusPlane, &x, "status", status->connection);
     SM_UI_status_drawCell_(statusPlane, &x, "port", status->port);
     SM_UI_status_drawCell_(statusPlane, &x, "baud", status->baud);
     SM_UI_status_drawCell_(statusPlane, &x, "data", status->dataBits);
@@ -721,8 +810,28 @@ static void SM_UI_status_drawCell_(struct ncplane * const statusPlane,
     DBC_REQUIRE(334, value != (char const *)0);
 
     char cell[32];
-    int const n = snprintf(cell, sizeof(cell), " %s %s ", label, value);
-    DBC_REQUIRE(335, n >= 0);
+    char labelPart[16];
+    char valuePart[24];
+
+    int const labelN = snprintf(labelPart, sizeof(labelPart),
+                                " %s: ", label);
+    DBC_REQUIRE(335, labelN >= 0);
+    if ((unsigned)labelN >= sizeof(labelPart)) {
+        ncplane_dim_yx(statusPlane, NULL, x);
+        return;
+    }
+
+    int const valueN = snprintf(valuePart, sizeof(valuePart),
+                                "%s ", value);
+    DBC_REQUIRE(336, valueN >= 0);
+    if ((unsigned)valueN >= sizeof(valuePart)) {
+        ncplane_dim_yx(statusPlane, NULL, x);
+        return;
+    }
+
+    int const n = snprintf(cell, sizeof(cell), "%s%s",
+                           labelPart, valuePart);
+    DBC_REQUIRE(337, n >= 0);
     if ((unsigned)n >= sizeof(cell)) {
         ncplane_dim_yx(statusPlane, NULL, x);
         return;
@@ -734,7 +843,15 @@ static void SM_UI_status_drawCell_(struct ncplane * const statusPlane,
         return;
     }
 
-    ncplane_putstr_yx(statusPlane, 0, (int)*x, cell);
+    ncplane_on_styles(statusPlane, NCSTYLE_BOLD);
+    ncplane_set_fg_rgb8(statusPlane, 155, 165, 220);
+    (void)SM_UI_plane_putStrYx_(statusPlane, 0, *x, labelPart);
+
+    ncplane_off_styles(statusPlane, NCSTYLE_BOLD);
+    ncplane_set_fg_rgb8(statusPlane, 220, 225, 240);
+    (void)SM_UI_plane_putStr_(statusPlane, valuePart);
+    ncplane_set_fg_rgb8(statusPlane, 200, 200, 200);
+
     *x += width + 2U;
 }
 
