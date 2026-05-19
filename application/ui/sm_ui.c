@@ -1113,6 +1113,9 @@ static void SM_UI_std_mainBufferFrame_resize_(
 // HSM handlers and notcurses callbacks enter component IO through this NcDisp
 // layer. It owns component wiring, dirty propagation, and behavior-level
 // operations over the display graph.
+// TODO: refine this layer after component OOP extraction. NcDisp should keep
+// the explicit component-coupling policy while leaf component methods stay
+// behind their own view APIs.
 
 static void SM_UI_disp_create_(struct NcDisp * const disp,
                                SM_UI * const owner)
