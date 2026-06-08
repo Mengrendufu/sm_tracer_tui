@@ -1,14 +1,19 @@
 {
   "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 20,
+    "patch": 0
+  },
+
   "configurePresets": [
     {
       "name": "base",
       "hidden": true,
-      "generator": "Ninja Multi-Config",
-      "binaryDir": "${sourceDir}/build",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${hostSystemName}/${presetName}",
       "toolchainFile": "${sourceDir}/toolchain_gcc.cmake",
       "cacheVariables": {
-        "CMAKE_CONFIGURATION_TYPES": "Debug;Release",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
         "CMAKE_C_STANDARD": "99",
         "CMAKE_C_STANDARD_REQUIRED": "ON",
@@ -18,52 +23,70 @@
       }
     },
     {
-      "name": "configure",
-      "displayName": "Configure termbox_hello notcurses project",
-      "inherits": "base"
+      "name": "debug",
+      "inherits": "base",
+      "displayName": "Configure Debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "release",
+      "inherits": "base",
+      "displayName": "Configure Release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
     }
   ],
+
   "buildPresets": [
     {
       "name": "build-debug",
-      "configurePreset": "configure",
-      "configuration": "Debug"
+      "displayName": "Build Debug",
+      "description": "Build the Debug preset.",
+      "configurePreset": "debug"
     },
     {
       "name": "build-release",
-      "configurePreset": "configure",
-      "configuration": "Release"
-    },
-    {
-      "name": "run-debug",
-      "configurePreset": "configure",
-      "configuration": "Debug",
-      "targets": [
-        "run"
-      ]
-    },
-    {
-      "name": "run-release",
-      "configurePreset": "configure",
-      "configuration": "Release",
-      "targets": [
-        "run"
-      ]
+      "displayName": "Build Release",
+      "description": "Build the Release preset.",
+      "configurePreset": "release"
     },
     {
       "name": "clean-debug",
-      "configurePreset": "configure",
-      "configuration": "Debug",
+      "displayName": "Clean Debug",
+      "description": "Clean the Debug build tree.",
+      "configurePreset": "debug",
       "targets": [
         "clean"
       ]
     },
     {
       "name": "clean-release",
-      "configurePreset": "configure",
-      "configuration": "Release",
+      "displayName": "Clean Release",
+      "description": "Clean the Release build tree.",
+      "configurePreset": "release",
       "targets": [
         "clean"
+      ]
+    },
+    {
+      "name": "run-debug",
+      "displayName": "Run Debug",
+      "description": "Build and run the Debug executable.",
+      "configurePreset": "debug",
+      "targets": [
+        "run"
+      ]
+    },
+    {
+      "name": "run-release",
+      "displayName": "Run Release",
+      "description": "Build and run the Release executable.",
+      "configurePreset": "release",
+      "targets": [
+        "run"
       ]
     }
   ]

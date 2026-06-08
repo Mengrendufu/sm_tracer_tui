@@ -26,21 +26,29 @@ static void *SST_thread(void *arg) {
     SST_Task_run();
     return NULL;
 }
+static pthread_t SST_tid;
+
+//============================================================================
+//=== notcurses
+
+static struct notcurses_options opts = {
+    .flags = NCOPTION_SUPPRESS_BANNERS
+};
+static struct notcurses *nc;
 
 //============================================================================
 //=== Main entry
 
 int main(int argc, char **argv) {
     (void)argc; (void)argv;
+
     setlocale(LC_ALL, "");
 
-    struct notcurses_options opts = { .flags = NCOPTION_SUPPRESS_BANNERS };
-    struct notcurses *nc = notcurses_core_init(&opts, NULL);
+    nc = notcurses_core_init(&opts, NULL);
     if (!nc) { fprintf(stderr, "notcurses init failed\n"); return 1; }
 
     UI_prepare(nc);
 
-    pthread_t SST_tid;
     pthread_create(&SST_tid, NULL, SST_thread, NULL);
 
     UI_loop();
