@@ -12,6 +12,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "sst.h"
+#include "sst_pubsub.h"
+#include "app_sig.h"
 #include "bsp.h"
 #include "sm_assert.h"
 #include "dbc_assert.h"
@@ -60,8 +62,13 @@ void BSP_onTick(void) {
 //============================================================================
 //=== SST lifecycle.
 void SST_init(void) {
+    static SST_SubscrList subscrSto[MAX_PUB_SIG];
+    SST_PubSub_init(subscrSto, ARRAY_NELEM(subscrSto));
+
+#if (SST_EVT_POOL_NUM > 0U)
     static uint8_t smallPoolSto[16U * sizeof(SST_Evt)];
     SST_EvtPool_init(smallPoolSto, sizeof(smallPoolSto), sizeof(SST_Evt));
+#endif
 }
 
 void SST_onStart(void) {

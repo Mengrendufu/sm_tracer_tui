@@ -1,6 +1,6 @@
-[submodule "3rd_party/Super-Simple-Tasker"]
-	path = 3rd_party/Super-Simple-Tasker
-	url = https://github.com/QuantumLeaps/Super-Simple-Tasker.git
+[submodule "3rd_party/sm_sst"]
+	path = 3rd_party/sm_sst
+	url = https://github.com/Mengrendufu/sm_sst.git
 [submodule "3rd_party/sm_hsm"]
 	path = 3rd_party/sm_hsm
 	url = https://github.com/Mengrendufu/sm_hsm.git

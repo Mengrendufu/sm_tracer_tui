@@ -9,7 +9,6 @@
 //============================================================================
 #include "sst.h"
 #include "dbc_assert.h"
-#include <stdlib.h>
 #include <time.h>
 
 DBC_MODULE_NAME("sst_port")
@@ -62,8 +61,7 @@ static void *ao_thread(void *arg) {
 
 //============================================================================
 //=== Task launch: sem_init + pthread_create, called from SST_Task_start.
-void SST_Task_setPrio(SST_Task * const me, SST_TaskPrio prio) {
-    me->prio = prio;
+void SST_Task_portStart_(SST_Task * const me) {
     sem_init(&me->sem, 0, 0);
     pthread_create(&me->thread, NULL, ao_thread, me);
 }
@@ -80,54 +78,4 @@ SST_LockKey SST_Task_lock(SST_TaskPrio ceiling) {
 
 void SST_Task_unlock(SST_LockKey lock_key) {
     (void)lock_key;
-}
-
-//============================================================================
-//=== AO event pools: multi-size pools for AO-to-AO communication.
-uint8_t SST_evtPoolsNum;
-StaticPool SST_evtPools_[SST_EVT_POOL_NUM];
-
-//............................................................................
-void SST_EvtPool_init(void *sto, PoolCtr poolSize, PoolCtr blockSize) {
-    DBC_REQUIRE(500, SST_evtPoolsNum < SST_EVT_POOL_NUM);
-    DBC_REQUIRE(501, sto != (void *)0);
-
-    StaticPool_init(&SST_evtPools_[SST_evtPoolsNum], sto, poolSize, blockSize);
-    ++SST_evtPoolsNum;
-}
-//............................................................................
-void *SST_Evt_new(PoolCtr blockSize) {
-    void *evt = (void *)0;
-
-    SST_PORT_CRIT_ENTRY();
-    for (uint8_t i = 0U; i < SST_evtPoolsNum; ++i) {
-        if (SST_evtPools_[i].blockSize >= blockSize) {
-            evt = StaticPool_get(&SST_evtPools_[i]);
-            break;
-        }
-    }
-    SST_PORT_CRIT_EXIT();
-
-    return evt;
-}
-//............................................................................
-void SST_Evt_gc(void *evt) {
-    DBC_REQUIRE(600, evt != (void *)0);
-
-    if (((SST_Evt *)evt)->sig < SST_USER_SIG) {
-        return;
-    }
-
-    SST_PORT_CRIT_ENTRY();
-    for (uint8_t i = 0U; i < SST_evtPoolsNum; ++i) {
-        StaticPool *pool = &SST_evtPools_[i];
-        if (
-            (char *)pool->start <= (char *)evt &&
-            (char *)evt <= (char *)pool->end
-        ) {
-            StaticPool_put(pool, evt);
-            break;
-        }
-    }
-    SST_PORT_CRIT_EXIT();
 }

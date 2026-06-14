@@ -22,15 +22,19 @@ A terminal-based HSM (Hierarchical State Machine) visualizer/demo using **notcur
 │       ├── sm_ui_key.c   #   SM_UI_Key HSM — placeholder, idle-only
 │       └── sm_ui_key.h
 ├── ports/                 # Desktop port layer
-│   ├── sm_port.h         #   offsetof/containerof macros
-│   ├── sst_port.c        #   SST desktop port: pthread per AO, sem_wait, critical section
-│   ├── sst_port.h        #   SST port macros: SRP locking, event pools, tick rate
-│   └── static_pool_port.h#   (trivial — just includes stdint.h)
+│   ├── sm/               #   sm_hsm port
+│   │   └── sm_port.h     #     offsetof/containerof macros
+│   └── sst/              #   SST + static_pool ports
+│       ├── sst_port.c    #     SST desktop port: pthread per AO, sem_wait, critical section
+│       ├── sst_port.h    #     SST port macros: SRP locking, tick rate
+│       ├── sst_evt_pool.c#     SST event pool allocation / GC policy
+│       ├── sst_evt_pool.h
+│       └── static_pool_port.h# (trivial — just includes stdint.h)
 ├── bsp/                   # Board Support Package (desktop)
 │   ├── bsp.c             #   Tick idle loop, tick handlers, DBC/SM_onAssert fault handler
 │   └── bsp.h
 ├── 3rd_party/             # Git submodules
-│   ├── Super-Simple-Tasker/  # SST kernel (https://github.com/QuantumLeaps/Super-Simple-Tasker)
+│   ├── sm_sst/              # SST kernel fork (https://github.com/Mengrendufu/sm_sst)
 │   ├── sm_hsm/              # HSM engine (https://github.com/Mengrendufu/sm_hsm)
 │   └── common_c/            # Common C lib (static_pool, etc.)
 ├── docs/qm/                  # QM model files (State Machine modeling tool)

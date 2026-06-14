@@ -39,15 +39,24 @@ if(NOT NOTCURSES_INCLUDE_DIR OR NOT NOTCURSES_LIBRARY)
 endif()
 
 #=============================================================================
-# ===Component SST (Super-Simple-Tasker) core.
-set(SST_ROOT   ${CMAKE_SOURCE_DIR}/3rd_party/Super-Simple-Tasker)
-set(SST_SRC    ${SST_ROOT}/sst_c/src/sst.c)
+# ===Component SST core.
+set(SST_ROOT   ${CMAKE_SOURCE_DIR}/3rd_party/sm_sst)
+set(SST_SRC
+    ${SST_ROOT}/sst_c/src/sst.c
+    ${SST_ROOT}/sst_c/src/sst_pubsub.c
+)
 set(SST_INC    ${SST_ROOT}/include)
 
 #=============================================================================
-# ===Component SST desktop port.
-set(PORT_SRC ${CMAKE_SOURCE_DIR}/ports/sst_port.c)
-set(PORT_INC   ${CMAKE_SOURCE_DIR}/ports)
+# ===Component ports.
+set(PORT_SRC
+    ${CMAKE_SOURCE_DIR}/ports/sst/sst_port.c
+    ${CMAKE_SOURCE_DIR}/ports/sst/sst_evt_pool.c
+)
+set(PORT_INC
+    ${CMAKE_SOURCE_DIR}/ports/sst
+    ${CMAKE_SOURCE_DIR}/ports/sm
+)
 
 #=============================================================================
 # ===Component sm_hsm.

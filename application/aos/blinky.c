@@ -9,6 +9,7 @@
 //============================================================================
 //============================================================================
 //=== Blinky AO — SST task + HSM, idle/active states
+#include "app_sig.h"
 #include "sst.h"
 #include "sm_port.h"
 #include "sm_hsm.h"
@@ -73,7 +74,7 @@ static void Blinky_off_entry_(SM_Hsm * const me) SM_HSM_RETT {
 static SM_RetState Blinky_off_(SM_Hsm * const me, SST_Evt const * const e) {
     (void)me;
     switch (e->sig) {
-    case SST_TIMEOUT_SIG: {
+    case BLINKY_TIMEOUT_SIG: {
         return _SM_TRAN(&Blinky_on);
     }
     default: {
@@ -90,7 +91,7 @@ static void Blinky_on_entry_(SM_Hsm * const me) SM_HSM_RETT {
 static SM_RetState Blinky_on_(SM_Hsm * const me, SST_Evt const * const e) {
     (void)me;
     switch (e->sig) {
-    case SST_TIMEOUT_SIG: {
+    case BLINKY_TIMEOUT_SIG: {
         return _SM_TRAN(&Blinky_off);
     }
     default: {
@@ -118,5 +119,5 @@ void Blinky_ctor(void) {
     Blinky * const me = &Blinky_inst;
     SST_Task_ctor(&me->super, (SST_Handler)&Blinky_init,
                   (SST_Handler)&Blinky_dispatch);
-    SST_TimeEvt_ctor(&me->timer, SST_TIMEOUT_SIG, &me->super);
+    SST_TimeEvt_ctor(&me->timer, BLINKY_TIMEOUT_SIG, &me->super);
 }

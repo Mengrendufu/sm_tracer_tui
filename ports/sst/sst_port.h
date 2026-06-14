@@ -10,9 +10,54 @@
 #ifndef SST_PORT_H_
 #define SST_PORT_H_
 
+//============================================================================
+#include <stdint.h>
 #include <pthread.h>
 #include <semaphore.h>
-#include "static_pool.h"
+
+//============================================================================
+#define SST_EVT_POOL_NUM 3U
+#include "sst_evt_pool.h"
+
+//============================================================================
+#define SST_MAX_TASK 8U
+
+//............................................................................
+#ifndef SST_LOG2
+static inline uint_fast8_t SST_log2_(uint32_t const bitmask) {
+    static uint8_t const log2LUT[16] = {
+        0U, 1U, 2U, 2U, 3U, 3U, 3U, 3U,
+        4U, 4U, 4U, 4U, 4U, 4U, 4U, 4U
+    };
+    uint_fast8_t n = 0U;
+    uint32_t x = bitmask;
+    uint32_t tmp;
+
+#if (SST_MAX_TASK > 16U)
+    tmp = (x >> 16U);
+    if (tmp != 0U) {
+        n += 16U;
+        x = tmp;
+    }
+#endif
+#if (SST_MAX_TASK > 8U)
+    tmp = (x >> 8U);
+    if (tmp != 0U) {
+        n += 8U;
+        x = tmp;
+    }
+#endif
+    tmp = (x >> 4U);
+    if (tmp != 0U) {
+        n += 4U;
+        x = tmp;
+    }
+
+    return (uint_fast8_t)(n + log2LUT[x]);
+}
+
+#define SST_LOG2(x_) SST_log2_((uint32_t)(x_))
+#endif // ndef SST_LOG2
 
 //============================================================================
 //=== Lock key type.
@@ -21,15 +66,14 @@ typedef int SST_LockKey;
 //============================================================================
 //=== Task attributes: thread handle + event semaphore.
 #define SST_PORT_TASK_ATTR \
-    pthread_t thread;         \
-    sem_t sem;                \
-    SST_TaskPrio prio;
+    pthread_t thread; \
+    sem_t sem;
 
 //============================================================================
 //=== Additional operations (placed after type definitions in sst.h).
 #define SST_PORT_TASK_OPER \
-    void SST_Task_setPrio(SST_Task * const me, SST_TaskPrio prio); \
-    void SST_onIdle(void); \
+    void SST_Task_portStart_(SST_Task * const me); \
+    void SST_onIdle(void);
 
 //============================================================================
 //=== Critical section: ref-counted non-recursive mutex.
@@ -49,31 +93,7 @@ void leaveCriticalSection_(void);
 #define SST_PORT_TASK_WAIT(me_)  sem_wait(&(me_)->sem)
 
 //============================================================================
-enum SST_Signals {
-    SST_TIMEOUT_SIG = 0,
-    SST_TIMEOUT1_SIG = 1,
-    SST_TIMEOUT2_SIG = 2,
-    SST_TIMEOUT3_SIG = 3,
-
-    SST_USER_SIG // can not be used
-};
-
-//============================================================================
 //=== Tick rate control.
 void SST_setTickRate(uint32_t ticksPerSec);
-
-//============================================================================
-//=== AO event pools: multi-size pools for AO-to-AO communication.
-#define SST_EVT_POOL_NUM 3U
-
-extern StaticPool SST_evtPools_[SST_EVT_POOL_NUM];
-extern uint8_t SST_evtPoolsNum;
-
-void SST_EvtPool_init(void *sto, PoolCtr poolSize, PoolCtr blockSize);
-void *SST_Evt_new(PoolCtr blockSize);
-void SST_Evt_gc(void *evt);
-
-#define SST_NEW(evtType_) ((evtType_ *)SST_Evt_new(sizeof(evtType_)))
-#define SST_GC(evt_)       SST_Evt_gc((void *)(evt_))
 
 #endif // SST_PORT_H_
