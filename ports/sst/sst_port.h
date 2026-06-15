@@ -22,6 +22,10 @@
 //============================================================================
 #define SST_MAX_TASK 8U
 
+//============================================================================
+//=== Task priority type.
+typedef uint8_t SST_TaskPrio;
+
 //............................................................................
 #ifndef SST_LOG2
 static inline uint_fast8_t SST_log2_(uint32_t const bitmask) {
@@ -29,6 +33,7 @@ static inline uint_fast8_t SST_log2_(uint32_t const bitmask) {
         0U, 1U, 2U, 2U, 3U, 3U, 3U, 3U,
         4U, 4U, 4U, 4U, 4U, 4U, 4U, 4U
     };
+
     uint_fast8_t n = 0U;
     uint32_t x = bitmask;
     uint32_t tmp;
@@ -39,14 +44,16 @@ static inline uint_fast8_t SST_log2_(uint32_t const bitmask) {
         n += 16U;
         x = tmp;
     }
-#endif
+#endif // (SST_MAX_TASK > 16U)
+
 #if (SST_MAX_TASK > 8U)
     tmp = (x >> 8U);
     if (tmp != 0U) {
         n += 8U;
         x = tmp;
     }
-#endif
+#endif // (SST_MAX_TASK > 8U)
+
     tmp = (x >> 4U);
     if (tmp != 0U) {
         n += 4U;
@@ -72,7 +79,7 @@ typedef int SST_LockKey;
 //============================================================================
 //=== Additional operations (placed after type definitions in sst.h).
 #define SST_PORT_TASK_OPER \
-    void SST_Task_portStart_(SST_Task * const me); \
+    void SST_Task_setPrio(SST_Task * const me, SST_TaskPrio prio); \
     void SST_onIdle(void);
 
 //============================================================================
