@@ -66,15 +66,10 @@ static void *ao_thread(void *arg) {
 //============================================================================
 //=== Task launch: sem_init + pthread_create, called from SST_Task_start.
 void SST_Task_setPrio(SST_Task * const me, SST_TaskPrio const prio) {
-    SST_PORT_CRIT_STAT
-    SST_PORT_CRIT_ENTRY();
-
     DBC_REQUIRE(400, (0U < prio) && (prio <= SST_MAX_TASK));
     DBC_REQUIRE(401, SST_tasks_[prio] == (SST_Task *)0);
     me->prio = prio;
     SST_tasks_[prio] = me;
-
-    SST_PORT_CRIT_EXIT();
 
     sem_init(&me->sem, 0, 0);
     pthread_create(&me->thread, NULL, ao_thread, me);
