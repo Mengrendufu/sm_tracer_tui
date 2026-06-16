@@ -62,7 +62,7 @@ void BSP_onTick(void) {
 //============================================================================
 //=== SST lifecycle.
 void SST_init(void) {
-    static SST_SubscrList subscrSto[MAX_PUB_SIG];
+    static SST_PubSubSet subscrSto[MAX_PUB_SIG];
     SST_PubSub_init(subscrSto, ARRAY_NELEM(subscrSto));
 
 #if (SST_EVT_POOL_NUM > 0U)
