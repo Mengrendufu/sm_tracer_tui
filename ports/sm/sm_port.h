@@ -18,12 +18,13 @@
 //============================================================================
 //=== offsetof / containerof macros.
 #ifndef offsetof
-    #define offsetof(type_, member_) ((size_t)(&(((type_ *)0)->member_)))
+#define offsetof(type_, member_) \
+    ((size_t)(&(((type_ *)0)->member_)))
 #endif
 
 #ifndef containerof
-    #define containerof(ptr_, type_, member_) \
-                     ((type_ *)(((char *)(ptr_ )) - offsetof(type_, member_)))
+#define containerof(ptr_, type_, member_) \
+    ((type_ *)(((char *)(ptr_ )) - offsetof(type_, member_)))
 #endif
 
 #endif /* SM_PORT_H_ */

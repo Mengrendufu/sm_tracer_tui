@@ -1264,6 +1264,8 @@ static void SM_UI_disp_create_(struct NcDisp * const disp,
                           SM_UI_main_cb_, SM_UI_content_cb_);
     disp->keybarPlane = SM_UI_keybar_create_(std, owner, dimY, dimX);
     SM_UI_menu_create_(&disp->menu, std, owner);
+
+    SM_UI_disp_markDirty_(disp);
 }
 
 static void SM_UI_disp_pushText_(struct NcDisp * const disp,

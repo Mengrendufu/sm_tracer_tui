@@ -18,7 +18,7 @@ DBC_MODULE_NAME("sst_evt_pool")
 
 //============================================================================
 //=== Event pool storage
-static uint8_t    l_evtPoolsNum_;
+static uint8_t l_evtPoolsNum_ = 0U;
 static StaticPool l_evtPools_[SST_EVT_POOL_NUM];
 
 //============================================================================

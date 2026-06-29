@@ -42,21 +42,21 @@ static struct notcurses *nc;
 int main(int argc, char **argv) {
     (void)argc; (void)argv;
 
+    //------------------------------------------------------------------------
     setlocale(LC_ALL, "");
-
     nc = notcurses_core_init(&opts, NULL);
     if (!nc) {
         fprintf(stderr, "notcurses init failed\n");
         return 1;
     }
 
+    //------------------------------------------------------------------------
     SST_init();
     UI_prepare(nc);
-
     pthread_create(&SST_tid, NULL, SST_thread, NULL);
-
     UI_loop();
 
+    //------------------------------------------------------------------------
     notcurses_stop(nc);
     printf("Goodbye!\n");
 
