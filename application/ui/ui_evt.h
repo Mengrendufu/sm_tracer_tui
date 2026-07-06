@@ -61,11 +61,6 @@ void UI_postSignal(UI_Signal sig);
 // Post a text event to the UI (thread-safe, callable from SST AOs)
 void UI_postText(UI_Signal sig, char const *text);
 
-// --- internal: dequeue for the main loop ---
-
-// Opaque event queue handle (defined in ui_evt.c)
-typedef struct UI_EvtQueue UI_EvtQueue;
-
 // Initialize the event subsystem (call once before any post)
 void UI_evtInit(void);
 

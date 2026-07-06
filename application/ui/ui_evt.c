@@ -28,7 +28,9 @@ struct UI_EvtQueue {
     pthread_mutex_t mtx;
 };
 
-static UI_EvtQueue UI_q_  = { .mtx = PTHREAD_MUTEX_INITIALIZER };
+static struct UI_EvtQueue UI_q_  = {
+    .mtx = PTHREAD_MUTEX_INITIALIZER
+};
 static int         l_evfd = -1; // eventfd for poll wake-up
 
 //============================================================================

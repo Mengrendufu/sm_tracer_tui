@@ -39,7 +39,7 @@ static struct notcurses *nc;
 //============================================================================
 //=== Main entry
 
-int main(int argc, char **argv) {
+int main(int const argc, char const ** const argv) {
     (void)argc; (void)argv;
 
     //------------------------------------------------------------------------
@@ -54,6 +54,8 @@ int main(int argc, char **argv) {
     SST_init();
     UI_prepare(nc);
     pthread_create(&SST_tid, NULL, SST_thread, NULL);
+
+    //------------------------------------------------------------------------
     UI_loop();
 
     //------------------------------------------------------------------------
