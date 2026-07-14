@@ -10,17 +10,25 @@ A terminal-based HSM (Hierarchical State Machine) visualizer/demo using **notcur
 │   ├── main.c            # Entry: notcurses init, SST thread spawn, UI loop
 │   ├── aos/              # Active Object (AO) registry + Blinky AO
 │   │   ├── aos.c         #   SST_start() — constructs & starts all AOs
-│   │   ├── blinky.c      #   Blinky HSM — idle/active states, timer-driven
-│   │   └── blinky.h
+│   │   ├── aos.h
+│   │   └── blinky/
+│   │       ├── blinky.c  #   Blinky HSM — idle/active states, timer-driven
+│   │       └── blinky.h
 │   └── ui/               # UI module (main-thread event loop)
-│       ├── ui.c          #   UI_prepare, UI_loop, input routing, rendering
-│       ├── ui.h
-│       ├── ui_evt.c      #   Thread-safe event queue (eventfd + ring buffer)
+│       ├── ui.h          #   Public UI thread lifecycle API
 │       ├── ui_evt.h      #   UI_Evt, UI_AppEvt, signal enum, cross-thread post
-│       ├── sm_ui.c       #   SM_UI HSM — showMain / showMenu states
-│       ├── sm_ui.h
-│       ├── sm_ui_key.c   #   SM_UI_Key HSM — placeholder, idle-only
-│       └── sm_ui_key.h
+│       ├── thread/       #   UI thread infrastructure
+│       │   ├── ui.c      #     Lifecycle, input routing, rendering
+│       │   ├── ui_evt.c  #     Eventfd + thread-safe ring buffer
+│       │   └── ui_evt_priv.h
+│       ├── hsm/          #   UI state machines
+│       │   ├── sm_ui.c
+│       │   ├── sm_ui.h
+│       │   ├── sm_ui_key.c
+│       │   └── sm_ui_key.h
+│       └── widgets/      #   Reusable UI components
+│           ├── text_buffer_view.c
+│           └── text_buffer_view.h
 ├── ports/                 # Desktop port layer
 │   ├── sm/               #   sm_hsm port
 │   │   └── sm_port.h     #     offsetof/containerof macros
@@ -48,7 +56,7 @@ A terminal-based HSM (Hierarchical State Machine) visualizer/demo using **notcur
 
 | Thread | Role | Runs |
 |--------|------|------|
-| **Main** | UI loop, input, notcurses rendering | `UI_loop()` — poll-based event loop |
+| **Main** | UI loop, input, notcurses rendering | `UI_run()` — poll-based event loop |
 | **SST** | AO kernel, all Active Objects | `SST_Task_run()` — each AO in its own pthread |
 
 **Event flow** (cross-thread):
@@ -197,7 +205,7 @@ The keybar helpers (`SM_UI_setKeybarClosed_`, `SM_UI_setKeybarOpen_`) take a `st
 - Render frame cap: 60 fps in `UI_render_()`.
 - `mainPlane` background is filled solid via `ncplane_set_base_cell` (opaque). Colors: `(25, 25, 40)` bg, `(200, 220, 200)` fg.
 
-## Code organization (sm_ui.c)
+## Code organization (`hsm/sm_ui.c`)
 
 The file is organized into clear sections:
 

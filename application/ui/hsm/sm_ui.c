@@ -10,12 +10,12 @@
 //============================================================================
 //=== UI HSM -- minimal, blinky interaction
 #include <stdio.h>
+#include <notcurses/notcurses.h>
 #include "sm_port.h"
 #include "sm_hsm.h"
 #include "dbc_assert.h"
-#include "ui.h"
 #include "sm_ui_key.h"
-#include "text_buffer_view.h"
+#include "widgets/text_buffer_view.h"
 #include "sm_ui.h"
 DBC_MODULE_NAME("ui_hsm")
 
@@ -55,7 +55,6 @@ struct NcDisp {
     struct Menu       menu;
     bool              dirty;
     bool              mainBufferDirty;
-    struct timespec   lastRender;
 };
 
 typedef struct {
@@ -64,10 +63,10 @@ typedef struct {
     VC_Handler dispatch;
     struct NcDisp disp;
     SM_UI_Key cmdHsm;
-    bool quit;
 } SM_UI;
 
 static SM_UI SM_UI_inst_;
+static SM_UI_HostOps SM_UI_hostOps_;
 
 //============================================================================
 //--- Private declarations ---
@@ -348,38 +347,38 @@ static SM_RetState SM_UI_active_(SM_Hsm * const me, UI_Evt const * const e) {
     SM_UI *ao = containerof(me, SM_UI, super);
 
     switch (e->sig) {
-    //------------------------------------------------------------------------
-    //--- user input events
-    case UI_TIMER_SIG: {
-        return _SM_HANDLED();
-    }
+        //--------------------------------------------------------------------
+        //--- user input events
+        case UI_TIMER_SIG: {
+            return _SM_HANDLED();
+        }
 
-    case UI_RESIZE_SIG: {
-        SM_UI_disp_syncMenu_(&ao->disp);
-        return _SM_HANDLED();
-    }
+        case UI_RESIZE_SIG: {
+            SM_UI_disp_syncMenu_(&ao->disp);
+            return _SM_HANDLED();
+        }
 
-    case UI_BLINKY_TEXT_SIG:
-    case UI_KEY_DEBUG_SIG: {
-        UI_AppEvt const *ae = (UI_AppEvt const *)e;
-        SM_UI_disp_pushText_(&ao->disp, ae->pld.msg.text,
-                             ae->pld.msg.len);
-        return _SM_HANDLED();
-    }
+        case UI_BLINKY_TEXT_SIG:
+        case UI_KEY_DEBUG_SIG: {
+            UI_AppEvt const *ae = (UI_AppEvt const *)e;
+            SM_UI_disp_pushText_(&ao->disp, ae->pld.msg.text,
+                                ae->pld.msg.len);
+            return _SM_HANDLED();
+        }
 
-    case UI_KEY_PGUP_SIG: {
-        SM_UI_disp_scrollMainPageUp_(&ao->disp);
-        return _SM_HANDLED();
-    }
+        case UI_KEY_PGUP_SIG: {
+            SM_UI_disp_scrollMainPageUp_(&ao->disp);
+            return _SM_HANDLED();
+        }
 
-    case UI_KEY_PGDN_SIG: {
-        SM_UI_disp_scrollMainPageDown_(&ao->disp);
-        return _SM_HANDLED();
-    }
+        case UI_KEY_PGDN_SIG: {
+            SM_UI_disp_scrollMainPageDown_(&ao->disp);
+            return _SM_HANDLED();
+        }
 
-    default: {
-        return _SM_SUPER();
-    }
+        default: {
+            return _SM_SUPER();
+        }
     }
 }
 
@@ -393,13 +392,13 @@ static SM_RetState SM_UI_showMain_(SM_Hsm * const me,
     (void)me;
 
     switch (e->sig) {
-    case UI_KEY_CTRL_SLASH_SIG: {
-        return _SM_TRAN(&SM_UI_showMenu);
-    }
+        case UI_KEY_CTRL_SLASH_SIG: {
+            return _SM_TRAN(&SM_UI_showMenu);
+        }
 
-    default: {
-        return _SM_SUPER();
-    }
+        default: {
+            return _SM_SUPER();
+        }
     }
 }
 
@@ -420,56 +419,57 @@ static SM_RetState SM_UI_showMenu_(SM_Hsm * const me,
     SM_UI *ao = containerof(me, SM_UI, super);
 
     switch (e->sig) {
-    case UI_KEY_DOWN_SIG:
-    case UI_KEY_CTRL_N_SIG:
-    case UI_KEY_J_SIG: {
-        SM_UI_disp_selectMenuNext_(&ao->disp);
-        return _SM_HANDLED();
-    }
+        case UI_KEY_DOWN_SIG:
+        case UI_KEY_CTRL_N_SIG:
+        case UI_KEY_J_SIG: {
+            SM_UI_disp_selectMenuNext_(&ao->disp);
+            return _SM_HANDLED();
+        }
 
-    case UI_KEY_UP_SIG:
-    case UI_KEY_CTRL_P_SIG:
-    case UI_KEY_K_SIG: {
-        SM_UI_disp_selectMenuPrev_(&ao->disp);
-        return _SM_HANDLED();
-    }
+        case UI_KEY_UP_SIG:
+        case UI_KEY_CTRL_P_SIG:
+        case UI_KEY_K_SIG: {
+            SM_UI_disp_selectMenuPrev_(&ao->disp);
+            return _SM_HANDLED();
+        }
 
-    case UI_KEY_ENTER_SIG: {
-        switch (SM_UI_disp_menuAction_(&ao->disp)) {
-        case MENU_ACT_RESUME: {
-            SM_UI_disp_markDirty_(&ao->disp);
+        case UI_KEY_ENTER_SIG: {
+            switch (SM_UI_disp_menuAction_(&ao->disp)) {
+            case MENU_ACT_RESUME: {
+                SM_UI_disp_markDirty_(&ao->disp);
+                return _SM_TRAN(&SM_UI_showMain);
+            }
+            case MENU_ACT_CLEAR: {
+                SM_UI_disp_clearMain_(&ao->disp);
+                return _SM_TRAN(&SM_UI_showMain);
+            }
+            case MENU_ACT_ABOUT: {
+                UI_postText(UI_BLINKY_TEXT_SIG,
+                            "termbox v0.1 -- HSM demo\n"
+                            "notcurses + SST + sm_hsm\n");
+                return _SM_TRAN(&SM_UI_showMain);
+            }
+            case MENU_ACT_QUIT: {
+                (*SM_UI_hostOps_.requestQuit)(SM_UI_hostOps_.ctx);
+                return _SM_TRAN(&SM_UI_showMain);
+            }
+            default:
+                break;
+            }
+            return _SM_HANDLED();
+        }
+
+        case UI_KEY_CTRL_SLASH_SIG: {
             return _SM_TRAN(&SM_UI_showMain);
         }
-        case MENU_ACT_CLEAR: {
-            SM_UI_disp_clearMain_(&ao->disp);
+
+        case UI_KEY_ESC_SIG: {
             return _SM_TRAN(&SM_UI_showMain);
         }
-        case MENU_ACT_ABOUT: {
-            UI_postText(UI_BLINKY_TEXT_SIG,
-                        "termbox v0.1 -- HSM demo\n"
-                        "notcurses + SST + sm_hsm\n");
-            return _SM_TRAN(&SM_UI_showMain);
-        }
-        case MENU_ACT_QUIT: {
-            ao->quit = true;
-            return _SM_TRAN(&SM_UI_showMain);
-        }
-        default:
-            break;
-        }
-        return _SM_HANDLED();
-    }
 
-    case UI_KEY_CTRL_SLASH_SIG: {
-        return _SM_TRAN(&SM_UI_showMain);
-    }
-
-    case UI_KEY_ESC_SIG: {
-        return _SM_TRAN(&SM_UI_showMain);
-    }
-
-    default:
-        return _SM_SUPER();
+        default: {
+            return _SM_SUPER();
+        }
     }
 }
 
@@ -503,11 +503,8 @@ static void SM_UI_ctor_(SM_UI * const me) {
     me->disp.menu.plane = (struct ncplane *)0;
     me->disp.menu.sel    = 0U;
     me->disp.menu.visible = false;
-    me->quit        = false;
     me->disp.dirty = false;
     me->disp.mainBufferDirty = false;
-    me->disp.lastRender.tv_sec = 0;
-    me->disp.lastRender.tv_nsec = 0;
 }
 
 static void SM_UI_start_(SM_UI * const me) {
@@ -516,40 +513,25 @@ static void SM_UI_start_(SM_UI * const me) {
     (*me->init)(me, (void const *)0);
 }
 
-static void SM_UI_flush_(SM_UI * const me) {
-    DBC_REQUIRE(500, me != (SM_UI *)0);
-    SM_UI_disp_flush_(&me->disp);
-}
-
-void SM_UI_setup(struct notcurses * const nc) {
+void SM_UI_setup(struct notcurses * const nc,
+                 SM_UI_HostOps const * const hostOps)
+{
     DBC_REQUIRE(503, nc != (struct notcurses *)0);
+    DBC_REQUIRE(507, hostOps != (SM_UI_HostOps const *)0);
+    DBC_REQUIRE(508, hostOps->requestQuit != (void (*)(void *))0);
 
+    SM_UI_hostOps_ = *hostOps;
     SM_UI_ctor_(&SM_UI_inst_);
     SM_UI_inst_.disp.nc = nc;
     SM_UI_start_(&SM_UI_inst_);
-}
-
-bool SM_UI_shouldQuit(void) {
-    return SM_UI_inst_.quit;
 }
 
 bool SM_UI_needsRender(void) {
     return SM_UI_inst_.disp.dirty;
 }
 
-struct timespec SM_UI_lastRender(void) {
-    return SM_UI_inst_.disp.lastRender;
-}
-
-void SM_UI_onRenderFrame(struct timespec const * const now) {
-    DBC_REQUIRE(504, now != (struct timespec const *)0);
-
-    SM_UI_inst_.disp.lastRender = *now;
-    SM_UI_flush_(&SM_UI_inst_);
-}
-
-struct notcurses *SM_UI_nc(void) {
-    return SM_UI_inst_.disp.nc;
+void SM_UI_flush(void) {
+    SM_UI_disp_flush_(&SM_UI_inst_.disp);
 }
 
 void SM_UI_dispatchEvt(UI_Evt const * const e) {

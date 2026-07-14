@@ -11,17 +11,19 @@
 #define SM_UI_H_
 
 #include <stdbool.h>
-#include <time.h>
 #include "ui_evt.h"
 
 struct notcurses;
 
-void SM_UI_setup(struct notcurses *nc);
-bool SM_UI_shouldQuit(void);
+typedef struct {
+    void (*requestQuit)(void *ctx);
+    void *ctx;
+} SM_UI_HostOps;
+
+void SM_UI_setup(struct notcurses *nc,
+                 SM_UI_HostOps const *hostOps);
 bool SM_UI_needsRender(void);
-struct timespec SM_UI_lastRender(void);
-void SM_UI_onRenderFrame(struct timespec const *now);
-struct notcurses *SM_UI_nc(void);
+void SM_UI_flush(void);
 void SM_UI_dispatchEvt(UI_Evt const *e);
 
 #endif // SM_UI_H_

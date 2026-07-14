@@ -12,7 +12,7 @@
 #include "sst.h"
 #include "dbc_assert.h"
 #include "aos.h"
-#include "blinky.h"
+#include "blinky/blinky.h"
 DBC_MODULE_NAME("aos")
 
 //============================================================================

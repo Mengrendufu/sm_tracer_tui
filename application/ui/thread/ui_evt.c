@@ -15,7 +15,7 @@
 #include <sys/eventfd.h>
 #include <unistd.h>
 #include "dbc_assert.h"
-#include "ui_evt.h"
+#include "ui_evt_priv.h"
 DBC_MODULE_NAME("ui_evt")
 
 #define UI_QLEN_ 128U
@@ -129,9 +129,11 @@ void UI_postText(UI_Signal sig, char const *text) {
 //============================================================================
 //=== Init / Dequeue / Free
 
-void UI_evtInit(void) {
+int UI_evtInit(void) {
+    DBC_REQUIRE(500, l_evfd < 0);
+
     l_evfd = eventfd(0, EFD_NONBLOCK);
-    DBC_REQUIRE(500, l_evfd >= 0);
+    return l_evfd >= 0 ? 0 : 1;
 }
 
 int UI_evtFd(void) {

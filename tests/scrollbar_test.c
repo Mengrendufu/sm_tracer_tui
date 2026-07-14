@@ -8,7 +8,7 @@
 // See http://www.wtfpl.net/ for more details.
 //============================================================================
 #include <assert.h>
-#include "text_buffer_view.h"
+#include "widgets/text_buffer_view.h"
 
 int main(void) {
     ScrollBar bar;

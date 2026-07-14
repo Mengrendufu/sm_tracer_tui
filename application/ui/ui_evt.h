@@ -61,16 +61,4 @@ void UI_postSignal(UI_Signal sig);
 // Post a text event to the UI (thread-safe, callable from SST AOs)
 void UI_postText(UI_Signal sig, char const *text);
 
-// Initialize the event subsystem (call once before any post)
-void UI_evtInit(void);
-
-// Return the eventfd for poll (call after UI_evtInit)
-int UI_evtFd(void);
-
-// Dequeue one event (returns NULL if empty)
-UI_Evt *UI_evtDequeue(void);
-
-// Free an event (mirrors the internal allocator)
-void UI_evtFree(UI_Evt *e);
-
 #endif // UI_EVT_H_

@@ -16,7 +16,9 @@
 #include "sst.h"
 #include "ui.h"
 #include "dbc_assert.h"
-DBC_MODULE_NAME("main")
+
+//============================================================================
+// DBC_MODULE_NAME("main")
 
 //============================================================================
 //=== SST kernel thread
@@ -29,14 +31,6 @@ static void *SST_thread(void *arg) {
 static pthread_t SST_tid;
 
 //============================================================================
-//=== notcurses
-
-static struct notcurses_options opts = {
-    .flags = NCOPTION_SUPPRESS_BANNERS
-};
-static struct notcurses *nc;
-
-//============================================================================
 //=== Main entry
 
 int main(int const argc, char const ** const argv) {
@@ -44,22 +38,19 @@ int main(int const argc, char const ** const argv) {
 
     //------------------------------------------------------------------------
     setlocale(LC_ALL, "");
-    nc = notcurses_core_init(&opts, NULL);
-    if (!nc) {
-        fprintf(stderr, "notcurses init failed\n");
+    if (UI_init() != 0) {
+        fprintf(stderr, "UI init failed\n");
         return 1;
     }
 
     //------------------------------------------------------------------------
     SST_init();
-    UI_prepare(nc);
     pthread_create(&SST_tid, NULL, SST_thread, NULL);
 
     //------------------------------------------------------------------------
-    UI_loop();
-
-    //------------------------------------------------------------------------
-    notcurses_stop(nc);
+    if (UI_run() != 0) {
+        return 1;
+    }
     printf("Goodbye!\n");
 
     return 0;

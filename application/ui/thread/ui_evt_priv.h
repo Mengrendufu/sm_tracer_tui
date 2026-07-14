@@ -7,18 +7,24 @@
 // To Public License, Version 2, as published by Sam Hocevar.
 // See http://www.wtfpl.net/ for more details.
 //============================================================================
-#ifndef UI_H_
-#define UI_H_
+#ifndef UI_EVT_PRIV_H_
+#define UI_EVT_PRIV_H_
+
+#include "ui_evt.h"
 
 //============================================================================
-//=== UI module — main thread event loop, notcurses rendering
+//=== UI event runtime — private to the UI package
 
-// Initialize notcurses, UI planes, eventfd, tick registration
-// Returns 0 on success, nonzero on failure.
-int UI_init(void);
+// Initialize the event subsystem; return 0 on success.
+int UI_evtInit(void);
 
-// Run the UI event loop (blocks until quit), then cleanup notcurses.
-// Returns 0 on normal quit, nonzero on failure.
-int UI_run(void);
+// Return the eventfd for poll (call after UI_evtInit).
+int UI_evtFd(void);
 
-#endif // UI_H_
+// Dequeue one event (returns NULL if empty).
+UI_Evt *UI_evtDequeue(void);
+
+// Free an event (mirrors the internal allocator).
+void UI_evtFree(UI_Evt *e);
+
+#endif // UI_EVT_PRIV_H_

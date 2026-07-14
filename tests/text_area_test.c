@@ -9,7 +9,7 @@
 //============================================================================
 #include <assert.h>
 #include <string.h>
-#include "text_buffer_view.h"
+#include "widgets/text_buffer_view.h"
 
 int main(void) {
     struct TextArea ta;
