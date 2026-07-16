@@ -18,8 +18,11 @@
 // Initialize the event subsystem; return 0 on success.
 int UI_evtInit(void);
 
-// Return the eventfd for poll (call after UI_evtInit).
-int UI_evtFd(void);
+// Return the borrowed eventfd for poll registration (call after UI_evtInit).
+int UI_evtWakeFd(void);
+
+// Consume a pending eventfd notification; return 0 on success.
+int UI_evtConsumeWake(void);
 
 // Dequeue one event (returns NULL if empty).
 UI_Evt *UI_evtDequeue(void);

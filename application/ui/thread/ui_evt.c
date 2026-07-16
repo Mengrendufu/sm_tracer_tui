@@ -127,7 +127,7 @@ void UI_postText(UI_Signal sig, char const *text) {
 }
 
 //============================================================================
-//=== Init / Dequeue / Free
+//=== Init / Wake fd / Dequeue / Free
 
 int UI_evtInit(void) {
     DBC_REQUIRE(500, l_evfd < 0);
@@ -136,8 +136,16 @@ int UI_evtInit(void) {
     return l_evfd >= 0 ? 0 : 1;
 }
 
-int UI_evtFd(void) {
+int UI_evtWakeFd(void) {
     return l_evfd;
+}
+
+int UI_evtConsumeWake(void) {
+    DBC_REQUIRE(501, l_evfd >= 0);
+
+    uint64_t count;
+    ssize_t const rd = read(l_evfd, &count, sizeof(count));
+    return rd == (ssize_t)sizeof(count) ? 0 : 1;
 }
 
 UI_Evt *UI_evtDequeue(void) {

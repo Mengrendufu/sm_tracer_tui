@@ -16,7 +16,6 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
-#include <unistd.h>
 #include <notcurses/notcurses.h>
 #include "dbc_assert.h"
 #include "bsp.h"
@@ -185,7 +184,7 @@ int UI_run(void) {
     int result = 0;
 
     int ncFd = notcurses_inputready_fd(UI_nc_);
-    int evFd = UI_evtFd();
+    int evFd = UI_evtWakeFd();
     DBC_REQUIRE(503, evFd >= 0);
 
     struct pollfd fds[2];
@@ -237,13 +236,9 @@ int UI_run(void) {
         }
 
         if (fds[1].revents & POLLIN) {
-            uint64_t dummy;
-            ssize_t const rd = read(evFd, &dummy, sizeof(dummy));
-            if (rd != (ssize_t)sizeof(dummy)) {
+            if (UI_evtConsumeWake() != 0) {
                 errorMsg = "eventfd read failed";
-                if (rd < 0) {
-                    errorNo = errno;
-                }
+                errorNo = errno;
                 result = 1;
                 break;
             }
