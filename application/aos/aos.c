@@ -13,7 +13,9 @@
 #include "dbc_assert.h"
 #include "aos.h"
 #include "blinky/blinky.h"
-DBC_MODULE_NAME("aos")
+
+//============================================================================
+// DBC_MODULE_NAME("aos")
 
 //============================================================================
 //=== AO startup — construct + start all Active Objects
@@ -23,6 +25,6 @@ void SST_start(void) {
     static SST_Evt const * Blinky_qSto[16];
     SST_Task_start(AO_Blinky,
                    1U,                    // priority
-                   Blinky_qSto, sizeof(Blinky_qSto)/sizeof(Blinky_qSto[0]),
+                   Blinky_qSto, ARRAY_NELEM(Blinky_qSto),
                    (SST_Evt const *)0);  // init event
 }

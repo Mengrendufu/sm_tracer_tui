@@ -15,6 +15,13 @@
 
 struct notcurses;
 
+//============================================================================
+//=== Host capability required by SM_UI
+//
+// SM_UI owns this required-port contract, not its implementation.
+// The host runtime supplies requestQuit() and ctx to SM_UI_setup().
+// SM_UI copies the descriptor and invokes it without importing the host.
+// The ctx pointee remains host-owned and must outlive SM_UI use.
 typedef struct {
     void (*requestQuit)(void *ctx);
     void *ctx;

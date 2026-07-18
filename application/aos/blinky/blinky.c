@@ -34,22 +34,25 @@ SST_Task * const AO_Blinky = &Blinky_inst.super;
 //============================================================================
 //=== HSM states
 
+// TOP-INIT
 static SM_StatePtr Blinky_TOP_initial(SM_Hsm *me) SM_HSM_RETT;
 
+// off
 static void        Blinky_off_entry_(SM_Hsm *me) SM_HSM_RETT;
 static SM_RetState Blinky_off_(SM_Hsm *me, SST_Evt const *e) SM_HSM_RETT;
 SM_HsmState SM_HSM_ROM Blinky_off = {
-    (SM_StatePtr)0,                        // super (top)
+    SM_HSM_TOP,                        // super (top)
     (SM_InitHandler)0,                     // init_ (leaf)
     (SM_ActionHandler)&Blinky_off_entry_, // entry_
     (SM_ActionHandler)0,                   // exit_
     (SM_StateHandler)&Blinky_off_         // handler_
 };
 
+// on
 static void        Blinky_on_entry_(SM_Hsm *me) SM_HSM_RETT;
 static SM_RetState Blinky_on_(SM_Hsm *me, SST_Evt const *e) SM_HSM_RETT;
 SM_HsmState SM_HSM_ROM Blinky_on = {
-    (SM_StatePtr)0,                          // super (top)
+    SM_HSM_TOP,                          // super (top)
     (SM_InitHandler)0,                       // init_ (leaf)
     (SM_ActionHandler)&Blinky_on_entry_, // entry_
     (SM_ActionHandler)0,                     // exit_
@@ -59,6 +62,7 @@ SM_HsmState SM_HSM_ROM Blinky_on = {
 //============================================================================
 //=== HSM implementations
 
+// TOP-INIT
 static SM_StatePtr Blinky_TOP_initial(SM_Hsm * const me) SM_HSM_RETT {
     Blinky *b = containerof(me, Blinky, hsm);
     SST_TimeEvt_arm(&b->timer, BSP_TICKS_PER_SEC, BSP_TICKS_PER_SEC);
@@ -66,37 +70,37 @@ static SM_StatePtr Blinky_TOP_initial(SM_Hsm * const me) SM_HSM_RETT {
     return _SM_INIT(&Blinky_off);
 }
 
+// off
 static void Blinky_off_entry_(SM_Hsm * const me) SM_HSM_RETT {
     (void)me;
     UI_postText(UI_BLINKY_TEXT_SIG, "blink off!\n");
 }
-
 static SM_RetState Blinky_off_(SM_Hsm * const me, SST_Evt const * const e) {
     (void)me;
     switch (e->sig) {
-    case BLINKY_TIMEOUT_SIG: {
-        return _SM_TRAN(&Blinky_on);
-    }
-    default: {
-        return _SM_SUPER();
-    }
+        case BLINKY_TIMEOUT_SIG: {
+            return _SM_TRAN(&Blinky_on);
+        }
+        default: {
+            return _SM_SUPER();
+        }
     }
 }
 
+// on
 static void Blinky_on_entry_(SM_Hsm * const me) SM_HSM_RETT {
     (void)me;
     UI_postText(UI_BLINKY_TEXT_SIG, "blink on!\n");
 }
-
 static SM_RetState Blinky_on_(SM_Hsm * const me, SST_Evt const * const e) {
     (void)me;
     switch (e->sig) {
-    case BLINKY_TIMEOUT_SIG: {
-        return _SM_TRAN(&Blinky_off);
-    }
-    default: {
-        return _SM_SUPER();
-    }
+        case BLINKY_TIMEOUT_SIG: {
+            return _SM_TRAN(&Blinky_off);
+        }
+        default: {
+            return _SM_SUPER();
+        }
     }
 }
 

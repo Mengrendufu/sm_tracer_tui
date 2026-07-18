@@ -12,7 +12,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <errno.h>
-#include <poll.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
@@ -21,6 +20,7 @@
 #include "bsp.h"
 #include "ui.h"
 #include "ui_evt_priv.h"
+#include "ui_thread_wake_priv.h"
 #include "hsm/sm_ui.h"
 DBC_MODULE_NAME("ui")
 
@@ -78,6 +78,7 @@ static void UI_routeInput_(uint32_t r, ncinput const *ni) {
     } else if (r == NCKEY_RESIZE) {
         sig = UI_RESIZE_SIG;
     } else {
+        // DEBUG -------------------------------------------------------------
         char buf[64];
         (void)snprintf(buf, sizeof(buf),
                        "key: r=0x%08X mod=%u\n", r, ni->modifiers);
@@ -145,6 +146,7 @@ static int FrameClock_tick_(struct FrameClock_ *fc) {
     return 0;
 }
 
+//============================================================================
 // Host capability injected into SM_UI. The opaque context keeps the quit
 // latch owned and hidden by this module while HSM requests termination.
 static void UI_requestQuit_(void * const ctx) {
@@ -152,6 +154,7 @@ static void UI_requestQuit_(void * const ctx) {
     *((bool *)ctx) = true;
 }
 
+//============================================================================
 int UI_init(void) {
     SM_UI_HostOps const hostOps = {
         .requestQuit = &UI_requestQuit_,
@@ -183,23 +186,21 @@ int UI_run(void) {
     int errorNo = 0;
     int result = 0;
 
-    int ncFd = notcurses_inputready_fd(UI_nc_);
-    int evFd = UI_evtWakeFd();
-    DBC_REQUIRE(503, evFd >= 0);
-
-    struct pollfd fds[2];
-    fds[0].fd      = ncFd;
-    fds[0].events  = POLLIN;
-    fds[1].fd      = evFd;
-    fds[1].events  = POLLIN;
+    // Runtime wiring for UI Thread Wake required inputs. notcurses Runtime
+    // provides terminal readiness; UI Event Inbox provides event readiness.
+    int terminalFd = notcurses_inputready_fd(UI_nc_);
+    int eventFd = UI_evtWakeFd();
+    DBC_REQUIRE(503, eventFd >= 0);
 
     struct FrameClock_ fc = {0};
 
-    if (ncFd < 0) {
+    if (terminalFd < 0) {
         errorMsg = "notcurses input fd unavailable";
         result = 1;
         goto cleanup;
     }
+
+    UI_ThreadWake_init(terminalFd, eventFd);
 
     while (!UI_quitRequested_) {
         if (FrameClock_tick_(&fc) != 0) {
@@ -209,7 +210,15 @@ int UI_run(void) {
             break;
         }
 
-        if (poll(fds, 2, fc.pollTimeout) < 0) {
+        //--------------------------------------------------------------------
+        // tripple block source:
+        // 1. thread event queue
+        // 2. notcurses input
+        // 3. rendering timeout
+        // Frame Clock supplies the dynamic render deadline to the fixed wait
+        // set bound above.
+        int waitReady = UI_ThreadWake_wait(fc.pollTimeout);
+        if (waitReady < 0) {
             if (errno == EINTR) {
                 continue;
             }
@@ -219,7 +228,7 @@ int UI_run(void) {
             break;
         }
 
-        if (fds[0].revents & POLLIN) {
+        if ((waitReady & UI_THREAD_WAKE_TERMINAL) != 0) {
             ncinput ni;
             uint32_t const r = notcurses_get_nblock(UI_nc_, &ni);
             if (r == (uint32_t)-1) {
@@ -235,7 +244,7 @@ int UI_run(void) {
             }
         }
 
-        if (fds[1].revents & POLLIN) {
+        if ((waitReady & UI_THREAD_WAKE_EVENT) != 0) {
             if (UI_evtConsumeWake() != 0) {
                 errorMsg = "eventfd read failed";
                 errorNo = errno;

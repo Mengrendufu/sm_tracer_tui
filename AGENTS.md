@@ -20,6 +20,8 @@ A terminal-based HSM (Hierarchical State Machine) visualizer/demo using **notcur
 │       ├── thread/       #   UI thread infrastructure
 │       │   ├── ui.c      #     Lifecycle, input routing, rendering
 │       │   ├── ui_evt.c  #     Eventfd + thread-safe ring buffer
+│       │   ├── ui_thread_wake.c      # Wake source aggregation for poll() waits
+│       │   ├── ui_thread_wake_priv.h # Private wake descriptors and ready bits
 │       │   └── ui_evt_priv.h
 │       ├── hsm/          #   UI state machines
 │       │   ├── sm_ui.c
@@ -48,7 +50,7 @@ A terminal-based HSM (Hierarchical State Machine) visualizer/demo using **notcur
 ├── docs/qm/                  # QM model files (State Machine modeling tool)
 │   └── blinky.qm
 ├── CMakeLists.txt
-├── CMakePresets.json        # Ninja Multi-Config presets
+├── CMakePresets.json        # Debug / Release CMake presets
 └── toolchain_gcc.cmake      # gcc, -Wall -Wextra -Wpedantic
 ```
 
@@ -73,23 +75,29 @@ AOs (Blinky) post text to UI via `UI_postText()` → same queue → main thread 
 ## Essential commands
 
 ```sh
-# Configure (one-time)
-cmake --preset configure
+# Configure Debug (one-time)
+cmake --preset debug
+
+# Configure Release (one-time)
+cmake --preset release
 
 # Build (after configure)
 cmake --build --preset build-debug
+cmake --build --preset build-release
 
 # Run
 cmake --build --preset run-debug
+cmake --build --preset run-release
 
 # Clean
 cmake --build --preset clean-debug
+cmake --build --preset clean-release
 
 # Explicit ninja commands (after configure)
-cd build && ninja -f build-Debug.ninja
+ninja -C build/Linux/debug
 
 # Rebuild after changing CMakeLists.txt
-cmake --preset configure && cmake --build --preset build-debug
+cmake --preset debug && cmake --build --preset build-debug
 ```
 
 ## HSM patterns
@@ -176,6 +184,14 @@ me->dispatch = (VC_Handler)MyAO_dispatch;
 - **Signals** (in order): `UI_NULL_SIG`, `UI_KEY_ESC_SIG`, `UI_KEY_CTRL_SLASH_SIG`, `UI_KEY_UP_SIG`, `UI_KEY_DOWN_SIG`, `UI_KEY_ENTER_SIG`, `UI_KEY_J_SIG`, `UI_KEY_K_SIG`, `UI_KEY_PGUP_SIG`, `UI_KEY_PGDN_SIG`, `UI_KEY_DEBUG_SIG`, `UI_TIMER_SIG`, `UI_BLINKY_TEXT_SIG`, `UI_RESIZE_SIG`.
 - `UI_evtFree` just does `free()` — no ref counting.
 - Quit is **only** accessible via the menu's "Quit" item. No key shortcut.
+- **UI Event Inbox owns the eventfd** used for producer wakeups; notcurses Runtime owns the input fd.
+- `ui_thread_wake.c`/`ui_thread_wake_priv.h` form a private module that:
+  - borrow terminal fd and eventfd,
+  - own a fixed `pollfd[2]`,
+  - call `poll()` with the dynamic `FrameClock` timeout,
+  - return readiness bits only.
+- Wait readiness is limited to three conditions: terminal input fd readable, eventfd readable, render-deadline timeout.
+- The wake module does not consume inputs/eventfd or claim either fd lifecycle.
 
 ## Interactive menu
 
