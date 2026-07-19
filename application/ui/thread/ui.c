@@ -31,7 +31,13 @@ static struct notcurses_options UI_ncOpts_ = {
     .flags = NCOPTION_SUPPRESS_BANNERS
 };
 static struct notcurses *UI_nc_;
-static bool UI_quitRequested_;
+
+struct UI_HostState {
+    bool quitRequested;
+    bool framePending;
+};
+
+static struct UI_HostState UI_hostState_;
 
 #define UI_FRAME_MS_   (1000U / 60U)
 
@@ -126,14 +132,16 @@ static uint64_t UI_elapsedMs_(struct timespec const *now,
     return sec * 1000ULL + (uint64_t)nsec / (uint64_t)UI_NS_PER_MS_;
 }
 
-static int FrameClock_tick_(struct FrameClock_ *fc) {
+static int FrameClock_tick_(struct FrameClock_ *fc,
+                            bool const framePending)
+{
     DBC_REQUIRE(520, fc != (struct FrameClock_ *)0);
 
     if (clock_gettime(CLOCK_MONOTONIC, &fc->now) != 0) {
         return 1;
     }
 
-    if (!SM_UI_needsRender()) {
+    if (!framePending) {
         fc->canRender  = false;
         fc->pollTimeout = -1;
         return 0;
@@ -147,18 +155,26 @@ static int FrameClock_tick_(struct FrameClock_ *fc) {
 }
 
 //============================================================================
-// Host capability injected into SM_UI. The opaque context keeps the quit
-// latch owned and hidden by this module while HSM requests termination.
+// Host capabilities injected into SM_UI. The opaque context keeps runtime
+// control latches owned and hidden by this module while HSM requests changes.
+// One host context travels with the callback table; each handler restores its
+// concrete type and mutates only the member belonging to that capability.
 static void UI_requestQuit_(void * const ctx) {
     DBC_REQUIRE(521, ctx != (void *)0);
-    *((bool *)ctx) = true;
+    ((struct UI_HostState *)ctx)->quitRequested = true;
+}
+
+static void UI_requestFrame_(void * const ctx) {
+    DBC_REQUIRE(522, ctx != (void *)0);
+    ((struct UI_HostState *)ctx)->framePending = true;
 }
 
 //============================================================================
 int UI_init(void) {
     SM_UI_HostOps const hostOps = {
         .requestQuit = &UI_requestQuit_,
-        .ctx = &UI_quitRequested_
+        .requestFrame = &UI_requestFrame_,
+        .ctx = &UI_hostState_
     };
 
     UI_nc_ = notcurses_core_init(&UI_ncOpts_, NULL);
@@ -172,7 +188,8 @@ int UI_init(void) {
         return 1;
     }
 
-    UI_quitRequested_ = false;
+    UI_hostState_.quitRequested = false;
+    UI_hostState_.framePending = false;
     SM_UI_setup(UI_nc_, &hostOps);
     BSP_registerTickHandler(&UI_onTick_);
     return 0;
@@ -202,8 +219,8 @@ int UI_run(void) {
 
     UI_ThreadWake_init(terminalFd, eventFd);
 
-    while (!UI_quitRequested_) {
-        if (FrameClock_tick_(&fc) != 0) {
+    while (!UI_hostState_.quitRequested) {
+        if (FrameClock_tick_(&fc, UI_hostState_.framePending) != 0) {
             errorMsg = "clock_gettime failed";
             errorNo = errno;
             result = 1;
@@ -262,6 +279,7 @@ int UI_run(void) {
         }
 
         if (fc.canRender) {
+            UI_hostState_.framePending = false;
             SM_UI_flush();
             if (notcurses_render(UI_nc_) != 0) {
                 errorMsg = "notcurses render failed";

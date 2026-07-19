@@ -53,7 +53,6 @@ struct NcDisp {
     struct TextBufferView mainBuffer;
     struct ncplane   *keybarPlane;
     struct Menu       menu;
-    bool              dirty;
     bool              mainBufferDirty;
 };
 
@@ -226,9 +225,9 @@ static void        SM_UI_std_mainBufferFrame_resize_(
 
 // Display graph handlers:
 // - HSM and callback code enter component IO through this layer.
-// - owns dirty propagation and NcDisp-level component wiring.
+// - owns NcDisp-level component wiring and component refresh state.
 // - create wires the full display graph from the stdplane.
-// - text, clear, scroll, and menu actions mark dirty in one place.
+// - text, clear, and scroll actions mark main-buffer refresh in one place.
 // - resize and flush centralize deferred repaint scheduling.
 static void        SM_UI_disp_create_(struct NcDisp *disp, SM_UI *owner);
 static void        SM_UI_disp_pushText_(struct NcDisp *disp,
@@ -251,8 +250,8 @@ static void        SM_UI_disp_resizeKeybar_(struct NcDisp *disp,
 static void        SM_UI_disp_resizeMenu_(struct NcDisp *disp,
                                           struct ncplane *stdPlane);
 static void        SM_UI_disp_flush_(struct NcDisp *disp);
-static void        SM_UI_disp_markDirty_(struct NcDisp *disp);
 static void        SM_UI_disp_markMainBufferDirty_(struct NcDisp *disp);
+static void        SM_UI_requestFrame_(void);
 
 // Notcurses callback adapters:
 // - adapt raw ncplane callback context back into the display graph layer.
@@ -436,7 +435,7 @@ static SM_RetState SM_UI_showMenu_(SM_Hsm * const me,
         case UI_KEY_ENTER_SIG: {
             switch (SM_UI_disp_menuAction_(&ao->disp)) {
             case MENU_ACT_RESUME: {
-                SM_UI_disp_markDirty_(&ao->disp);
+                SM_UI_requestFrame_();
                 return _SM_TRAN(&SM_UI_showMain);
             }
             case MENU_ACT_CLEAR: {
@@ -503,7 +502,6 @@ static void SM_UI_ctor_(SM_UI * const me) {
     me->disp.menu.plane = (struct ncplane *)0;
     me->disp.menu.sel    = 0U;
     me->disp.menu.visible = false;
-    me->disp.dirty = false;
     me->disp.mainBufferDirty = false;
 }
 
@@ -519,15 +517,12 @@ void SM_UI_setup(struct notcurses * const nc,
     DBC_REQUIRE(503, nc != (struct notcurses *)0);
     DBC_REQUIRE(507, hostOps != (SM_UI_HostOps const *)0);
     DBC_REQUIRE(508, hostOps->requestQuit != (void (*)(void *))0);
+    DBC_REQUIRE(509, hostOps->requestFrame != (void (*)(void *))0);
 
     SM_UI_hostOps_ = *hostOps;
     SM_UI_ctor_(&SM_UI_inst_);
     SM_UI_inst_.disp.nc = nc;
     SM_UI_start_(&SM_UI_inst_);
-}
-
-bool SM_UI_needsRender(void) {
-    return SM_UI_inst_.disp.dirty;
 }
 
 void SM_UI_flush(void) {
@@ -1210,8 +1205,9 @@ static void SM_UI_std_mainBufferFrame_resize_(
 //--- Display graph handlers
 //
 // HSM handlers and notcurses callbacks enter component IO through this NcDisp
-// layer. It owns component wiring, dirty propagation, and behavior-level
-// operations over the display graph.
+// layer. It owns component wiring, component refresh state, and operations
+// over the display graph. Frame scheduling remains host-owned; SM_UI requests
+// it through SM_UI_HostOps.
 // TODO: refine this layer after component OOP extraction. NcDisp should keep
 // the explicit component-coupling policy while leaf component methods stay
 // behind their own view APIs.
@@ -1247,7 +1243,7 @@ static void SM_UI_disp_create_(struct NcDisp * const disp,
     disp->keybarPlane = SM_UI_keybar_create_(std, owner, dimY, dimX);
     SM_UI_menu_create_(&disp->menu, std, owner);
 
-    SM_UI_disp_markDirty_(disp);
+    SM_UI_requestFrame_();
 }
 
 static void SM_UI_disp_pushText_(struct NcDisp * const disp,
@@ -1288,7 +1284,7 @@ static void SM_UI_disp_showMenu_(struct NcDisp * const disp) {
     struct ncplane * const std = notcurses_stdplane(disp->nc);
     disp->menu.sel = 0U;
     SM_UI_std_menu_keybar_show_(std, &disp->menu, disp->keybarPlane);
-    SM_UI_disp_markDirty_(disp);
+    SM_UI_requestFrame_();
 }
 
 static void SM_UI_disp_hideMenu_(struct NcDisp * const disp) {
@@ -1297,7 +1293,7 @@ static void SM_UI_disp_hideMenu_(struct NcDisp * const disp) {
 
     struct ncplane * const std = notcurses_stdplane(disp->nc);
     SM_UI_std_menu_keybar_hide_(std, &disp->menu, disp->keybarPlane);
-    SM_UI_disp_markDirty_(disp);
+    SM_UI_requestFrame_();
 }
 
 static void SM_UI_disp_syncMenu_(struct NcDisp * const disp) {
@@ -1313,14 +1309,14 @@ static void SM_UI_disp_selectMenuNext_(struct NcDisp * const disp) {
     DBC_REQUIRE(524, disp != (struct NcDisp *)0);
 
     SM_UI_menu_selectNext_(&disp->menu);
-    SM_UI_disp_markDirty_(disp);
+    SM_UI_requestFrame_();
 }
 
 static void SM_UI_disp_selectMenuPrev_(struct NcDisp * const disp) {
     DBC_REQUIRE(525, disp != (struct NcDisp *)0);
 
     SM_UI_menu_selectPrev_(&disp->menu);
-    SM_UI_disp_markDirty_(disp);
+    SM_UI_requestFrame_();
 }
 
 static MenuAction SM_UI_disp_menuAction_(struct NcDisp const * const disp) {
@@ -1363,20 +1359,17 @@ static void SM_UI_disp_flush_(struct NcDisp * const disp) {
         TextBufferView_refresh(&disp->mainBuffer);
         disp->mainBufferDirty = false;
     }
-
-    disp->dirty = false;
-}
-
-static void SM_UI_disp_markDirty_(struct NcDisp * const disp) {
-    DBC_REQUIRE(528, disp != (struct NcDisp *)0);
-    disp->dirty = true;
 }
 
 static void SM_UI_disp_markMainBufferDirty_(struct NcDisp * const disp) {
     DBC_REQUIRE(529, disp != (struct NcDisp *)0);
 
     disp->mainBufferDirty = true;
-    SM_UI_disp_markDirty_(disp);
+    SM_UI_requestFrame_();
+}
+
+static void SM_UI_requestFrame_(void) {
+    (*SM_UI_hostOps_.requestFrame)(SM_UI_hostOps_.ctx);
 }
 
 //----------------------------------------------------------------------------
