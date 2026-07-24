@@ -25,7 +25,9 @@
 DBC_MODULE_NAME("ui")
 
 //============================================================================
-//=== notcurses — owned by UI module, hidden from main
+//=== Component: NotcursesRuntime
+//
+// Owned by UIThreadRuntime; supplies terminal input and frame rendering.
 
 static struct notcurses_options UI_ncOpts_ = {
     .flags = NCOPTION_SUPPRESS_BANNERS
@@ -97,20 +99,22 @@ static void UI_routeInput_(uint32_t r, ncinput const *ni) {
 }
 
 //============================================================================
-//=== Frame clock — single time acquisition, shared by poll and render
+//=== Component: FrameClock
+//
+// Acquires time once per loop and supplies render eligibility and deadline.
 
 #define UI_NS_PER_MS_  1000000L
 #define UI_NS_PER_SEC_ 1000000000L
 
-struct FrameClock_ {
+struct FrameClock {
     struct timespec now;
     struct timespec lastRender;
     bool            canRender;
     int             pollTimeout;
 };
 
-static uint64_t UI_elapsedMs_(struct timespec const *now,
-                              struct timespec const *then)
+static uint64_t FrameClock_elapsedMs_(struct timespec const *now,
+                                      struct timespec const *then)
 {
     DBC_REQUIRE(504, now != (struct timespec const *)0);
     DBC_REQUIRE(505, then != (struct timespec const *)0);
@@ -132,29 +136,32 @@ static uint64_t UI_elapsedMs_(struct timespec const *now,
     return sec * 1000ULL + (uint64_t)nsec / (uint64_t)UI_NS_PER_MS_;
 }
 
-static int FrameClock_tick_(struct FrameClock_ *fc,
+static int FrameClock_tick_(struct FrameClock *frameClock,
                             bool const framePending)
 {
-    DBC_REQUIRE(520, fc != (struct FrameClock_ *)0);
+    DBC_REQUIRE(520, frameClock != (struct FrameClock *)0);
 
-    if (clock_gettime(CLOCK_MONOTONIC, &fc->now) != 0) {
+    if (clock_gettime(CLOCK_MONOTONIC, &frameClock->now) != 0) {
         return 1;
     }
 
     if (!framePending) {
-        fc->canRender  = false;
-        fc->pollTimeout = -1;
+        frameClock->canRender  = false;
+        frameClock->pollTimeout = -1;
         return 0;
     }
 
-    uint64_t const elapsed = UI_elapsedMs_(&fc->now, &fc->lastRender);
-    fc->canRender  = (elapsed >= UI_FRAME_MS_);
-    fc->pollTimeout = fc->canRender ? 0
-                                    : (int)(UI_FRAME_MS_ - elapsed);
+    uint64_t const elapsed =
+        FrameClock_elapsedMs_(&frameClock->now, &frameClock->lastRender);
+    frameClock->canRender = (elapsed >= UI_FRAME_MS_);
+    frameClock->pollTimeout =
+        frameClock->canRender ? 0 : (int)(UI_FRAME_MS_ - elapsed);
     return 0;
 }
 
 //============================================================================
+//=== Interface: ISMUIHostOps
+//
 // Host capabilities injected into SM_UI. The opaque context keeps runtime
 // control latches owned and hidden by this module while HSM requests changes.
 // One host context travels with the callback table; each handler restores its
@@ -170,6 +177,10 @@ static void UI_requestFrame_(void * const ctx) {
 }
 
 //============================================================================
+//=== Component: UIThreadRuntime
+//
+// Owns lifecycle wiring and the main event/input/render loop.
+
 int UI_init(void) {
     SM_UI_HostOps const hostOps = {
         .requestQuit = &UI_requestQuit_,
@@ -209,7 +220,7 @@ int UI_run(void) {
     int eventFd = UI_evtWakeFd();
     DBC_REQUIRE(503, eventFd >= 0);
 
-    struct FrameClock_ fc = {0};
+    struct FrameClock frameClock = {0};
 
     if (terminalFd < 0) {
         errorMsg = "notcurses input fd unavailable";
@@ -220,7 +231,9 @@ int UI_run(void) {
     UI_ThreadWake_init(terminalFd, eventFd);
 
     while (!UI_hostState_.quitRequested) {
-        if (FrameClock_tick_(&fc, UI_hostState_.framePending) != 0) {
+        if (FrameClock_tick_(&frameClock,
+                             UI_hostState_.framePending) != 0)
+        {
             errorMsg = "clock_gettime failed";
             errorNo = errno;
             result = 1;
@@ -234,7 +247,7 @@ int UI_run(void) {
         // 3. rendering timeout
         // Frame Clock supplies the dynamic render deadline to the fixed wait
         // set bound above.
-        int waitReady = UI_ThreadWake_wait(fc.pollTimeout);
+        int waitReady = UI_ThreadWake_wait(frameClock.pollTimeout);
         if (waitReady < 0) {
             if (errno == EINTR) {
                 continue;
@@ -278,7 +291,7 @@ int UI_run(void) {
             }
         }
 
-        if (fc.canRender) {
+        if (frameClock.canRender) {
             UI_hostState_.framePending = false;
             SM_UI_flush();
             if (notcurses_render(UI_nc_) != 0) {
@@ -286,7 +299,7 @@ int UI_run(void) {
                 result = 1;
                 break;
             }
-            fc.lastRender = fc.now;
+            frameClock.lastRender = frameClock.now;
         }
     }
 

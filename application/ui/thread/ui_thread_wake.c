@@ -8,7 +8,7 @@
 // See http://www.wtfpl.net/ for more details.
 //============================================================================
 //============================================================================
-//=== UI Thread Wake — wait/wake coordination boundary
+//=== Component: UIThreadWake — wait/wake coordination boundary
 //
 // UI Runtime binds borrowed terminal and event descriptors once. Frame Clock
 // supplies the render timeout per wait. This module owns only the fixed wait

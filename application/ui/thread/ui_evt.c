@@ -8,7 +8,9 @@
 // See http://www.wtfpl.net/ for more details.
 //============================================================================
 //============================================================================
-//=== UI event system — queue, allocator, cross-thread post
+//=== Component: UIEventInbox
+//
+// Owns queued UI events and the eventfd used to wake UIThreadRuntime.
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
@@ -29,10 +31,15 @@ struct UI_EvtQueue {
     pthread_mutex_t mtx;
 };
 
-static struct UI_EvtQueue UI_q_  = {
-    .mtx = PTHREAD_MUTEX_INITIALIZER
+struct UIEventInbox {
+    struct UI_EvtQueue queue;
+    int wakeFd;
 };
-static int         l_evfd = -1; // eventfd for poll wake-up
+
+static struct UIEventInbox UI_eventInbox_ = {
+    .queue = {.mtx = PTHREAD_MUTEX_INITIALIZER},
+    .wakeFd = -1
+};
 
 //============================================================================
 //=== Allocator
@@ -53,36 +60,38 @@ static void UI_Free_(void *p) {
 static void UI_enqueue_(UI_Evt *e) {
     DBC_REQUIRE(200, e != (UI_Evt *)0);
 
-    pthread_mutex_lock(&UI_q_.mtx);
-    DBC_REQUIRE(201, UI_q_.used < UI_QLEN_);
+    struct UI_EvtQueue * const queue = &UI_eventInbox_.queue;
+    pthread_mutex_lock(&queue->mtx);
+    DBC_REQUIRE(201, queue->used < UI_QLEN_);
 
-    UI_q_.buf[UI_q_.head] = e;
-    if (UI_q_.head == 0U) {
-        UI_q_.head = UI_QLEN_ - 1U;
+    queue->buf[queue->head] = e;
+    if (queue->head == 0U) {
+        queue->head = UI_QLEN_ - 1U;
     } else {
-        --UI_q_.head;
+        --queue->head;
     }
-    ++UI_q_.used;
+    ++queue->used;
 
-    pthread_mutex_unlock(&UI_q_.mtx);
+    pthread_mutex_unlock(&queue->mtx);
 }
 
 static UI_Evt *UI_dequeue_(void) {
-    pthread_mutex_lock(&UI_q_.mtx);
+    struct UI_EvtQueue * const queue = &UI_eventInbox_.queue;
+    pthread_mutex_lock(&queue->mtx);
 
     UI_Evt *e = (UI_Evt *)0;
 
-    if (UI_q_.used > 0U) {
-        e = UI_q_.buf[UI_q_.tail];
-        if (UI_q_.tail == 0U) {
-            UI_q_.tail = UI_QLEN_ - 1U;
+    if (queue->used > 0U) {
+        e = queue->buf[queue->tail];
+        if (queue->tail == 0U) {
+            queue->tail = UI_QLEN_ - 1U;
         } else {
-            --UI_q_.tail;
+            --queue->tail;
         }
-        --UI_q_.used;
+        --queue->used;
     }
 
-    pthread_mutex_unlock(&UI_q_.mtx);
+    pthread_mutex_unlock(&queue->mtx);
     return e;
 }
 
@@ -91,7 +100,7 @@ static UI_Evt *UI_dequeue_(void) {
 
 static void UI_wake_(void) {
     uint64_t one = 1ULL;
-    ssize_t  wr  = write(l_evfd, &one, sizeof(one));
+    ssize_t  wr  = write(UI_eventInbox_.wakeFd, &one, sizeof(one));
     (void)wr;
 }
 
@@ -100,7 +109,7 @@ static void UI_wake_(void) {
 
 void UI_evtPostSignal(UI_Signal sig) {
     DBC_REQUIRE(300, sig > UI_NULL_SIG);
-    DBC_REQUIRE(301, l_evfd >= 0);
+    DBC_REQUIRE(301, UI_eventInbox_.wakeFd >= 0);
 
     UI_Evt *ue = (UI_Evt *)UI_Alloc_(sizeof(UI_Evt));
     ue->sig = sig;
@@ -112,7 +121,7 @@ void UI_evtPostSignal(UI_Signal sig) {
 void UI_evtPostText(UI_Signal sig, char const *text) {
     DBC_REQUIRE(310, sig  > UI_NULL_SIG);
     DBC_REQUIRE(311, text != (char const *)0);
-    DBC_REQUIRE(312, l_evfd >= 0);
+    DBC_REQUIRE(312, UI_eventInbox_.wakeFd >= 0);
 
     size_t len = strlen(text);
     size_t size = sizeof(UI_AppEvt) + len + 1U;
@@ -135,21 +144,21 @@ void UI_postText(char const *text) {
 //=== Init / Wake fd / Dequeue / Free
 
 int UI_evtInit(void) {
-    DBC_REQUIRE(500, l_evfd < 0);
+    DBC_REQUIRE(500, UI_eventInbox_.wakeFd < 0);
 
-    l_evfd = eventfd(0, EFD_NONBLOCK);
-    return l_evfd >= 0 ? 0 : 1;
+    UI_eventInbox_.wakeFd = eventfd(0, EFD_NONBLOCK);
+    return UI_eventInbox_.wakeFd >= 0 ? 0 : 1;
 }
 
 int UI_evtWakeFd(void) {
-    return l_evfd;
+    return UI_eventInbox_.wakeFd;
 }
 
 int UI_evtConsumeWake(void) {
-    DBC_REQUIRE(501, l_evfd >= 0);
+    DBC_REQUIRE(501, UI_eventInbox_.wakeFd >= 0);
 
     uint64_t count;
-    ssize_t const rd = read(l_evfd, &count, sizeof(count));
+    ssize_t const rd = read(UI_eventInbox_.wakeFd, &count, sizeof(count));
     return rd == (ssize_t)sizeof(count) ? 0 : 1;
 }
 
