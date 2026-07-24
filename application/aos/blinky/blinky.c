@@ -66,14 +66,14 @@ SM_HsmState SM_HSM_ROM Blinky_on = {
 static SM_StatePtr Blinky_TOP_initial(SM_Hsm * const me) SM_HSM_RETT {
     Blinky *b = containerof(me, Blinky, hsm);
     SST_TimeEvt_arm(&b->timer, BSP_TICKS_PER_SEC, BSP_TICKS_PER_SEC);
-    UI_postText(UI_BLINKY_TEXT_SIG, "BlinkyTOPInit.\n");
+    UI_postText("BlinkyTOPInit.\n");
     return _SM_INIT(&Blinky_off);
 }
 
 // off
 static void Blinky_off_entry_(SM_Hsm * const me) SM_HSM_RETT {
     (void)me;
-    UI_postText(UI_BLINKY_TEXT_SIG, "blink off!\n");
+    UI_postText("blink off!\n");
 }
 static SM_RetState Blinky_off_(SM_Hsm * const me, SST_Evt const * const e) {
     (void)me;
@@ -90,7 +90,7 @@ static SM_RetState Blinky_off_(SM_Hsm * const me, SST_Evt const * const e) {
 // on
 static void Blinky_on_entry_(SM_Hsm * const me) SM_HSM_RETT {
     (void)me;
-    UI_postText(UI_BLINKY_TEXT_SIG, "blink on!\n");
+    UI_postText("blink on!\n");
 }
 static SM_RetState Blinky_on_(SM_Hsm * const me, SST_Evt const * const e) {
     (void)me;

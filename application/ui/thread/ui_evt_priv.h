@@ -10,10 +10,13 @@
 #ifndef UI_EVT_PRIV_H_
 #define UI_EVT_PRIV_H_
 
-#include "ui_evt.h"
+#include "hsm/sm_ui_evt.h"
 
 //============================================================================
 //=== UI event runtime — private to the UI package
+
+void UI_evtPostSignal(UI_Signal sig);
+void UI_evtPostText(UI_Signal sig, char const *text);
 
 // Initialize the event subsystem; return 0 on success.
 int UI_evtInit(void);

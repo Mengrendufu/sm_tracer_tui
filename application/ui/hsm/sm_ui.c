@@ -357,7 +357,7 @@ static SM_RetState SM_UI_active_(SM_Hsm * const me, UI_Evt const * const e) {
             return _SM_HANDLED();
         }
 
-        case UI_BLINKY_TEXT_SIG:
+        case UI_TEXT_SIG:
         case UI_KEY_DEBUG_SIG: {
             UI_AppEvt const *ae = (UI_AppEvt const *)e;
             SM_UI_disp_pushText_(&ao->disp, ae->pld.msg.text,
@@ -443,9 +443,11 @@ static SM_RetState SM_UI_showMenu_(SM_Hsm * const me,
                 return _SM_TRAN(&SM_UI_showMain);
             }
             case MENU_ACT_ABOUT: {
-                UI_postText(UI_BLINKY_TEXT_SIG,
-                            "termbox v0.1 -- HSM demo\n"
-                            "notcurses + SST + sm_hsm\n");
+                char const about[] =
+                    "termbox v0.1 -- HSM demo\n"
+                    "notcurses + SST + sm_hsm\n";
+                SM_UI_disp_pushText_(&ao->disp, about,
+                                     sizeof(about) - 1U);
                 return _SM_TRAN(&SM_UI_showMain);
             }
             case MENU_ACT_QUIT: {

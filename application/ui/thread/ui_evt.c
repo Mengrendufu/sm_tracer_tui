@@ -15,6 +15,7 @@
 #include <sys/eventfd.h>
 #include <unistd.h>
 #include "dbc_assert.h"
+#include "ui_evt.h"
 #include "ui_evt_priv.h"
 DBC_MODULE_NAME("ui_evt")
 
@@ -97,7 +98,7 @@ static void UI_wake_(void) {
 //============================================================================
 //=== Cross-thread post
 
-void UI_postSignal(UI_Signal sig) {
+void UI_evtPostSignal(UI_Signal sig) {
     DBC_REQUIRE(300, sig > UI_NULL_SIG);
     DBC_REQUIRE(301, l_evfd >= 0);
 
@@ -108,7 +109,7 @@ void UI_postSignal(UI_Signal sig) {
     UI_wake_();
 }
 
-void UI_postText(UI_Signal sig, char const *text) {
+void UI_evtPostText(UI_Signal sig, char const *text) {
     DBC_REQUIRE(310, sig  > UI_NULL_SIG);
     DBC_REQUIRE(311, text != (char const *)0);
     DBC_REQUIRE(312, l_evfd >= 0);
@@ -124,6 +125,10 @@ void UI_postText(UI_Signal sig, char const *text) {
 
     UI_enqueue_((UI_Evt *)ae);
     UI_wake_();
+}
+
+void UI_postText(char const *text) {
+    UI_evtPostText(UI_TEXT_SIG, text);
 }
 
 //============================================================================

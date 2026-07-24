@@ -116,6 +116,18 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 )
 
 #=============================================================================
+# ===Compile-time public interface contracts.
+include(CTest)
+if(BUILD_TESTING)
+    add_library(ui_event_ingress_contract OBJECT
+        tests/ui_event_ingress_contract.c
+    )
+    target_include_directories(ui_event_ingress_contract PRIVATE
+        ${ROOT_LOCAL}/application/ui
+    )
+endif()
+
+#=============================================================================
 # ===Run helper target.
 add_custom_target(run
     COMMAND $<TARGET_FILE:${PROJECT_NAME}>

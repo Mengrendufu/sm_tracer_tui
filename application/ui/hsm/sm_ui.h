@@ -10,7 +10,7 @@
 #ifndef SM_UI_H_
 #define SM_UI_H_
 
-#include "ui_evt.h"
+#include "sm_ui_evt.h"
 
 struct notcurses;
 

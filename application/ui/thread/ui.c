@@ -50,7 +50,7 @@ static void UI_onTick_(void) {
     static uint8_t l_div = 0;
     if (++l_div >= UI_TICK_DIV_) {
         l_div = 0U;
-        UI_postSignal(UI_TIMER_SIG);
+        UI_evtPostSignal(UI_TIMER_SIG);
     }
 }
 
@@ -88,11 +88,11 @@ static void UI_routeInput_(uint32_t r, ncinput const *ni) {
         char buf[64];
         (void)snprintf(buf, sizeof(buf),
                        "key: r=0x%08X mod=%u\n", r, ni->modifiers);
-        UI_postText(UI_KEY_DEBUG_SIG, buf);
+        UI_evtPostText(UI_KEY_DEBUG_SIG, buf);
     }
 
     if (sig != UI_NULL_SIG) {
-        UI_postSignal(sig);
+        UI_evtPostSignal(sig);
     }
 }
 

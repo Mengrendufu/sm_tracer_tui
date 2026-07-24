@@ -12,7 +12,7 @@
 #include "sm_port.h"
 #include "sm_hsm.h"
 #include "dbc_assert.h"
-#include "ui_evt.h"
+#include "sm_ui_evt.h"
 #include "sm_ui_key.h"
 DBC_MODULE_NAME("sm_ui_key")
 
