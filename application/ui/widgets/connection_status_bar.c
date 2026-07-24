@@ -1,0 +1,194 @@
+//============================================================================
+// Copyright (C) 2026 Sunny Matato
+//
+// This program is free software. It comes without any warranty, to
+// the extent permitted by applicable law. You can redistribute it
+// and/or modify it under the terms of the Do What The Fuck You Want
+// To Public License, Version 2, as published by Sam Hocevar.
+// See http://www.wtfpl.net/ for more details.
+//============================================================================
+#include <stdio.h>
+#include <notcurses/notcurses.h>
+#include "dbc_assert.h"
+#include "widget_io_priv.h"
+#include "connection_status_bar.h"
+DBC_MODULE_NAME("connection_status_bar")
+
+//============================================================================
+static void ConnectionStatusBar_setText_(char * const dst,
+                                         size_t const dstLen,
+                                         char const * const value,
+                                         char const * const fallback)
+{
+    DBC_REQUIRE(100, dst != (char *)0);
+    DBC_REQUIRE(101, dstLen > 0U);
+    DBC_REQUIRE(102, fallback != (char const *)0);
+
+    char const * const src =
+        (value != (char const *)0) ? value : fallback;
+    int const n = snprintf(dst, dstLen, "%s", src);
+    DBC_REQUIRE(103, n >= 0);
+    DBC_ENSURE(300, dst[dstLen - 1U] == '\0');
+}
+
+static void ConnectionStatusBar_drawCell_(
+    struct ConnectionStatusBar * const bar,
+    unsigned * const x,
+    char const * const label,
+    char const * const value)
+{
+    DBC_REQUIRE(110, bar != (struct ConnectionStatusBar *)0);
+    DBC_REQUIRE(111, bar->plane != (struct ncplane *)0);
+    DBC_REQUIRE(112, x != (unsigned *)0);
+    DBC_REQUIRE(113, label != (char const *)0);
+    DBC_REQUIRE(114, value != (char const *)0);
+
+    char labelPart[16];
+    char valuePart[24];
+    int const labelN = snprintf(labelPart, sizeof(labelPart),
+                                " %s: ", label);
+    int const valueN = snprintf(valuePart, sizeof(valuePart),
+                                "%s ", value);
+    DBC_REQUIRE(115, labelN >= 0);
+    DBC_REQUIRE(116, valueN >= 0);
+    if ((unsigned)labelN >= sizeof(labelPart)
+        || (unsigned)valueN >= sizeof(valuePart))
+    {
+        ncplane_dim_yx(bar->plane, NULL, x);
+        return;
+    }
+
+    int const labelWidth = ncstrwidth(labelPart, NULL, NULL);
+    int const valueWidth = ncstrwidth(valuePart, NULL, NULL);
+    unsigned cols;
+    ncplane_dim_yx(bar->plane, NULL, &cols);
+    if (labelWidth < 0 || valueWidth < 0 || *x >= cols
+        || (unsigned)(labelWidth + valueWidth) > (cols - *x))
+    {
+        ncplane_dim_yx(bar->plane, NULL, x);
+        return;
+    }
+
+    ncplane_on_styles(bar->plane, NCSTYLE_BOLD);
+    ncplane_set_fg_rgb8(bar->plane, 155, 165, 220);
+    (void)WidgetIO_putStrYx(bar->plane, 0, *x, labelPart);
+    ncplane_off_styles(bar->plane, NCSTYLE_BOLD);
+    ncplane_set_fg_rgb8(bar->plane, 220, 225, 240);
+    (void)WidgetIO_putStr(bar->plane, valuePart);
+    ncplane_set_fg_rgb8(bar->plane, 200, 200, 200);
+    *x += (unsigned)(labelWidth + valueWidth) + 2U;
+}
+
+static void ConnectionStatusBar_draw_(
+    struct ConnectionStatusBar * const bar)
+{
+    DBC_REQUIRE(120, bar != (struct ConnectionStatusBar *)0);
+    DBC_REQUIRE(121, bar->plane != (struct ncplane *)0);
+
+    ncplane_erase(bar->plane);
+    ncplane_set_bg_rgb8(bar->plane, 35, 35, 60);
+    ncplane_set_fg_rgb8(bar->plane, 200, 200, 200);
+
+    unsigned x = 0U;
+    ConnectionStatusBar_drawCell_(bar, &x, "status", bar->connection);
+    ConnectionStatusBar_drawCell_(bar, &x, "port", bar->port);
+    ConnectionStatusBar_drawCell_(bar, &x, "baud", bar->baud);
+    ConnectionStatusBar_drawCell_(bar, &x, "data", bar->dataBits);
+    ConnectionStatusBar_drawCell_(bar, &x, "stop", bar->stopBits);
+    ConnectionStatusBar_drawCell_(bar, &x, "parity", bar->parity);
+    ConnectionStatusBar_drawCell_(bar, &x, "flow", bar->flow);
+    ConnectionStatusBar_drawCell_(bar, &x, "proto", bar->protocol);
+}
+
+//============================================================================
+void ConnectionStatusBar_init(struct ConnectionStatusBar * const bar) {
+    DBC_REQUIRE(200, bar != (struct ConnectionStatusBar *)0);
+
+    bar->plane = (struct ncplane *)0;
+    ConnectionStatusBar_setConnection(bar, false);
+    ConnectionStatusBar_setSerial(bar, (char const *)0, (char const *)0,
+                                  (char const *)0, (char const *)0,
+                                  (char const *)0, (char const *)0);
+    ConnectionStatusBar_setProtocol(bar, (char const *)0);
+}
+
+void ConnectionStatusBar_create(
+    struct ConnectionStatusBar * const bar,
+    struct ncplane * const parent,
+    void * const owner,
+    unsigned const cols,
+    ConnectionStatusBar_ResizeCb const resizeCb)
+{
+    DBC_REQUIRE(210, bar != (struct ConnectionStatusBar *)0);
+    DBC_REQUIRE(211, parent != (struct ncplane *)0);
+
+    ncplane_options nopts = {
+        .y = 3, .x = 2, .rows = 1, .cols = cols, .name = "status",
+        .userptr = owner, .resizecb = resizeCb,
+    };
+    bar->plane = ncplane_create(parent, &nopts);
+    DBC_ENSURE(310, bar->plane != (struct ncplane *)0);
+    ConnectionStatusBar_draw_(bar);
+}
+
+void ConnectionStatusBar_resize(
+    struct ConnectionStatusBar * const bar,
+    unsigned const cols)
+{
+    DBC_REQUIRE(220, bar != (struct ConnectionStatusBar *)0);
+    DBC_REQUIRE(221, bar->plane != (struct ncplane *)0);
+    ncplane_resize_simple(bar->plane, 1, cols);
+}
+
+void ConnectionStatusBar_setConnection(
+    struct ConnectionStatusBar * const bar,
+    bool const connected)
+{
+    DBC_REQUIRE(230, bar != (struct ConnectionStatusBar *)0);
+    ConnectionStatusBar_setText_(
+        bar->connection, sizeof(bar->connection),
+        connected ? "connected" : "disconnected", "disconnected");
+    if (bar->plane != (struct ncplane *)0) {
+        ConnectionStatusBar_draw_(bar);
+    }
+}
+
+void ConnectionStatusBar_setSerial(
+    struct ConnectionStatusBar * const bar,
+    char const * const port,
+    char const * const baud,
+    char const * const dataBits,
+    char const * const stopBits,
+    char const * const parity,
+    char const * const flow)
+{
+    DBC_REQUIRE(240, bar != (struct ConnectionStatusBar *)0);
+
+    ConnectionStatusBar_setText_(bar->port, sizeof(bar->port),
+                                 port, "none");
+    ConnectionStatusBar_setText_(bar->baud, sizeof(bar->baud),
+                                 baud, "115200");
+    ConnectionStatusBar_setText_(bar->dataBits, sizeof(bar->dataBits),
+                                 dataBits, "8");
+    ConnectionStatusBar_setText_(bar->stopBits, sizeof(bar->stopBits),
+                                 stopBits, "1");
+    ConnectionStatusBar_setText_(bar->parity, sizeof(bar->parity),
+                                 parity, "none");
+    ConnectionStatusBar_setText_(bar->flow, sizeof(bar->flow),
+                                 flow, "none");
+    if (bar->plane != (struct ncplane *)0) {
+        ConnectionStatusBar_draw_(bar);
+    }
+}
+
+void ConnectionStatusBar_setProtocol(
+    struct ConnectionStatusBar * const bar,
+    char const * const protocol)
+{
+    DBC_REQUIRE(250, bar != (struct ConnectionStatusBar *)0);
+    ConnectionStatusBar_setText_(bar->protocol, sizeof(bar->protocol),
+                                 protocol, "none");
+    if (bar->plane != (struct ncplane *)0) {
+        ConnectionStatusBar_draw_(bar);
+    }
+}

@@ -86,6 +86,7 @@ struct TextBufferView {
     struct ncplane *contentPlane;
     struct TextArea textArea;
     ScrollBar       scrollBar;
+    bool            dirty;
 };
 
 typedef int (*TextBufferView_ResizeCb)(struct ncplane *plane);
@@ -105,11 +106,10 @@ void TextBufferView_clear(struct TextBufferView *view);
 void TextBufferView_scrollPageUp(struct TextBufferView *view);
 void TextBufferView_scrollPageDown(struct TextBufferView *view);
 void TextBufferView_refresh(struct TextBufferView *view);
-void TextBufferView_resizeFrame(struct ncplane *framePlane,
+void TextBufferView_resizeFrame(struct TextBufferView *view,
                                 unsigned rows,
                                 unsigned cols,
                                 uint64_t borderCh);
-void TextBufferView_resizeContent(struct ncplane *framePlane,
-                                  struct ncplane *contentPlane);
+void TextBufferView_resizeContent(struct TextBufferView *view);
 
 #endif // TEXT_BUFFER_VIEW_H_

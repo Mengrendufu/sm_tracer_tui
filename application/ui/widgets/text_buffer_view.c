@@ -551,6 +551,7 @@ void TextBufferView_init(struct TextBufferView * const view) {
     view->contentPlane = (struct ncplane *)0;
     TextArea_init(&view->textArea);
     ScrollBar_init(&view->scrollBar);
+    view->dirty = false;
 }
 
 void TextBufferView_create(struct TextBufferView * const view,
@@ -577,11 +578,13 @@ void TextBufferView_pushText(struct TextBufferView * const view,
 
     uint32_t const written = TextArea_push(&view->textArea, text, len);
     TextArea_preserveScrollOnAppend(&view->textArea, written);
+    view->dirty = true;
 }
 
 void TextBufferView_clear(struct TextBufferView * const view) {
     DBC_REQUIRE(433, view != (struct TextBufferView *)0);
     TextArea_clear(&view->textArea);
+    view->dirty = true;
 }
 
 void TextBufferView_scrollPageUp(struct TextBufferView * const view) {
@@ -591,6 +594,7 @@ void TextBufferView_scrollPageUp(struct TextBufferView * const view) {
     unsigned rows;
     ncplane_dim_yx(view->contentPlane, &rows, NULL);
     TextArea_scrollBy(&view->textArea, (int32_t)(rows / 2U), rows);
+    view->dirty = true;
 }
 
 void TextBufferView_scrollPageDown(struct TextBufferView * const view) {
@@ -600,36 +604,39 @@ void TextBufferView_scrollPageDown(struct TextBufferView * const view) {
     unsigned rows;
     ncplane_dim_yx(view->contentPlane, &rows, NULL);
     TextArea_scrollBy(&view->textArea, -(int32_t)(rows / 2U), rows);
+    view->dirty = true;
 }
 
 void TextBufferView_refresh(struct TextBufferView * const view) {
     DBC_REQUIRE(438, view != (struct TextBufferView *)0);
-    if (!view->contentPlane) { return; }
+    if (!view->dirty || !view->contentPlane) { return; }
 
     TextBufferView_content_text_scrollBar_refresh_(view, view->contentPlane);
+    view->dirty = false;
 }
 
-void TextBufferView_resizeFrame(struct ncplane * const framePlane,
+void TextBufferView_resizeFrame(struct TextBufferView * const view,
                                 unsigned const rows,
                                 unsigned const cols,
                                 uint64_t const borderCh)
 {
-    DBC_REQUIRE(439, framePlane != (struct ncplane *)0);
+    DBC_REQUIRE(439, view != (struct TextBufferView *)0);
+    DBC_REQUIRE(440, view->framePlane != (struct ncplane *)0);
 
-    ncplane_resize_simple(framePlane, rows, cols);
-    TextBufferView_frame_drawBorder_(framePlane, rows, cols, borderCh);
+    ncplane_resize_simple(view->framePlane, rows, cols);
+    TextBufferView_frame_drawBorder_(view->framePlane, rows, cols, borderCh);
 }
 
-void TextBufferView_resizeContent(struct ncplane * const framePlane,
-                                  struct ncplane * const contentPlane)
-{
-    DBC_REQUIRE(441, framePlane != (struct ncplane *)0);
-    DBC_REQUIRE(442, contentPlane != (struct ncplane *)0);
+void TextBufferView_resizeContent(struct TextBufferView * const view) {
+    DBC_REQUIRE(441, view != (struct TextBufferView *)0);
+    DBC_REQUIRE(442, view->framePlane != (struct ncplane *)0);
+    DBC_REQUIRE(443, view->contentPlane != (struct ncplane *)0);
 
     unsigned rows;
     unsigned cols;
-    ncplane_dim_yx(framePlane, &rows, &cols);
+    ncplane_dim_yx(view->framePlane, &rows, &cols);
     uint32_t const contentRows = (rows > 2U) ? (rows - 2U) : 1U;
     uint32_t const contentCols = (cols > 3U) ? (cols - 3U) : 1U;
-    ncplane_resize_simple(contentPlane, contentRows, contentCols);
+    ncplane_resize_simple(view->contentPlane, contentRows, contentCols);
+    view->dirty = true;
 }
