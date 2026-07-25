@@ -391,7 +391,7 @@ static SM_UI_MainBufferMetrics_ SM_UI_std_mainBufferMetrics_(
 static int SM_UI_std_keybarY_(unsigned const rows) {
     SM_UI_MainBufferMetrics_ const main =
         SM_UI_std_mainBufferMetrics_(rows, SM_UI_MAIN_MIN_COLS_);
-    return (int)(SM_UI_MAIN_Y_ + main.rows);
+    return (int)(SM_UI_MAIN_Y_ + main.rows + 1U);
 }
 
 //----------------------------------------------------------------------------

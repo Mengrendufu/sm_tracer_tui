@@ -70,13 +70,22 @@ static void ConnectionStatusBar_drawCell_(
     }
 
     ncplane_on_styles(bar->plane, NCSTYLE_BOLD);
-    ncplane_set_fg_rgb8(bar->plane, 155, 165, 220);
+    ncplane_set_fg_rgb8(bar->plane, 105, 185, 170);
     (void)WidgetIO_putStrYx(bar->plane, 0, *x, labelPart);
     ncplane_off_styles(bar->plane, NCSTYLE_BOLD);
-    ncplane_set_fg_rgb8(bar->plane, 220, 225, 240);
+    ncplane_set_fg_rgb8(bar->plane, 225, 230, 232);
     (void)WidgetIO_putStr(bar->plane, valuePart);
-    ncplane_set_fg_rgb8(bar->plane, 200, 200, 200);
-    *x += (unsigned)(labelWidth + valueWidth) + 2U;
+    unsigned const cellWidth = (unsigned)(labelWidth + valueWidth);
+    unsigned const remaining = cols - *x - cellWidth;
+    unsigned const padding = (remaining < 2U) ? remaining : 2U;
+    if (padding == 2U) {
+        (void)WidgetIO_putStr(bar->plane, "  ");
+    }
+    else if (padding == 1U) {
+        (void)WidgetIO_putStr(bar->plane, " ");
+    }
+    ncplane_set_fg_rgb8(bar->plane, 205, 210, 212);
+    *x += cellWidth + padding;
 }
 
 static void ConnectionStatusBar_draw_(
@@ -85,9 +94,15 @@ static void ConnectionStatusBar_draw_(
     DBC_REQUIRE(120, bar != (struct ConnectionStatusBar *)0);
     DBC_REQUIRE(121, bar->plane != (struct ncplane *)0);
 
+    nccell base = NCCELL_TRIVIAL_INITIALIZER;
+    nccell_set_bg_rgb8(&base, 24, 27, 31);
+    nccell_load_char(bar->plane, &base, ' ');
+    ncplane_set_base_cell(bar->plane, &base);
+    nccell_release(bar->plane, &base);
     ncplane_erase(bar->plane);
-    ncplane_set_bg_rgb8(bar->plane, 35, 35, 60);
-    ncplane_set_fg_rgb8(bar->plane, 200, 200, 200);
+
+    ncplane_set_bg_rgb8(bar->plane, 42, 42, 44);
+    ncplane_set_fg_rgb8(bar->plane, 205, 210, 212);
 
     unsigned x = 0U;
     ConnectionStatusBar_drawCell_(bar, &x, "status", bar->connection);

@@ -193,6 +193,14 @@ int UI_init(void) {
         return 1;
     }
 
+    struct ncplane * const std = notcurses_stdplane(UI_nc_);
+    nccell base = NCCELL_TRIVIAL_INITIALIZER;
+    nccell_set_bg_rgb8(&base, 24, 27, 31);
+    nccell_load_char(std, &base, ' ');
+    ncplane_set_base_cell(std, &base);
+    nccell_release(std, &base);
+    ncplane_erase(std);
+
     if (UI_evtInit() != 0) {
         notcurses_stop(UI_nc_);
         UI_nc_ = (struct notcurses *)0;

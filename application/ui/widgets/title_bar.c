@@ -18,7 +18,13 @@ static void TitleBar_draw_(struct TitleBar * const bar) {
     DBC_REQUIRE(100, bar != (struct TitleBar *)0);
     DBC_REQUIRE(101, bar->plane != (struct ncplane *)0);
 
+    nccell base = NCCELL_TRIVIAL_INITIALIZER;
+    nccell_set_bg_rgb8(&base, 24, 27, 31);
+    nccell_load_char(bar->plane, &base, ' ');
+    ncplane_set_base_cell(bar->plane, &base);
+    nccell_release(bar->plane, &base);
     ncplane_erase(bar->plane);
+
     ncplane_set_bg_rgb8(bar->plane, 60, 60, 120);
     ncplane_off_styles(bar->plane, NCSTYLE_BOLD);
     ncplane_set_fg_rgb8(bar->plane, 170, 175, 215);

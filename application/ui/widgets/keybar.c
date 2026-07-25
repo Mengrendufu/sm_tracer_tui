@@ -28,7 +28,13 @@ static void Keybar_set_(struct Keybar * const keybar,
     DBC_REQUIRE(101, keybar->plane != (struct ncplane *)0);
     DBC_REQUIRE(102, items != (Keybar_Item_ const *)0);
 
+    nccell base = NCCELL_TRIVIAL_INITIALIZER;
+    nccell_set_bg_rgb8(&base, 24, 27, 31);
+    nccell_load_char(keybar->plane, &base, ' ');
+    ncplane_set_base_cell(keybar->plane, &base);
+    nccell_release(keybar->plane, &base);
     ncplane_erase(keybar->plane);
+
     ncplane_set_bg_rgb8(keybar->plane, 50, 50, 80);
     for (uint32_t i = 0U; i < nItems; ++i) {
         ncplane_set_fg_rgb8(keybar->plane, 230, 200, 100);
@@ -43,6 +49,7 @@ static void Keybar_set_(struct Keybar * const keybar,
             break;
         }
     }
+    (void)WidgetIO_putStr(keybar->plane, "  ");
 }
 
 //============================================================================

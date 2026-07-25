@@ -337,7 +337,7 @@ static void TextBufferView_plane_setMainStyle_(
 {
     DBC_REQUIRE(424, plane != (struct ncplane *)0);
 
-    ncplane_set_bg_rgb8(plane, 25, 25, 40);
+    ncplane_set_bg_rgb8(plane, 32, 32, 34);
     ncplane_set_fg_rgb8(plane, 200, 220, 200);
 }
 
@@ -349,7 +349,7 @@ static void TextBufferView_plane_setMainBase_(
     TextBufferView_plane_setMainStyle_(plane);
 
     nccell base = NCCELL_TRIVIAL_INITIALIZER;
-    nccell_set_bg_rgb8(&base, 25, 25, 40);
+    nccell_set_bg_rgb8(&base, 32, 32, 34);
     nccell_set_fg_rgb8(&base, 200, 220, 200);
     nccell_load_char(plane, &base, ' ');
     ncplane_set_base_cell(plane, &base);
@@ -365,10 +365,10 @@ static struct ncplane *TextBufferView_content_create_(
 {
     DBC_REQUIRE(413, framePlane != (struct ncplane *)0);
 
-    unsigned const contentRows = (rows > 2U) ? (rows - 2U) : 1U;
-    unsigned const contentCols = (cols > 3U) ? (cols - 3U) : 1U;
+    unsigned const contentRows = (rows > 0U) ? rows : 1U;
+    unsigned const contentCols = (cols > 1U) ? (cols - 1U) : 1U;
     ncplane_options nopts = {
-        .y = 1, .x = 1, .rows = contentRows, .cols = contentCols,
+        .y = 0, .x = 1, .rows = contentRows, .cols = contentCols,
         .name = "mainContent",
         .userptr = owner, .resizecb = resizeCb,
     };
@@ -635,8 +635,8 @@ void TextBufferView_resizeContent(struct TextBufferView * const view) {
     unsigned rows;
     unsigned cols;
     ncplane_dim_yx(view->framePlane, &rows, &cols);
-    uint32_t const contentRows = (rows > 2U) ? (rows - 2U) : 1U;
-    uint32_t const contentCols = (cols > 3U) ? (cols - 3U) : 1U;
+    uint32_t const contentRows = (rows > 0U) ? rows : 1U;
+    uint32_t const contentCols = (cols > 1U) ? (cols - 1U) : 1U;
     ncplane_resize_simple(view->contentPlane, contentRows, contentCols);
     view->dirty = true;
 }
