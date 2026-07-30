@@ -140,6 +140,25 @@ if(BUILD_TESTING)
         ${INC_ALL}
     )
 
+    add_executable(ui_input_router_test
+        tests/ui_input_router_test.c
+        application/ui/thread/ui_input_router.c
+    )
+    target_include_directories(ui_input_router_test PRIVATE
+        ${INC_ALL}
+    )
+    target_compile_definitions(ui_input_router_test PRIVATE
+        DBC_DISABLE
+        _DEFAULT_SOURCE
+        _POSIX_C_SOURCE=200809L
+        _XOPEN_SOURCE=700
+    )
+    target_link_libraries(ui_input_router_test PRIVATE
+        ${NOTCURSES_LIBRARY}
+    )
+    add_test(NAME ui_input_router
+             COMMAND ui_input_router_test)
+
     add_executable(ui_input_composer_lifecycle_test
         tests/ui_input_composer_lifecycle.c
         application/ui/widgets/input_composer.c

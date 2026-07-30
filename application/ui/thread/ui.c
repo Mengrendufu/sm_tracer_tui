@@ -20,6 +20,7 @@
 #include "bsp.h"
 #include "ui.h"
 #include "ui_evt_priv.h"
+#include "ui_input_router_priv.h"
 #include "ui_thread_wake_priv.h"
 #include "hsm/sm_ui.h"
 DBC_MODULE_NAME("ui")
@@ -57,7 +58,7 @@ static void UI_onTick_(void) {
 }
 
 //============================================================================
-//=== Input router: preserve raw terminal input for state-aware dispatch
+//=== Input adapter: preserve payload and classify the UI signal
 
 static void UI_routeInput_(uint32_t r, ncinput const *ni) {
     DBC_REQUIRE(500, ni != (ncinput const *)0);
@@ -68,7 +69,7 @@ static void UI_routeInput_(uint32_t r, ncinput const *ni) {
         .type = (uint32_t)ni->evtype,
     };
     memcpy(input.utf8, ni->utf8, sizeof(input.utf8));
-    UI_evtEnqueueInput(&input);
+    UI_evtEnqueueInput(UI_InputRouter_route(&input), &input);
 }
 
 //============================================================================

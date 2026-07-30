@@ -7,8 +7,8 @@
 // To Public License, Version 2, as published by Sam Hocevar.
 // See http://www.wtfpl.net/ for more details.
 //============================================================================
-#ifndef SM_UI_KEY_H_
-#define SM_UI_KEY_H_
+#ifndef SM_INPUT_COMPOSER_MANAGER_H_
+#define SM_INPUT_COMPOSER_MANAGER_H_
 
 #include "sm_hsm.h"
 #include "sm_ui_evt.h"
@@ -16,16 +16,20 @@
 struct InputComposer;
 
 //============================================================================
-//=== Key HSM — event-driven input editing state owner
+//=== InputComposer Manager HSM -- input editing state owner
 
 typedef struct {
     SM_Hsm super;
     struct InputComposer *composer; // borrowed from SM_UI
-} SM_UI_Key;
+} SM_InputComposerManager;
 
-void SM_UI_Key_ctor(SM_UI_Key *me, struct InputComposer *composer);
-void SM_UI_Key_init(SM_UI_Key *me);
+void SM_InputComposerManager_ctor(
+    SM_InputComposerManager *me,
+    struct InputComposer *composer);
+void SM_InputComposerManager_init(SM_InputComposerManager *me);
 // One-way state-machine event dispatch; no action result is returned.
-void SM_UI_Key_dispatchEvt(SM_UI_Key *me, UI_Evt const *e);
+void SM_InputComposerManager_dispatchEvt(
+    SM_InputComposerManager *me,
+    UI_Evt const *e);
 
-#endif // SM_UI_KEY_H_
+#endif // SM_INPUT_COMPOSER_MANAGER_H_

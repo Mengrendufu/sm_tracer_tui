@@ -136,13 +136,17 @@ void UI_evtPostText(UI_Signal sig, char const *text) {
     UI_wake_();
 }
 
-void UI_evtEnqueueInput(UI_Input const * const input) {
-    DBC_REQUIRE(320, input != (UI_Input const *)0);
-    DBC_REQUIRE(321, UI_eventInbox_.wakeFd >= 0);
+void UI_evtEnqueueInput(UI_Signal const sig,
+                        UI_Input const * const input)
+{
+    DBC_REQUIRE(320, (UI_INPUT_SIG <= sig)
+                     && (sig <= UI_RESIZE_SIG));
+    DBC_REQUIRE(321, input != (UI_Input const *)0);
+    DBC_REQUIRE(322, UI_eventInbox_.wakeFd >= 0);
 
     UI_InputEvt *ie =
         (UI_InputEvt *)UI_Alloc_(sizeof(UI_InputEvt));
-    ie->super.sig = UI_INPUT_SIG;
+    ie->super.sig = sig;
     ie->input = *input;
 
     // Terminal input is already executing on the UI thread and will be

@@ -13,7 +13,7 @@
 #include "sm_port.h"
 #include "sm_hsm.h"
 #include "dbc_assert.h"
-#include "sm_ui_key.h"
+#include "sm_input_composer_manager.h"
 #include "widgets/title_bar.h"
 #include "widgets/connection_status_bar.h"
 #include "widgets/text_buffer_view.h"
@@ -37,7 +37,7 @@ typedef struct {
     struct InputComposer input;
     struct Keybar keybar;
     struct Menu menu;
-    SM_UI_Key cmdHsm;
+    SM_InputComposerManager inputManager;
 } SM_UI;
 
 static SM_UI SM_UI_inst_;
@@ -54,7 +54,6 @@ typedef struct {
 static unsigned    SM_UI_std_panelCols_(unsigned cols);
 static int         SM_UI_std_inputY_(unsigned rows);
 static int         SM_UI_std_keybarY_(unsigned rows);
-static bool        SM_UI_inputIsCtrlSlash_(UI_Input const *input);
 
 // Interaction handler declarations:
 // - coordinates multiple components or adapts external callback context.
@@ -141,8 +140,8 @@ static SM_StatePtr SM_UI_TOP_initial(SM_Hsm * const me) SM_HSM_RETT {
     SM_UI *ao = containerof(me, SM_UI, super);
     SM_UI_widgets_create_(ao);
 
-    SM_UI_Key_ctor(&ao->cmdHsm, &ao->input);
-    SM_UI_Key_init(&ao->cmdHsm);
+    SM_InputComposerManager_ctor(&ao->inputManager, &ao->input);
+    SM_InputComposerManager_init(&ao->inputManager);
 
     return _SM_INIT(&SM_UI_active);
 }
@@ -161,20 +160,15 @@ static SM_RetState SM_UI_active_(SM_Hsm * const me, UI_Evt const * const e) {
 
     switch (e->sig) {
         //--------------------------------------------------------------------
-        //--- user input events
+        //--- subsystem events
         case UI_TIMER_SIG: {
             return _SM_HANDLED();
         }
 
-        case UI_INPUT_SIG: {
-            UI_InputEvt const * const inputEvt =
-                (UI_InputEvt const *)e;
-            if (inputEvt->input.id == NCKEY_RESIZE) {
-                SM_UI_menu_sync_(ao);
-                SM_UI_requestFrame_();
-                return _SM_HANDLED();
-            }
-            return _SM_SUPER();
+        case UI_RESIZE_SIG: {
+            SM_UI_menu_sync_(ao);
+            SM_UI_requestFrame_();
+            return _SM_HANDLED();
         }
 
         case UI_TEXT_SIG: {
@@ -202,27 +196,31 @@ static SM_RetState SM_UI_showMain_(SM_Hsm * const me,
     SM_UI *ao = containerof(me, SM_UI, super);
 
     switch (e->sig) {
-        case UI_INPUT_SIG: {
-            UI_InputEvt const * const inputEvt =
-                (UI_InputEvt const *)e;
-            UI_Input const * const input = &inputEvt->input;
+        case UI_KEY_CTRL_SLASH_SIG: {
+            return _SM_TRAN(&SM_UI_showMenu);
+        }
 
-            if (input->id == NCKEY_RESIZE) {
-                return _SM_SUPER();
-            }
-            if (SM_UI_inputIsCtrlSlash_(input)) {
-                return _SM_TRAN(&SM_UI_showMenu);
-            }
-            if (input->id == NCKEY_PGUP) {
-                SM_UI_mainBuffer_scrollPageUp_(ao);
-                return _SM_HANDLED();
-            }
-            if (input->id == NCKEY_PGDOWN) {
-                SM_UI_mainBuffer_scrollPageDown_(ao);
-                return _SM_HANDLED();
-            }
+        case UI_KEY_PGUP_SIG: {
+            SM_UI_mainBuffer_scrollPageUp_(ao);
+            return _SM_HANDLED();
+        }
 
-            SM_UI_Key_dispatchEvt(&ao->cmdHsm, e);
+        case UI_KEY_PGDN_SIG: {
+            SM_UI_mainBuffer_scrollPageDown_(ao);
+            return _SM_HANDLED();
+        }
+
+        case UI_INPUT_SIG:
+        case UI_KEY_ESC_SIG:
+        case UI_KEY_UP_SIG:
+        case UI_KEY_DOWN_SIG:
+        case UI_KEY_ENTER_SIG:
+        case UI_KEY_J_SIG:
+        case UI_KEY_K_SIG:
+        case UI_KEY_CTRL_N_SIG:
+        case UI_KEY_CTRL_P_SIG: {
+            SM_InputComposerManager_dispatchEvt(
+                &ao->inputManager, e);
             SM_UI_requestFrame_();
             return _SM_HANDLED();
         }
@@ -251,34 +249,22 @@ static SM_RetState SM_UI_showMenu_(SM_Hsm * const me,
     SM_UI *ao = containerof(me, SM_UI, super);
 
     switch (e->sig) {
-        case UI_INPUT_SIG: {
-            UI_InputEvt const * const inputEvt =
-                (UI_InputEvt const *)e;
-            UI_Input const * const input = &inputEvt->input;
+        case UI_KEY_DOWN_SIG:
+        case UI_KEY_CTRL_N_SIG:
+        case UI_KEY_J_SIG: {
+            SM_UI_menu_selectNext_(ao);
+            return _SM_HANDLED();
+        }
 
-            if (input->id == NCKEY_RESIZE) {
-                return _SM_SUPER();
-            }
-            if (input->id == NCKEY_DOWN
-                || input->id == 0x0EU
-                || ((input->id == 'n' || input->id == 'N')
-                    && (input->modifiers & NCKEY_MOD_CTRL) != 0U)
-                || input->id == 'j')
-            {
-                SM_UI_menu_selectNext_(ao);
-                return _SM_HANDLED();
-            }
-            if (input->id == NCKEY_UP
-                || input->id == 0x10U
-                || ((input->id == 'p' || input->id == 'P')
-                    && (input->modifiers & NCKEY_MOD_CTRL) != 0U)
-                || input->id == 'k')
-            {
-                SM_UI_menu_selectPrev_(ao);
-                return _SM_HANDLED();
-            }
-            if (input->id == NCKEY_ENTER) {
-                switch (Menu_action(&ao->menu)) {
+        case UI_KEY_UP_SIG:
+        case UI_KEY_CTRL_P_SIG:
+        case UI_KEY_K_SIG: {
+            SM_UI_menu_selectPrev_(ao);
+            return _SM_HANDLED();
+        }
+
+        case UI_KEY_ENTER_SIG: {
+            switch (Menu_action(&ao->menu)) {
                 case MENU_ACT_RESUME: {
                     SM_UI_requestFrame_();
                     return _SM_TRAN(&SM_UI_showMain);
@@ -301,14 +287,18 @@ static SM_RetState SM_UI_showMenu_(SM_Hsm * const me,
                 }
                 default:
                     break;
-                }
-                return _SM_HANDLED();
             }
-            if (SM_UI_inputIsCtrlSlash_(input)
-                || input->id == 27U)
-            {
-                return _SM_TRAN(&SM_UI_showMain);
-            }
+            return _SM_HANDLED();
+        }
+
+        case UI_KEY_CTRL_SLASH_SIG:
+        case UI_KEY_ESC_SIG: {
+            return _SM_TRAN(&SM_UI_showMain);
+        }
+
+        case UI_INPUT_SIG:
+        case UI_KEY_PGUP_SIG:
+        case UI_KEY_PGDN_SIG: {
             return _SM_HANDLED();
         }
 
@@ -439,14 +429,6 @@ static int SM_UI_std_keybarY_(unsigned const rows) {
 
 static int SM_UI_std_inputY_(unsigned const rows) {
     return SM_UI_std_keybarY_(rows) - 1;
-}
-
-static bool SM_UI_inputIsCtrlSlash_(UI_Input const * const input) {
-    DBC_REQUIRE(590, input != (UI_Input const *)0);
-
-    return input->id == 0x1FU
-           || (input->id == '/'
-               && (input->modifiers & NCKEY_MOD_CTRL) != 0U);
 }
 
 //----------------------------------------------------------------------------

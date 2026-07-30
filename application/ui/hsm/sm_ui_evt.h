@@ -38,9 +38,26 @@ typedef struct {
     UI_Input input;
 } UI_InputEvt;
 
-enum {
+enum UIEventSignals {
     UI_NULL_SIG = 0,
+
+    // Terminal input signals produced by UI_InputRouter.
+    // delivery to input composer manager
     UI_INPUT_SIG,
+
+    UI_KEY_ESC_SIG,
+    UI_KEY_CTRL_SLASH_SIG,
+    UI_KEY_UP_SIG,
+    UI_KEY_DOWN_SIG,
+    UI_KEY_ENTER_SIG,
+    UI_KEY_J_SIG,
+    UI_KEY_K_SIG,
+    UI_KEY_CTRL_N_SIG,
+    UI_KEY_CTRL_P_SIG,
+    UI_KEY_PGUP_SIG,
+    UI_KEY_PGDN_SIG,
+    UI_RESIZE_SIG,
+
     UI_TIMER_SIG,
     UI_TEXT_SIG,
 };
