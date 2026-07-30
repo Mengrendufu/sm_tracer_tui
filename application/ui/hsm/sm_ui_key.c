@@ -8,10 +8,12 @@
 // See http://www.wtfpl.net/ for more details.
 //============================================================================
 //============================================================================
-//=== Key HSM — placeholder: idle state only
+//=== Key HSM — event-driven input editing state owner
+#include <notcurses/notcurses.h>
 #include "sm_port.h"
 #include "sm_hsm.h"
 #include "dbc_assert.h"
+#include "widgets/input_composer.h"
 #include "sm_ui_evt.h"
 #include "sm_ui_key.h"
 DBC_MODULE_NAME("sm_ui_key")
@@ -43,21 +45,50 @@ static void SM_UI_Key_idle_entry_(SM_Hsm * const me) SM_HSM_RETT {
     (void)me;
 }
 
-static SM_RetState SM_UI_Key_idle_(SM_Hsm * const me, UI_Evt const * const e) {
-    (void)me;
-    (void)e;
-    return _SM_SUPER();
+static SM_RetState SM_UI_Key_idle_(SM_Hsm * const me,
+                                   UI_Evt const * const e) SM_HSM_RETT
+{
+    SM_UI_Key *keyHsm = containerof(me, SM_UI_Key, super);
+
+    switch (e->sig) {
+        case UI_INPUT_SIG: {
+            UI_InputEvt const * const inputEvt =
+                (UI_InputEvt const *)e;
+            if (inputEvt->input.id != NCKEY_ENTER) {
+                InputComposer_offerInput(keyHsm->composer,
+                                         &inputEvt->input);
+            }
+            return _SM_HANDLED();
+        }
+
+        default: {
+            return _SM_SUPER();
+        }
+    }
 }
 
 //============================================================================
 //=== Constructor
 
-void SM_UI_Key_ctor(SM_UI_Key * const me) {
+void SM_UI_Key_ctor(SM_UI_Key * const me,
+                    struct InputComposer * const composer)
+{
     DBC_REQUIRE(100, me != (SM_UI_Key *)0);
-    (void)me;
+    DBC_REQUIRE(101, composer != (struct InputComposer *)0);
+
+    me->composer = composer;
 }
 
 void SM_UI_Key_init(SM_UI_Key * const me) {
     DBC_REQUIRE(200, me != (SM_UI_Key *)0);
     SM_Hsm_init_(&me->super, (SM_InitHandler)SM_UI_Key_TOP_initial);
+}
+
+void SM_UI_Key_dispatchEvt(SM_UI_Key * const me,
+                           UI_Evt const * const e)
+{
+    DBC_REQUIRE(300, me != (SM_UI_Key *)0);
+    DBC_REQUIRE(301, e != (UI_Evt const *)0);
+
+    SM_Hsm_dispatch_(&me->super, e);
 }

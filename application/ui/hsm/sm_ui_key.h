@@ -11,15 +11,21 @@
 #define SM_UI_KEY_H_
 
 #include "sm_hsm.h"
+#include "sm_ui_evt.h"
+
+struct InputComposer;
 
 //============================================================================
-//=== Key HSM — placeholder (event-driven only)
+//=== Key HSM — event-driven input editing state owner
 
 typedef struct {
     SM_Hsm super;
+    struct InputComposer *composer; // borrowed from SM_UI
 } SM_UI_Key;
 
-void SM_UI_Key_ctor(SM_UI_Key *me);
+void SM_UI_Key_ctor(SM_UI_Key *me, struct InputComposer *composer);
 void SM_UI_Key_init(SM_UI_Key *me);
+// One-way state-machine event dispatch; no action result is returned.
+void SM_UI_Key_dispatchEvt(SM_UI_Key *me, UI_Evt const *e);
 
 #endif // SM_UI_KEY_H_

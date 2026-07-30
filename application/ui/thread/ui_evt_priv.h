@@ -17,6 +17,8 @@
 
 void UI_evtPostSignal(UI_Signal sig);
 void UI_evtPostText(UI_Signal sig, char const *text);
+// UI-thread-local enqueue; the active poll wake has already occurred.
+void UI_evtEnqueueInput(UI_Input const *input);
 
 // Initialize the event subsystem; return 0 on success.
 int UI_evtInit(void);

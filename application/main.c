@@ -15,6 +15,7 @@
 #include <pthread.h>
 #include "sst.h"
 #include "ui.h"
+#include "sp_thread/sp_thread.h"
 #include "dbc_assert.h"
 
 //============================================================================
@@ -38,16 +39,24 @@ int main(int const argc, char const ** const argv) {
 
     //------------------------------------------------------------------------
     setlocale(LC_ALL, "");
+
+    // resource init of UI ---------------------------------------------------
     if (UI_init() != 0) {
         fprintf(stderr, "UI init failed\n");
         return 1;
     }
 
-    //------------------------------------------------------------------------
+    // init of SerialPort thread ---------------------------------------------
+    if (SpThread_start() != 0) {
+        fprintf(stderr, "SpThread start failed\n");
+        return 1;
+    }
+
+    // AOs -------------------------------------------------------------------
     SST_init();
     pthread_create(&SST_tid, NULL, SST_thread, NULL);
 
-    //------------------------------------------------------------------------
+    // main thread -----------------------------------------------------------
     if (UI_run() != 0) {
         return 1;
     }

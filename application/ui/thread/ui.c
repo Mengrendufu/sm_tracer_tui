@@ -57,45 +57,18 @@ static void UI_onTick_(void) {
 }
 
 //============================================================================
-//=== Input router: minimal — only quit keys
+//=== Input router: preserve raw terminal input for state-aware dispatch
 
 static void UI_routeInput_(uint32_t r, ncinput const *ni) {
-    UI_Signal sig = UI_NULL_SIG;
-    if (r == 27) {
-        sig = UI_KEY_ESC_SIG;
-    } else if (r == 0x1F) {
-        sig = UI_KEY_CTRL_SLASH_SIG;
-    } else if (r == NCKEY_UP) {
-        sig = UI_KEY_UP_SIG;
-    } else if (r == NCKEY_DOWN) {
-        sig = UI_KEY_DOWN_SIG;
-    } else if (r == NCKEY_ENTER) {
-        sig = UI_KEY_ENTER_SIG;
-    } else if (r == 'j') {
-        sig = UI_KEY_J_SIG;
-    } else if (r == 'k') {
-        sig = UI_KEY_K_SIG;
-    } else if (r == 0x0E || (r == 'N' && ncinput_ctrl_p(ni))) {
-        sig = UI_KEY_CTRL_N_SIG;
-    } else if (r == 0x10 || (r == 'P' && ncinput_ctrl_p(ni))) {
-        sig = UI_KEY_CTRL_P_SIG;
-    } else if (r == NCKEY_PGUP) {
-        sig = UI_KEY_PGUP_SIG;
-    } else if (r == NCKEY_PGDOWN) {
-        sig = UI_KEY_PGDN_SIG;
-    } else if (r == NCKEY_RESIZE) {
-        sig = UI_RESIZE_SIG;
-    } else {
-        // DEBUG -------------------------------------------------------------
-        char buf[64];
-        (void)snprintf(buf, sizeof(buf),
-                       "key: r=0x%08X mod=%u\n", r, ni->modifiers);
-        UI_evtPostText(UI_KEY_DEBUG_SIG, buf);
-    }
+    DBC_REQUIRE(500, ni != (ncinput const *)0);
 
-    if (sig != UI_NULL_SIG) {
-        UI_evtPostSignal(sig);
-    }
+    UI_Input input = {
+        .id = r,
+        .modifiers = ni->modifiers,
+        .type = (uint32_t)ni->evtype,
+    };
+    memcpy(input.utf8, ni->utf8, sizeof(input.utf8));
+    UI_evtEnqueueInput(&input);
 }
 
 //============================================================================
@@ -314,7 +287,9 @@ int UI_run(void) {
 cleanup:
     // SST producers remain active until process exit, so eventfd lifetime
     // follows the process.
-    // notcurses must still restore the terminal here.
+    // SM_UI releases lifecycle-sensitive widgets before notcurses tears down
+    // the remaining plane graph and restores the terminal.
+    SM_UI_teardown();
     if (notcurses_stop(UI_nc_) != 0) {
         if (errorMsg == (char const *)0) {
             errorMsg = "notcurses stop failed";

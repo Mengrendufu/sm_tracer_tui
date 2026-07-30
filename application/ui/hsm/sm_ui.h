@@ -30,6 +30,7 @@ typedef struct {
 
 void SM_UI_setup(struct notcurses *nc,
                  SM_UI_HostOps const *hostOps);
+void SM_UI_teardown(void);
 void SM_UI_flush(void);
 void SM_UI_dispatchEvt(UI_Evt const *e);
 

@@ -17,6 +17,7 @@
 #include "widgets/title_bar.h"
 #include "widgets/connection_status_bar.h"
 #include "widgets/text_buffer_view.h"
+#include "widgets/input_composer.h"
 #include "widgets/keybar.h"
 #include "widgets/menu.h"
 #include "sm_ui.h"
@@ -33,6 +34,7 @@ typedef struct {
     struct TitleBar title;
     struct ConnectionStatusBar status;
     struct TextBufferView mainBuffer;
+    struct InputComposer input;
     struct Keybar keybar;
     struct Menu menu;
     SM_UI_Key cmdHsm;
@@ -50,7 +52,9 @@ typedef struct {
 } SM_UI_MainBufferMetrics_;
 
 static unsigned    SM_UI_std_panelCols_(unsigned cols);
+static int         SM_UI_std_inputY_(unsigned rows);
 static int         SM_UI_std_keybarY_(unsigned rows);
+static bool        SM_UI_inputIsCtrlSlash_(UI_Input const *input);
 
 // Interaction handler declarations:
 // - coordinates multiple components or adapts external callback context.
@@ -80,6 +84,7 @@ static int         SM_UI_title_cb_(struct ncplane *n);
 static int         SM_UI_status_cb_(struct ncplane *n);
 static int         SM_UI_main_cb_(struct ncplane *n);
 static int         SM_UI_content_cb_(struct ncplane *n);
+static int         SM_UI_input_cb_(struct ncplane *n);
 static int         SM_UI_keybar_cb_(struct ncplane *n);
 static int         SM_UI_menu_cb_(struct ncplane *n);
 
@@ -136,7 +141,7 @@ static SM_StatePtr SM_UI_TOP_initial(SM_Hsm * const me) SM_HSM_RETT {
     SM_UI *ao = containerof(me, SM_UI, super);
     SM_UI_widgets_create_(ao);
 
-    SM_UI_Key_ctor(&ao->cmdHsm);
+    SM_UI_Key_ctor(&ao->cmdHsm, &ao->input);
     SM_UI_Key_init(&ao->cmdHsm);
 
     return _SM_INIT(&SM_UI_active);
@@ -161,26 +166,21 @@ static SM_RetState SM_UI_active_(SM_Hsm * const me, UI_Evt const * const e) {
             return _SM_HANDLED();
         }
 
-        case UI_RESIZE_SIG: {
-            SM_UI_menu_sync_(ao);
-            return _SM_HANDLED();
+        case UI_INPUT_SIG: {
+            UI_InputEvt const * const inputEvt =
+                (UI_InputEvt const *)e;
+            if (inputEvt->input.id == NCKEY_RESIZE) {
+                SM_UI_menu_sync_(ao);
+                SM_UI_requestFrame_();
+                return _SM_HANDLED();
+            }
+            return _SM_SUPER();
         }
 
-        case UI_TEXT_SIG:
-        case UI_KEY_DEBUG_SIG: {
+        case UI_TEXT_SIG: {
             UI_AppEvt const *ae = (UI_AppEvt const *)e;
             SM_UI_mainBuffer_pushText_(ao, ae->pld.msg.text,
                                       ae->pld.msg.len);
-            return _SM_HANDLED();
-        }
-
-        case UI_KEY_PGUP_SIG: {
-            SM_UI_mainBuffer_scrollPageUp_(ao);
-            return _SM_HANDLED();
-        }
-
-        case UI_KEY_PGDN_SIG: {
-            SM_UI_mainBuffer_scrollPageDown_(ao);
             return _SM_HANDLED();
         }
 
@@ -191,17 +191,40 @@ static SM_RetState SM_UI_active_(SM_Hsm * const me, UI_Evt const * const e) {
 }
 
 static void SM_UI_showMain_entry_(SM_Hsm * const me) SM_HSM_RETT {
-    (void)me;
+    SM_UI *ao = containerof(me, SM_UI, super);
+    InputComposer_setActive(&ao->input, true);
+    SM_UI_requestFrame_();
 }
 
 static SM_RetState SM_UI_showMain_(SM_Hsm * const me,
                                    UI_Evt const * const e)
 {
-    (void)me;
+    SM_UI *ao = containerof(me, SM_UI, super);
 
     switch (e->sig) {
-        case UI_KEY_CTRL_SLASH_SIG: {
-            return _SM_TRAN(&SM_UI_showMenu);
+        case UI_INPUT_SIG: {
+            UI_InputEvt const * const inputEvt =
+                (UI_InputEvt const *)e;
+            UI_Input const * const input = &inputEvt->input;
+
+            if (input->id == NCKEY_RESIZE) {
+                return _SM_SUPER();
+            }
+            if (SM_UI_inputIsCtrlSlash_(input)) {
+                return _SM_TRAN(&SM_UI_showMenu);
+            }
+            if (input->id == NCKEY_PGUP) {
+                SM_UI_mainBuffer_scrollPageUp_(ao);
+                return _SM_HANDLED();
+            }
+            if (input->id == NCKEY_PGDOWN) {
+                SM_UI_mainBuffer_scrollPageDown_(ao);
+                return _SM_HANDLED();
+            }
+
+            SM_UI_Key_dispatchEvt(&ao->cmdHsm, e);
+            SM_UI_requestFrame_();
+            return _SM_HANDLED();
         }
 
         default: {
@@ -213,6 +236,7 @@ static SM_RetState SM_UI_showMain_(SM_Hsm * const me,
 //============================================================================
 static void SM_UI_showMenu_entry_(SM_Hsm * const me) SM_HSM_RETT {
     SM_UI *ao = containerof(me, SM_UI, super);
+    InputComposer_setActive(&ao->input, false);
     SM_UI_menu_show_(ao);
 }
 
@@ -227,54 +251,65 @@ static SM_RetState SM_UI_showMenu_(SM_Hsm * const me,
     SM_UI *ao = containerof(me, SM_UI, super);
 
     switch (e->sig) {
-        case UI_KEY_DOWN_SIG:
-        case UI_KEY_CTRL_N_SIG:
-        case UI_KEY_J_SIG: {
-            SM_UI_menu_selectNext_(ao);
+        case UI_INPUT_SIG: {
+            UI_InputEvt const * const inputEvt =
+                (UI_InputEvt const *)e;
+            UI_Input const * const input = &inputEvt->input;
+
+            if (input->id == NCKEY_RESIZE) {
+                return _SM_SUPER();
+            }
+            if (input->id == NCKEY_DOWN
+                || input->id == 0x0EU
+                || ((input->id == 'n' || input->id == 'N')
+                    && (input->modifiers & NCKEY_MOD_CTRL) != 0U)
+                || input->id == 'j')
+            {
+                SM_UI_menu_selectNext_(ao);
+                return _SM_HANDLED();
+            }
+            if (input->id == NCKEY_UP
+                || input->id == 0x10U
+                || ((input->id == 'p' || input->id == 'P')
+                    && (input->modifiers & NCKEY_MOD_CTRL) != 0U)
+                || input->id == 'k')
+            {
+                SM_UI_menu_selectPrev_(ao);
+                return _SM_HANDLED();
+            }
+            if (input->id == NCKEY_ENTER) {
+                switch (Menu_action(&ao->menu)) {
+                case MENU_ACT_RESUME: {
+                    SM_UI_requestFrame_();
+                    return _SM_TRAN(&SM_UI_showMain);
+                }
+                case MENU_ACT_CLEAR: {
+                    SM_UI_mainBuffer_clear_(ao);
+                    return _SM_TRAN(&SM_UI_showMain);
+                }
+                case MENU_ACT_ABOUT: {
+                    char const about[] =
+                        "termbox v0.1 -- HSM demo\n"
+                        "notcurses + SST + sm_hsm\n";
+                    SM_UI_mainBuffer_pushText_(ao, about,
+                                              sizeof(about) - 1U);
+                    return _SM_TRAN(&SM_UI_showMain);
+                }
+                case MENU_ACT_QUIT: {
+                    (*SM_UI_hostOps_.requestQuit)(SM_UI_hostOps_.ctx);
+                    return _SM_TRAN(&SM_UI_showMain);
+                }
+                default:
+                    break;
+                }
+                return _SM_HANDLED();
+            }
+            if (SM_UI_inputIsCtrlSlash_(input)
+                || input->id == 27U)
+            {
+                return _SM_TRAN(&SM_UI_showMain);
+            }
             return _SM_HANDLED();
-        }
-
-        case UI_KEY_UP_SIG:
-        case UI_KEY_CTRL_P_SIG:
-        case UI_KEY_K_SIG: {
-            SM_UI_menu_selectPrev_(ao);
-            return _SM_HANDLED();
-        }
-
-        case UI_KEY_ENTER_SIG: {
-            switch (Menu_action(&ao->menu)) {
-            case MENU_ACT_RESUME: {
-                SM_UI_requestFrame_();
-                return _SM_TRAN(&SM_UI_showMain);
-            }
-            case MENU_ACT_CLEAR: {
-                SM_UI_mainBuffer_clear_(ao);
-                return _SM_TRAN(&SM_UI_showMain);
-            }
-            case MENU_ACT_ABOUT: {
-                char const about[] =
-                    "termbox v0.1 -- HSM demo\n"
-                    "notcurses + SST + sm_hsm\n";
-                SM_UI_mainBuffer_pushText_(ao, about,
-                                          sizeof(about) - 1U);
-                return _SM_TRAN(&SM_UI_showMain);
-            }
-            case MENU_ACT_QUIT: {
-                (*SM_UI_hostOps_.requestQuit)(SM_UI_hostOps_.ctx);
-                return _SM_TRAN(&SM_UI_showMain);
-            }
-            default:
-                break;
-            }
-            return _SM_HANDLED();
-        }
-
-        case UI_KEY_CTRL_SLASH_SIG: {
-            return _SM_TRAN(&SM_UI_showMain);
-        }
-
-        case UI_KEY_ESC_SIG: {
-            return _SM_TRAN(&SM_UI_showMain);
         }
 
         default: {
@@ -308,6 +343,7 @@ static void SM_UI_ctor_(SM_UI * const me) {
     TitleBar_init(&me->title);
     ConnectionStatusBar_init(&me->status);
     TextBufferView_init(&me->mainBuffer);
+    InputComposer_init(&me->input);
     Keybar_init(&me->keybar);
     Menu_init(&me->menu);
 }
@@ -330,6 +366,13 @@ void SM_UI_setup(struct notcurses * const nc,
     SM_UI_ctor_(&SM_UI_inst_);
     SM_UI_inst_.nc = nc;
     SM_UI_start_(&SM_UI_inst_);
+}
+
+void SM_UI_teardown(void) {
+    DBC_REQUIRE(510, SM_UI_inst_.nc != (struct notcurses *)0);
+
+    InputComposer_destroy(&SM_UI_inst_.input);
+    SM_UI_inst_.nc = (struct notcurses *)0;
 }
 
 void SM_UI_flush(void) {
@@ -394,6 +437,18 @@ static int SM_UI_std_keybarY_(unsigned const rows) {
     return (int)(SM_UI_MAIN_Y_ + main.rows + 1U);
 }
 
+static int SM_UI_std_inputY_(unsigned const rows) {
+    return SM_UI_std_keybarY_(rows) - 1;
+}
+
+static bool SM_UI_inputIsCtrlSlash_(UI_Input const * const input) {
+    DBC_REQUIRE(590, input != (UI_Input const *)0);
+
+    return input->id == 0x1FU
+           || (input->id == '/'
+               && (input->modifiers & NCKEY_MOD_CTRL) != 0U);
+}
+
 //----------------------------------------------------------------------------
 //--- Widget composition
 
@@ -420,6 +475,9 @@ static void SM_UI_widgets_create_(SM_UI * const me) {
     TextBufferView_create(&me->mainBuffer, std, me,
                           main.rows, main.cols, borderCh,
                           SM_UI_main_cb_, SM_UI_content_cb_);
+    InputComposer_create(&me->input, std, me,
+                         SM_UI_std_inputY_(rows), panelCols,
+                         SM_UI_input_cb_);
     Keybar_create(&me->keybar, std, me, SM_UI_std_keybarY_(rows),
                   panelCols, SM_UI_keybar_cb_);
     Menu_create(&me->menu, std, me, SM_UI_menu_cb_);
@@ -541,6 +599,19 @@ static int SM_UI_content_cb_(struct ncplane * const n) {
     SM_UI *ao = ncplane_userptr(n);
     DBC_REQUIRE(643, ao != (SM_UI *)0);
     TextBufferView_resizeContent(&ao->mainBuffer);
+    SM_UI_requestFrame_();
+    return 0;
+}
+
+static int SM_UI_input_cb_(struct ncplane * const n) {
+    struct ncplane *parent = ncplane_parent(n); // std
+    SM_UI *ao = ncplane_userptr(n);
+    DBC_REQUIRE(646, ao != (SM_UI *)0);
+    unsigned rows;
+    unsigned cols;
+    ncplane_dim_yx(parent, &rows, &cols);
+    InputComposer_resize(&ao->input, SM_UI_std_inputY_(rows),
+                         SM_UI_std_panelCols_(cols));
     SM_UI_requestFrame_();
     return 0;
 }

@@ -13,6 +13,7 @@
 #include "dbc_assert.h"
 #include "aos.h"
 #include "blinky/blinky.h"
+#include "sp_mngr/sp_mngr.h"
 
 //============================================================================
 // DBC_MODULE_NAME("aos")
@@ -26,5 +27,12 @@ void SST_start(void) {
     SST_Task_start(AO_Blinky,
                    1U,                    // priority
                    Blinky_qSto, ARRAY_NELEM(Blinky_qSto),
+                   (SST_Evt const *)0);  // init event
+
+    SpMngr_ctor();
+    static SST_Evt const * SpMngr_qSto[128];
+    SST_Task_start(AO_SpMngr,
+                   2U,                    // priority
+                   SpMngr_qSto, ARRAY_NELEM(SpMngr_qSto),
                    (SST_Evt const *)0);  // init event
 }

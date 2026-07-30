@@ -125,6 +125,43 @@ if(BUILD_TESTING)
     target_include_directories(ui_event_ingress_contract PRIVATE
         ${ROOT_LOCAL}/application/ui
     )
+
+    add_library(application_subsystem_contract OBJECT
+        tests/application_subsystem_contract.c
+    )
+    target_include_directories(application_subsystem_contract PRIVATE
+        ${INC_ALL}
+    )
+
+    add_library(ui_input_composer_contract OBJECT
+        tests/ui_input_composer_contract.c
+    )
+    target_include_directories(ui_input_composer_contract PRIVATE
+        ${INC_ALL}
+    )
+
+    add_executable(ui_input_composer_lifecycle_test
+        tests/ui_input_composer_lifecycle.c
+        application/ui/widgets/input_composer.c
+        application/ui/widgets/widget_io_priv.c
+    )
+    target_include_directories(ui_input_composer_lifecycle_test PRIVATE
+        ${INC_ALL}
+    )
+    target_compile_definitions(ui_input_composer_lifecycle_test PRIVATE
+        DBC_DISABLE
+        _DEFAULT_SOURCE
+        _POSIX_C_SOURCE=200809L
+        _XOPEN_SOURCE=700
+    )
+    target_link_libraries(ui_input_composer_lifecycle_test PRIVATE
+        ${NOTCURSES_LIBRARY}
+    )
+    add_test(NAME ui_input_composer_lifecycle
+             COMMAND ui_input_composer_lifecycle_test)
+    set_tests_properties(ui_input_composer_lifecycle PROPERTIES
+        ENVIRONMENT "TERM=xterm-256color"
+    )
 endif()
 
 #=============================================================================

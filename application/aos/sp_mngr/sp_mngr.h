@@ -7,42 +7,16 @@
 // To Public License, Version 2, as published by Sam Hocevar.
 // See http://www.wtfpl.net/ for more details.
 //============================================================================
-#ifndef SM_UI_EVT_H_
-#define SM_UI_EVT_H_
+#ifndef SP_MNGR_H_
+#define SP_MNGR_H_
 
-#include <stddef.h>
-#include <stdint.h>
-#include "ui_input.h"
+#include "sst.h"
 
 //============================================================================
-//=== Event contract shared by the UI thread and UI HSM
+//=== AO_SpMngr lifecycle
 
-typedef uint16_t UI_Signal;
+extern SST_Task * const AO_SpMngr;
 
-typedef struct {
-    UI_Signal sig;
-} UI_Evt;
+void SpMngr_ctor(void);
 
-typedef struct {
-    UI_Evt super;
-    union {
-        struct {
-            size_t len;
-            char  *text;
-        } msg;
-    } pld;
-} UI_AppEvt;
-
-typedef struct {
-    UI_Evt super;
-    UI_Input input;
-} UI_InputEvt;
-
-enum {
-    UI_NULL_SIG = 0,
-    UI_INPUT_SIG,
-    UI_TIMER_SIG,
-    UI_TEXT_SIG,
-};
-
-#endif // SM_UI_EVT_H_
+#endif // SP_MNGR_H_
