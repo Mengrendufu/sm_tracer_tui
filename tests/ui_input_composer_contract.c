@@ -1,12 +1,9 @@
-#include "hsm/sm_input_composer_manager.h"
-#include "widgets/input_composer.h"
+#include "hsm/sm_input_cmps_mngr.h"
 
-void UI_InputComposer_contract(struct InputComposer * const composer,
-                               SM_InputComposerManager * const manager,
-                               UI_Evt const * const e)
+void UI_InputComposer_contract(SM_InputCmpsMngr * const manager,
+                               UI_InputEvt const * const e)
 {
-    InputComposer_init(composer);
-    SM_InputComposerManager_ctor(manager, composer);
-    SM_InputComposerManager_init(manager);
-    SM_InputComposerManager_dispatchEvt(manager, e);
+    SM_InputCmpsMngr_ctor(manager);
+    SM_InputCmpsMngr_init(manager);
+    SM_InputCmpsMngr_dispatchEvt(manager, e);
 }

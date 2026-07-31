@@ -11,16 +11,16 @@
 #define INPUT_COMPOSER_H_
 
 #include <stdbool.h>
-#include "ui_input.h"
+#include <stddef.h>
 
 struct ncplane;
-struct ncreader;
 
-// Owns its notcurses plane and reader for the UI subsystem lifetime.
+// Passive projection owned by SM_InputCmpsMngr. Cursor rendering stays local.
 struct InputComposer {
-    struct ncplane  *plane;
-    struct ncreader *reader;
-    bool             active;
+    struct ncplane *plane;
+    size_t           viewStart;
+    unsigned         cursorCol;
+    bool             cursorVisible;
 };
 
 typedef int (*InputComposer_ResizeCb)(struct ncplane *plane);
@@ -36,8 +36,26 @@ void InputComposer_destroy(struct InputComposer *composer);
 void InputComposer_resize(struct InputComposer *composer,
                           int y,
                           unsigned cols);
-void InputComposer_setActive(struct InputComposer *composer, bool active);
-void InputComposer_offerInput(struct InputComposer *composer,
-                              UI_Input const *input);
+void InputComposer_showCursor(struct InputComposer *composer,
+                              char const *text,
+                              size_t len,
+                              size_t editPos);
+void InputComposer_hideCursor(struct InputComposer *composer,
+                              char const *text,
+                              size_t len,
+                              size_t editPos);
+void InputComposer_projectAll(struct InputComposer *composer,
+                              char const *text,
+                              size_t len,
+                              size_t editPos);
+void InputComposer_projectFrom(struct InputComposer *composer,
+                               char const *text,
+                               size_t len,
+                               size_t editPos,
+                               size_t dirtyPos);
+void InputComposer_moveCursor(struct InputComposer *composer,
+                              char const *text,
+                              size_t len,
+                              size_t editPos);
 
 #endif // INPUT_COMPOSER_H_

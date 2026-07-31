@@ -159,6 +159,20 @@ if(BUILD_TESTING)
     add_test(NAME ui_input_router
              COMMAND ui_input_router_test)
 
+    add_executable(ui_input_cmps_mngr_test
+        tests/ui_input_cmps_mngr_test.c
+        application/ui/hsm/sm_input_cmps_mngr.c
+        ${SM_HSM_SRC}
+    )
+    target_include_directories(ui_input_cmps_mngr_test PRIVATE
+        ${INC_ALL}
+    )
+    target_compile_definitions(ui_input_cmps_mngr_test PRIVATE
+        SM_DBC_DISABLE
+    )
+    add_test(NAME ui_input_cmps_mngr
+             COMMAND ui_input_cmps_mngr_test)
+
     add_executable(ui_input_composer_lifecycle_test
         tests/ui_input_composer_lifecycle.c
         application/ui/widgets/input_composer.c

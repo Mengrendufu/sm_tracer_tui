@@ -144,8 +144,7 @@ void UI_evtEnqueueInput(UI_Signal const sig,
     DBC_REQUIRE(321, input != (UI_Input const *)0);
     DBC_REQUIRE(322, UI_eventInbox_.wakeFd >= 0);
 
-    UI_InputEvt *ie =
-        (UI_InputEvt *)UI_Alloc_(sizeof(UI_InputEvt));
+    UI_InputEvt *ie = (UI_InputEvt *)UI_Alloc_(sizeof(UI_InputEvt));
     ie->super.sig = sig;
     ie->input = *input;
 
