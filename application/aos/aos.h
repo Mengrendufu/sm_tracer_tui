@@ -11,6 +11,6 @@
 #define AOS_H_
 
 //============================================================================
-//=== AO definitions (to be populated as AOs are created)
+//=== Application AO package boundary (currently no public declarations)
 
 #endif // AOS_H_

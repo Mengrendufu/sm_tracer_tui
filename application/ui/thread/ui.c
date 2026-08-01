@@ -223,7 +223,7 @@ int UI_run(void) {
         }
 
         //--------------------------------------------------------------------
-        // tripple block source:
+        // triple blocking sources:
         // 1. thread event queue
         // 2. notcurses input
         // 3. rendering timeout

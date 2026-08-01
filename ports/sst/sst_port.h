@@ -83,7 +83,7 @@ typedef int SST_LockKey;
     void SST_onIdle(void);
 
 //============================================================================
-//=== Critical section: ref-counted non-recursive mutex.
+//=== Critical section: non-recursive mutex with thread-local nesting guard.
 #define SST_PORT_CRIT_STAT
 #define SST_PORT_CRIT_ENTRY()  enterCriticalSection_()
 #define SST_PORT_CRIT_EXIT()   leaveCriticalSection_()

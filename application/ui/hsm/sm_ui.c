@@ -279,8 +279,8 @@ static SM_RetState SM_UI_showMenu_(SM_Hsm * const me,
                 return _SM_TRAN(&SM_UI_showMain);
             } else if (action == MENU_ACT_ABOUT) {
                 char const about[] =
-                    "termbox v0.1 -- HSM demo\n"
-                    "notcurses + SST + sm_hsm\n";
+                    "sm_tracer_tui v0.0.1\n"
+                    "notcurses + sm_sst + sm_hsm\n";
                 SM_UI_mainBuffer_pushText_(ao, about,
                                           sizeof(about) - 1U);
                 return _SM_TRAN(&SM_UI_showMain);

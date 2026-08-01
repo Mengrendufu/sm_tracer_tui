@@ -105,7 +105,7 @@ static void UI_wake_(void) {
 }
 
 //============================================================================
-//=== Cross-thread post
+//=== Event producers
 
 void UI_evtPostSignal(UI_Signal sig) {
     DBC_REQUIRE(300, sig > UI_NULL_SIG);

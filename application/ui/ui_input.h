@@ -12,7 +12,7 @@
 
 #include <stdint.h>
 
-// Terminal-independent input snapshot shared inside the UI package.
+// Normalized notcurses input snapshot shared inside the UI package.
 typedef struct {
     uint32_t id;
     uint32_t modifiers;

@@ -42,7 +42,7 @@ enum UIEventSignals {
     UI_NULL_SIG = 0,
 
     // Terminal input signals produced by UI_InputRouter.
-    // delivery to input composer manager
+    // UI_INPUT_SIG carries ordinary text input; named keys retain own signals.
     UI_INPUT_SIG,
 
     UI_KEY_ESC_SIG,

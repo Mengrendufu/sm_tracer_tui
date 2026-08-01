@@ -8,7 +8,7 @@
 // See http://www.wtfpl.net/ for more details.
 //============================================================================
 //============================================================================
-//=== Application entry: notcurses init, SST thread, UI loop
+//=== Application entry: UI init, serial/SST startup, main-thread UI loop
 #include <stdio.h>
 #include <stdlib.h>
 #include <locale.h>

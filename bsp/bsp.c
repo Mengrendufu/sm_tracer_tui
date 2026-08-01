@@ -8,7 +8,7 @@
 // See http://www.wtfpl.net/ for more details.
 //============================================================================
 //============================================================================
-//=== Board Support Package: assertions, tick, pool init
+//=== Board Support Package: assertions, tick, SST runtime init
 #include <stdio.h>
 #include <stdlib.h>
 #include "sst.h"
@@ -76,7 +76,7 @@ void SST_onStart(void) {
 }
 
 //============================================================================
-//=== DBC fault handler (SST assertion framework).
+//=== DBC fault handler.
 #ifndef DBC_DISABLE
 #include <unistd.h>
 #include <fcntl.h>

@@ -15,7 +15,7 @@
 DBC_MODULE_NAME("sst_port")
 
 //============================================================================
-//=== Critical section: ref-counted non-recursive mutex.
+//=== Critical section: non-recursive mutex with thread-local nesting guard.
 static pthread_mutex_t l_portLock = PTHREAD_MUTEX_INITIALIZER;
 
 static __thread int l_critSectNest;
@@ -74,9 +74,6 @@ void SST_Task_setPrio(SST_Task * const me, SST_TaskPrio const prio) {
     sem_init(&me->sem, 0, 0);
     pthread_create(&me->thread, NULL, ao_thread, me);
 }
-
-//============================================================================
-//=== SST kernel callbacks.
 
 //============================================================================
 //=== Scheduler locking (no-op, critical section handled by SST_PORT_CRIT).

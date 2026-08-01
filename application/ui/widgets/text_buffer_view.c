@@ -490,8 +490,6 @@ static void TextBufferView_content_drawScrollBar_(
 //
 // These handlers express TextBufferView coupling: std/frame/content geometry,
 // TextArea repaint, and ScrollBar thumb projection into content.
-// TODO: refine this composite with OOP-style leaf view methods while keeping
-// TextArea and ScrollBar coupling owned by TextBufferView.
 
 static void TextBufferView_frame_content_create_(
     struct TextBufferView * const view,

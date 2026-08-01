@@ -8,7 +8,7 @@
 // See http://www.wtfpl.net/ for more details.
 //============================================================================
 //============================================================================
-//=== Blinky AO — SST task + HSM, idle/active states
+//=== Blinky AO — SST task + HSM, off/on states
 #include "app_sig.h"
 #include "sst.h"
 #include "sm_port.h"
