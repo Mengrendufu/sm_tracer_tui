@@ -17,18 +17,40 @@
 DBC_MODULE_NAME("sm_input_cmps_mngr")
 
 //============================================================================
-//=== Private event contract
+//=== Private command and event contracts
+
+typedef struct {
+    SM_InputCommand id;
+    char const *name;
+    char const *suggestion;
+    char const *token;
+} InputCommandDef;
+
+static InputCommandDef const l_commands_[SM_INPUT_COMMAND_NUM] = {
+    {SM_INPUT_COMMAND_CONNECT,    "connect",    "/connect",    "$connect"},
+    {SM_INPUT_COMMAND_DISCONNECT, "disconnect", "/disconnect", "$disconnect"},
+    {SM_INPUT_COMMAND_REFRESH,    "refresh",    "/refresh",    "$refresh"},
+};
 
 enum InputCmpsMngrSignals {
     INPUT_CMPS_MNGR_NULL_SIG = 0,
+    INPUT_CMPS_MNGR_ACTIVATE_SIG,
+    INPUT_CMPS_MNGR_DEACTIVATE_SIG,
     INPUT_CMPS_MNGR_TERM_INPUT_SIG,
+    INPUT_CMPS_MNGR_SLASH_INPUT_SIG,
+    INPUT_CMPS_MNGR_CANCEL_SIG,
+    INPUT_CMPS_MNGR_SELECT_PREV_SIG,
+    INPUT_CMPS_MNGR_SELECT_NEXT_SIG,
     INPUT_CMPS_MNGR_DELETE_PREV_SIG,
     INPUT_CMPS_MNGR_DELETE_TO_START_SIG,
     INPUT_CMPS_MNGR_DELETE_PREV_WORD_SIG,
     INPUT_CMPS_MNGR_MOVE_LEFT_SIG,
     INPUT_CMPS_MNGR_MOVE_RIGHT_SIG,
+    INPUT_CMPS_MNGR_MOVE_PREV_WORD_SIG,
+    INPUT_CMPS_MNGR_MOVE_NEXT_WORD_SIG,
     INPUT_CMPS_MNGR_MOVE_HOME_SIG,
     INPUT_CMPS_MNGR_MOVE_END_SIG,
+    INPUT_CMPS_MNGR_COMPLETE_SIG,
     INPUT_CMPS_MNGR_CONFIRM_SIG,
 };
 
@@ -37,101 +59,673 @@ typedef struct {
     UI_Input input;
 } InputCmpsMngrEvt;
 
-static UI_Signal SM_InputCmpsMngr_routeSignal_(UI_Signal sig);
+typedef enum {
+    INPUT_SUGGEST_AVAILABLE,
+    INPUT_SUGGEST_NOT_AVAILABLE,
+    INPUT_SUGGEST_CANDIDATES_AVAILABLE,
+} InputSuggestionContext;
+
+static UI_Signal SM_InputCmpsMngr_routeSignal_(UI_InputEvt const *e);
 static size_t    SM_InputCmpsMngr_utf8CodepointSize_(
                         char const *text, size_t remaining);
 static size_t    SM_InputCmpsMngr_inputSize_(UI_Input const *input);
 static size_t    SM_InputCmpsMngr_prevPos_(
                         SM_InputCmpsMngr const *me, size_t pos);
+static size_t    SM_InputCmpsMngr_nextPos_(
+                        SM_InputCmpsMngr const *me, size_t pos);
 static bool      SM_InputCmpsMngr_isWhitespaceAt_(
                         SM_InputCmpsMngr const *me, size_t pos);
-static size_t    SM_InputCmpsMngr_nextPos_(
-                        SM_InputCmpsMngr const *me);
-static void      SM_InputCmpsMngr_insert_(
+static bool      SM_InputCmpsMngr_tokenEndingAt_(
+                        SM_InputCmpsMngr const *me, size_t pos,
+                        size_t *tokenIndex);
+static bool      SM_InputCmpsMngr_tokenStartingAt_(
+                        SM_InputCmpsMngr const *me, size_t pos,
+                        size_t *tokenIndex);
+static void      SM_InputCmpsMngr_validate_(SM_InputCmpsMngr const *me);
+static bool      SM_InputCmpsMngr_insertBytes_(
+                        SM_InputCmpsMngr *me, char const *text,
+                        size_t size, bool project);
+static void      SM_InputCmpsMngr_removeRange_(
+                        SM_InputCmpsMngr *me, size_t begin,
+                        size_t end, bool project);
+static bool      SM_InputCmpsMngr_insert_(
                         SM_InputCmpsMngr *me, UI_Input const *input);
 static void      SM_InputCmpsMngr_deletePrev_(SM_InputCmpsMngr *me);
 static void      SM_InputCmpsMngr_deleteToStart_(SM_InputCmpsMngr *me);
 static void      SM_InputCmpsMngr_deletePrevWord_(SM_InputCmpsMngr *me);
 static void      SM_InputCmpsMngr_moveLeft_(SM_InputCmpsMngr *me);
 static void      SM_InputCmpsMngr_moveRight_(SM_InputCmpsMngr *me);
+static void      SM_InputCmpsMngr_movePrevWord_(SM_InputCmpsMngr *me);
+static void      SM_InputCmpsMngr_moveNextWord_(SM_InputCmpsMngr *me);
 static void      SM_InputCmpsMngr_moveHome_(SM_InputCmpsMngr *me);
 static void      SM_InputCmpsMngr_moveEnd_(SM_InputCmpsMngr *me);
+static void      SM_InputCmpsMngr_filterCandidates_(
+                        SM_InputCmpsMngr *me);
+static InputSuggestionContext SM_InputCmpsMngr_suggestionContext_(
+                        SM_InputCmpsMngr *me);
+static void      SM_InputCmpsMngr_showSuggestions_(
+                        SM_InputCmpsMngr *me);
+static bool      SM_InputCmpsMngr_acceptSuggestion_(
+                        SM_InputCmpsMngr *me);
 
 //============================================================================
 //=== States
 
 static SM_StatePtr SM_InputCmpsMngr_TOP_initial(SM_Hsm *me) SM_HSM_RETT;
 
-static void        SM_InputCmpsMngr_idle_entry_(SM_Hsm *me) SM_HSM_RETT;
-static SM_RetState SM_InputCmpsMngr_idle_(SM_Hsm * const me, UI_Evt const * const e) SM_HSM_RETT;
-SM_HsmState SM_HSM_ROM SM_InputCmpsMngr_idle = {
-    (SM_StatePtr)0,                                  // super (top)
-    (SM_InitHandler)0,                               // init_ (leaf)
-    (SM_ActionHandler)&SM_InputCmpsMngr_idle_entry_, // entry_
-    (SM_ActionHandler)0,                             // exit_
-    (SM_StateHandler)&SM_InputCmpsMngr_idle_         // handler_
+static SM_RetState SM_InputCmpsMngr_inactive_(SM_Hsm *me,
+                                              UI_Evt const *e) SM_HSM_RETT;
+SM_HsmState SM_HSM_ROM SM_InputCmpsMngr_inactive = {
+    (SM_StatePtr)0,
+    (SM_InitHandler)0,
+    (SM_ActionHandler)0,
+    (SM_ActionHandler)0,
+    (SM_StateHandler)&SM_InputCmpsMngr_inactive_
+};
+
+static SM_StatePtr SM_InputCmpsMngr_active_init_(SM_Hsm *me) SM_HSM_RETT;
+static void        SM_InputCmpsMngr_active_entry_(SM_Hsm *me) SM_HSM_RETT;
+static void        SM_InputCmpsMngr_active_exit_(SM_Hsm *me) SM_HSM_RETT;
+static SM_RetState SM_InputCmpsMngr_active_(SM_Hsm *me,
+                                            UI_Evt const *e) SM_HSM_RETT;
+SM_HsmState SM_HSM_ROM SM_InputCmpsMngr_active = {
+    (SM_StatePtr)0,
+    (SM_InitHandler)&SM_InputCmpsMngr_active_init_,
+    (SM_ActionHandler)&SM_InputCmpsMngr_active_entry_,
+    (SM_ActionHandler)&SM_InputCmpsMngr_active_exit_,
+    (SM_StateHandler)&SM_InputCmpsMngr_active_
+};
+
+static SM_StatePtr SM_InputCmpsMngr_normal_init_(SM_Hsm *me) SM_HSM_RETT;
+static SM_RetState SM_InputCmpsMngr_normal_(SM_Hsm *me,
+                                            UI_Evt const *e) SM_HSM_RETT;
+SM_HsmState SM_HSM_ROM SM_InputCmpsMngr_normal = {
+    (SM_StatePtr)&SM_InputCmpsMngr_active,
+    (SM_InitHandler)&SM_InputCmpsMngr_normal_init_,
+    (SM_ActionHandler)0,
+    (SM_ActionHandler)0,
+    (SM_StateHandler)&SM_InputCmpsMngr_normal_
+};
+
+static SM_RetState SM_InputCmpsMngr_suggestAvailable_(
+    SM_Hsm *me, UI_Evt const *e) SM_HSM_RETT;
+SM_HsmState SM_HSM_ROM SM_InputCmpsMngr_suggestAvailable = {
+    (SM_StatePtr)&SM_InputCmpsMngr_normal,
+    (SM_InitHandler)0,
+    (SM_ActionHandler)0,
+    (SM_ActionHandler)0,
+    (SM_StateHandler)&SM_InputCmpsMngr_suggestAvailable_
+};
+
+static SM_RetState SM_InputCmpsMngr_suggestNotAvailable_(
+    SM_Hsm *me, UI_Evt const *e) SM_HSM_RETT;
+SM_HsmState SM_HSM_ROM SM_InputCmpsMngr_suggestNotAvailable = {
+    (SM_StatePtr)&SM_InputCmpsMngr_normal,
+    (SM_InitHandler)0,
+    (SM_ActionHandler)0,
+    (SM_ActionHandler)0,
+    (SM_StateHandler)&SM_InputCmpsMngr_suggestNotAvailable_
+};
+
+static void        SM_InputCmpsMngr_suggesting_entry_(SM_Hsm *me) SM_HSM_RETT;
+static void        SM_InputCmpsMngr_suggesting_exit_(SM_Hsm *me) SM_HSM_RETT;
+static SM_RetState SM_InputCmpsMngr_suggesting_(SM_Hsm *me,
+                                                UI_Evt const *e) SM_HSM_RETT;
+SM_HsmState SM_HSM_ROM SM_InputCmpsMngr_suggesting = {
+    (SM_StatePtr)&SM_InputCmpsMngr_active,
+    (SM_InitHandler)0,
+    (SM_ActionHandler)&SM_InputCmpsMngr_suggesting_entry_,
+    (SM_ActionHandler)&SM_InputCmpsMngr_suggesting_exit_,
+    (SM_StateHandler)&SM_InputCmpsMngr_suggesting_
 };
 
 //============================================================================
 //=== HSM implementations
 
-static SM_StatePtr SM_InputCmpsMngr_TOP_initial(SM_Hsm * const me) SM_HSM_RETT {
+static SM_StatePtr SM_InputCmpsMngr_TOP_initial(
+    SM_Hsm * const me) SM_HSM_RETT
+{
     (void)me;
-    return _SM_INIT(&SM_InputCmpsMngr_idle);
+    return _SM_INIT(&SM_InputCmpsMngr_inactive);
 }
 
-static void SM_InputCmpsMngr_idle_entry_(SM_Hsm * const me) SM_HSM_RETT {
-    (void)me;
+static SM_RetState SM_InputCmpsMngr_inactive_(
+    SM_Hsm * const me,
+    UI_Evt const * const e) SM_HSM_RETT
+{
+    SM_InputCmpsMngr *manager = containerof(
+        me, SM_InputCmpsMngr, super);
+
+    switch (e->sig) {
+        case INPUT_CMPS_MNGR_ACTIVATE_SIG: {
+            InputSuggestionContext const context =
+                SM_InputCmpsMngr_suggestionContext_(manager);
+
+            if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggesting);
+            } else if (context == INPUT_SUGGEST_AVAILABLE) {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
+            } else {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestNotAvailable);
+            }
+        }
+
+        case INPUT_CMPS_MNGR_DEACTIVATE_SIG: {
+            return _SM_HANDLED();
+        }
+
+        default: {
+            return _SM_SUPER();
+        }
+    }
 }
 
-static SM_RetState SM_InputCmpsMngr_idle_(SM_Hsm * const me, UI_Evt const * const e) SM_HSM_RETT {
+static SM_StatePtr SM_InputCmpsMngr_active_init_(
+    SM_Hsm * const me) SM_HSM_RETT
+{
+    (void)me;
+    return _SM_INIT(&SM_InputCmpsMngr_normal);
+}
+
+static void SM_InputCmpsMngr_active_entry_(
+    SM_Hsm * const me) SM_HSM_RETT
+{
+    SM_InputCmpsMngr *manager = containerof(
+        me, SM_InputCmpsMngr, super);
+    InputComposer_showCursor(&manager->composer, manager->buffer,
+                             manager->length, manager->editPos);
+}
+
+static void SM_InputCmpsMngr_active_exit_(
+    SM_Hsm * const me) SM_HSM_RETT
+{
+    SM_InputCmpsMngr *manager = containerof(
+        me, SM_InputCmpsMngr, super);
+    InputComposer_hideCursor(&manager->composer, manager->buffer,
+                             manager->length, manager->editPos);
+}
+
+static SM_RetState SM_InputCmpsMngr_active_(
+    SM_Hsm * const me,
+    UI_Evt const * const e) SM_HSM_RETT
+{
+    switch (e->sig) {
+        case INPUT_CMPS_MNGR_DEACTIVATE_SIG: {
+            return _SM_TRAN(&SM_InputCmpsMngr_inactive);
+        }
+
+        case INPUT_CMPS_MNGR_ACTIVATE_SIG: {
+            return _SM_HANDLED();
+        }
+
+        default: {
+            return _SM_SUPER();
+        }
+    }
+}
+
+static SM_StatePtr SM_InputCmpsMngr_normal_init_(
+    SM_Hsm * const me) SM_HSM_RETT
+{
+    (void)me;
+    return _SM_INIT(&SM_InputCmpsMngr_suggestAvailable);
+}
+
+static SM_RetState SM_InputCmpsMngr_normal_(
+    SM_Hsm * const me,
+    UI_Evt const * const e) SM_HSM_RETT
+{
     SM_InputCmpsMngr *manager = containerof(me, SM_InputCmpsMngr, super);
 
     switch (e->sig) {
-        case INPUT_CMPS_MNGR_CONFIRM_SIG: {
+        case INPUT_CMPS_MNGR_SLASH_INPUT_SIG: {
+            InputCmpsMngrEvt const * const inputEvt =
+                (InputCmpsMngrEvt const *)e;
+            (void)SM_InputCmpsMngr_insert_(manager, &inputEvt->input);
             return _SM_HANDLED();
         }
 
         case INPUT_CMPS_MNGR_TERM_INPUT_SIG: {
             InputCmpsMngrEvt const * const inputEvt =
                 (InputCmpsMngrEvt const *)e;
-            SM_InputCmpsMngr_insert_(manager, &inputEvt->input);
-            return _SM_HANDLED();
+            if (SM_InputCmpsMngr_insert_(manager,
+                                         &inputEvt->input))
+            {
+                InputSuggestionContext const context =
+                    SM_InputCmpsMngr_suggestionContext_(manager);
+
+                if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
+                    return _SM_TRAN(&SM_InputCmpsMngr_suggesting);
+                } else if (context == INPUT_SUGGEST_AVAILABLE) {
+                    return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
+                } else {
+                    return _SM_TRAN(
+                        &SM_InputCmpsMngr_suggestNotAvailable);
+                }
+            } else {
+                return _SM_HANDLED();
+            }
         }
 
         case INPUT_CMPS_MNGR_DELETE_PREV_SIG: {
             SM_InputCmpsMngr_deletePrev_(manager);
-            return _SM_HANDLED();
+            InputSuggestionContext const context =
+                SM_InputCmpsMngr_suggestionContext_(manager);
+
+            if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggesting);
+            } else if (context == INPUT_SUGGEST_AVAILABLE) {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
+            } else {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestNotAvailable);
+            }
         }
 
         case INPUT_CMPS_MNGR_DELETE_TO_START_SIG: {
             SM_InputCmpsMngr_deleteToStart_(manager);
-            return _SM_HANDLED();
+            InputSuggestionContext const context =
+                SM_InputCmpsMngr_suggestionContext_(manager);
+
+            if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggesting);
+            } else if (context == INPUT_SUGGEST_AVAILABLE) {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
+            } else {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestNotAvailable);
+            }
         }
 
         case INPUT_CMPS_MNGR_DELETE_PREV_WORD_SIG: {
             SM_InputCmpsMngr_deletePrevWord_(manager);
-            return _SM_HANDLED();
+            InputSuggestionContext const context =
+                SM_InputCmpsMngr_suggestionContext_(manager);
+
+            if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggesting);
+            } else if (context == INPUT_SUGGEST_AVAILABLE) {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
+            } else {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestNotAvailable);
+            }
         }
 
         case INPUT_CMPS_MNGR_MOVE_LEFT_SIG: {
             SM_InputCmpsMngr_moveLeft_(manager);
-            return _SM_HANDLED();
+            InputSuggestionContext const context =
+                SM_InputCmpsMngr_suggestionContext_(manager);
+
+            if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggesting);
+            } else if (context == INPUT_SUGGEST_AVAILABLE) {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
+            } else {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestNotAvailable);
+            }
         }
 
         case INPUT_CMPS_MNGR_MOVE_RIGHT_SIG: {
             SM_InputCmpsMngr_moveRight_(manager);
-            return _SM_HANDLED();
+            InputSuggestionContext const context =
+                SM_InputCmpsMngr_suggestionContext_(manager);
+
+            if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggesting);
+            } else if (context == INPUT_SUGGEST_AVAILABLE) {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
+            } else {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestNotAvailable);
+            }
+        }
+
+        case INPUT_CMPS_MNGR_MOVE_PREV_WORD_SIG: {
+            SM_InputCmpsMngr_movePrevWord_(manager);
+            InputSuggestionContext const context =
+                SM_InputCmpsMngr_suggestionContext_(manager);
+
+            if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggesting);
+            } else if (context == INPUT_SUGGEST_AVAILABLE) {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
+            } else {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestNotAvailable);
+            }
+        }
+
+        case INPUT_CMPS_MNGR_MOVE_NEXT_WORD_SIG: {
+            SM_InputCmpsMngr_moveNextWord_(manager);
+            InputSuggestionContext const context =
+                SM_InputCmpsMngr_suggestionContext_(manager);
+
+            if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggesting);
+            } else if (context == INPUT_SUGGEST_AVAILABLE) {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
+            } else {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestNotAvailable);
+            }
         }
 
         case INPUT_CMPS_MNGR_MOVE_HOME_SIG: {
             SM_InputCmpsMngr_moveHome_(manager);
-            return _SM_HANDLED();
+            InputSuggestionContext const context =
+                SM_InputCmpsMngr_suggestionContext_(manager);
+
+            if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggesting);
+            } else if (context == INPUT_SUGGEST_AVAILABLE) {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
+            } else {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestNotAvailable);
+            }
         }
 
         case INPUT_CMPS_MNGR_MOVE_END_SIG: {
             SM_InputCmpsMngr_moveEnd_(manager);
+            InputSuggestionContext const context =
+                SM_InputCmpsMngr_suggestionContext_(manager);
+
+            if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggesting);
+            } else if (context == INPUT_SUGGEST_AVAILABLE) {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
+            } else {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestNotAvailable);
+            }
+        }
+
+        case INPUT_CMPS_MNGR_CANCEL_SIG:
+        case INPUT_CMPS_MNGR_SELECT_PREV_SIG:
+        case INPUT_CMPS_MNGR_SELECT_NEXT_SIG:
+        case INPUT_CMPS_MNGR_COMPLETE_SIG:
+        case INPUT_CMPS_MNGR_CONFIRM_SIG: {
             return _SM_HANDLED();
+        }
+
+        default: {
+            return _SM_SUPER();
+        }
+    }
+}
+
+static SM_RetState SM_InputCmpsMngr_suggestAvailable_(
+    SM_Hsm * const me,
+    UI_Evt const * const e) SM_HSM_RETT
+{
+    SM_InputCmpsMngr *manager = containerof(
+        me, SM_InputCmpsMngr, super);
+
+    switch (e->sig) {
+        case INPUT_CMPS_MNGR_SLASH_INPUT_SIG: {
+            InputCmpsMngrEvt const * const inputEvt =
+                (InputCmpsMngrEvt const *)e;
+            if (SM_InputCmpsMngr_insert_(manager, &inputEvt->input)) {
+                InputSuggestionContext const context =
+                    SM_InputCmpsMngr_suggestionContext_(manager);
+
+                if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
+                    return _SM_TRAN(&SM_InputCmpsMngr_suggesting);
+                } else {
+                    return _SM_TRAN(
+                        &SM_InputCmpsMngr_suggestNotAvailable);
+                }
+            } else {
+                return _SM_HANDLED();
+            }
+        }
+
+        default: {
+            return _SM_SUPER();
+        }
+    }
+}
+
+static SM_RetState SM_InputCmpsMngr_suggestNotAvailable_(
+    SM_Hsm * const me,
+    UI_Evt const * const e) SM_HSM_RETT
+{
+    (void)me;
+    (void)e;
+    return _SM_SUPER();
+}
+
+static void SM_InputCmpsMngr_suggesting_entry_(
+    SM_Hsm * const me) SM_HSM_RETT
+{
+    SM_InputCmpsMngr *manager = containerof(
+        me, SM_InputCmpsMngr, super);
+    SM_InputCmpsMngr_showSuggestions_(manager);
+}
+
+static void SM_InputCmpsMngr_suggesting_exit_(
+    SM_Hsm * const me) SM_HSM_RETT
+{
+    SM_InputCmpsMngr *manager = containerof(
+        me, SM_InputCmpsMngr, super);
+    CommandSuggestion_hide(&manager->suggestion);
+    manager->candidateCount = 0U;
+    manager->selectedCandidate = 0U;
+}
+
+static SM_RetState SM_InputCmpsMngr_suggesting_(
+    SM_Hsm * const me,
+    UI_Evt const * const e) SM_HSM_RETT
+{
+    SM_InputCmpsMngr *manager = containerof(
+        me, SM_InputCmpsMngr, super);
+
+    switch (e->sig) {
+        case INPUT_CMPS_MNGR_TERM_INPUT_SIG:
+        case INPUT_CMPS_MNGR_SLASH_INPUT_SIG: {
+            InputCmpsMngrEvt const * const inputEvt =
+                (InputCmpsMngrEvt const *)e;
+            if (SM_InputCmpsMngr_insert_(manager, &inputEvt->input)) {
+                InputSuggestionContext const context =
+                    SM_InputCmpsMngr_suggestionContext_(manager);
+
+                if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
+                    SM_InputCmpsMngr_showSuggestions_(manager);
+                    return _SM_HANDLED();
+                } else if (context == INPUT_SUGGEST_AVAILABLE) {
+                    return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
+                } else {
+                    return _SM_TRAN(
+                        &SM_InputCmpsMngr_suggestNotAvailable);
+                }
+            } else {
+                return _SM_HANDLED();
+            }
+        }
+
+        case INPUT_CMPS_MNGR_SELECT_PREV_SIG: {
+            manager->selectedCandidate =
+                (manager->selectedCandidate == 0U)
+                ? (manager->candidateCount - 1U)
+                : (manager->selectedCandidate - 1U);
+            SM_InputCmpsMngr_showSuggestions_(manager);
+            return _SM_HANDLED();
+        }
+
+        case INPUT_CMPS_MNGR_SELECT_NEXT_SIG: {
+            ++manager->selectedCandidate;
+            if (manager->selectedCandidate >= manager->candidateCount) {
+                manager->selectedCandidate = 0U;
+                SM_InputCmpsMngr_showSuggestions_(manager);
+                return _SM_HANDLED();
+            } else {
+                SM_InputCmpsMngr_showSuggestions_(manager);
+                return _SM_HANDLED();
+            }
+        }
+
+        case INPUT_CMPS_MNGR_DELETE_PREV_SIG: {
+            SM_InputCmpsMngr_deletePrev_(manager);
+            InputSuggestionContext const context =
+                SM_InputCmpsMngr_suggestionContext_(manager);
+
+            if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
+                SM_InputCmpsMngr_showSuggestions_(manager);
+                return _SM_HANDLED();
+            } else if (context == INPUT_SUGGEST_AVAILABLE) {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
+            } else {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestNotAvailable);
+            }
+        }
+
+        case INPUT_CMPS_MNGR_COMPLETE_SIG:
+        case INPUT_CMPS_MNGR_CONFIRM_SIG: {
+            if (SM_InputCmpsMngr_acceptSuggestion_(manager)) {
+                bool const available =
+                    (manager->tokenCount
+                     < SM_INPUT_CMPS_MNGR_MAX_TOKENS)
+                    && ((manager->editPos == 0U)
+                        || (manager->buffer[manager->editPos - 1U]
+                            == ' '));
+
+                if (available) {
+                    return _SM_TRAN(
+                        &SM_InputCmpsMngr_suggestAvailable);
+                } else {
+                    return _SM_TRAN(
+                        &SM_InputCmpsMngr_suggestNotAvailable);
+                }
+            } else {
+                return _SM_HANDLED();
+            }
+        }
+
+        case INPUT_CMPS_MNGR_CANCEL_SIG: {
+            bool const available =
+                (manager->tokenCount < SM_INPUT_CMPS_MNGR_MAX_TOKENS)
+                && ((manager->editPos == 0U)
+                    || (manager->buffer[manager->editPos - 1U] == ' '));
+
+            if (available) {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
+            } else {
+                return _SM_TRAN(
+                    &SM_InputCmpsMngr_suggestNotAvailable);
+            }
+        }
+
+        case INPUT_CMPS_MNGR_DELETE_TO_START_SIG: {
+            SM_InputCmpsMngr_deleteToStart_(manager);
+            InputSuggestionContext const context =
+                SM_InputCmpsMngr_suggestionContext_(manager);
+
+            if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
+                SM_InputCmpsMngr_showSuggestions_(manager);
+                return _SM_HANDLED();
+            } else if (context == INPUT_SUGGEST_AVAILABLE) {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
+            } else {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestNotAvailable);
+            }
+        }
+
+        case INPUT_CMPS_MNGR_DELETE_PREV_WORD_SIG: {
+            SM_InputCmpsMngr_deletePrevWord_(manager);
+            InputSuggestionContext const context =
+                SM_InputCmpsMngr_suggestionContext_(manager);
+
+            if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
+                SM_InputCmpsMngr_showSuggestions_(manager);
+                return _SM_HANDLED();
+            } else if (context == INPUT_SUGGEST_AVAILABLE) {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
+            } else {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestNotAvailable);
+            }
+        }
+
+        case INPUT_CMPS_MNGR_MOVE_LEFT_SIG: {
+            SM_InputCmpsMngr_moveLeft_(manager);
+            InputSuggestionContext const context =
+                SM_InputCmpsMngr_suggestionContext_(manager);
+
+            if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
+                SM_InputCmpsMngr_showSuggestions_(manager);
+                return _SM_HANDLED();
+            } else if (context == INPUT_SUGGEST_AVAILABLE) {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
+            } else {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestNotAvailable);
+            }
+        }
+
+        case INPUT_CMPS_MNGR_MOVE_RIGHT_SIG: {
+            SM_InputCmpsMngr_moveRight_(manager);
+            InputSuggestionContext const context =
+                SM_InputCmpsMngr_suggestionContext_(manager);
+
+            if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
+                SM_InputCmpsMngr_showSuggestions_(manager);
+                return _SM_HANDLED();
+            } else if (context == INPUT_SUGGEST_AVAILABLE) {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
+            } else {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestNotAvailable);
+            }
+        }
+
+        case INPUT_CMPS_MNGR_MOVE_PREV_WORD_SIG: {
+            SM_InputCmpsMngr_movePrevWord_(manager);
+            InputSuggestionContext const context =
+                SM_InputCmpsMngr_suggestionContext_(manager);
+
+            if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
+                SM_InputCmpsMngr_showSuggestions_(manager);
+                return _SM_HANDLED();
+            } else if (context == INPUT_SUGGEST_AVAILABLE) {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
+            } else {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestNotAvailable);
+            }
+        }
+
+        case INPUT_CMPS_MNGR_MOVE_NEXT_WORD_SIG: {
+            SM_InputCmpsMngr_moveNextWord_(manager);
+            InputSuggestionContext const context =
+                SM_InputCmpsMngr_suggestionContext_(manager);
+
+            if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
+                SM_InputCmpsMngr_showSuggestions_(manager);
+                return _SM_HANDLED();
+            } else if (context == INPUT_SUGGEST_AVAILABLE) {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
+            } else {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestNotAvailable);
+            }
+        }
+
+        case INPUT_CMPS_MNGR_MOVE_HOME_SIG: {
+            SM_InputCmpsMngr_moveHome_(manager);
+            InputSuggestionContext const context =
+                SM_InputCmpsMngr_suggestionContext_(manager);
+
+            if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
+                SM_InputCmpsMngr_showSuggestions_(manager);
+                return _SM_HANDLED();
+            } else if (context == INPUT_SUGGEST_AVAILABLE) {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
+            } else {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestNotAvailable);
+            }
+        }
+
+        case INPUT_CMPS_MNGR_MOVE_END_SIG: {
+            SM_InputCmpsMngr_moveEnd_(manager);
+            InputSuggestionContext const context =
+                SM_InputCmpsMngr_suggestionContext_(manager);
+
+            if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
+                SM_InputCmpsMngr_showSuggestions_(manager);
+                return _SM_HANDLED();
+            } else if (context == INPUT_SUGGEST_AVAILABLE) {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
+            } else {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestNotAvailable);
+            }
         }
 
         default: {
@@ -143,10 +737,22 @@ static SM_RetState SM_InputCmpsMngr_idle_(SM_Hsm * const me, UI_Evt const * cons
 //============================================================================
 //=== UI event contract adapter
 
-static UI_Signal SM_InputCmpsMngr_routeSignal_(UI_Signal const sig) {
-    switch (sig) {
-        case UI_KEY_ENTER_SIG: {
-            return INPUT_CMPS_MNGR_CONFIRM_SIG;
+static UI_Signal SM_InputCmpsMngr_routeSignal_(
+    UI_InputEvt const * const e)
+{
+    switch (e->super.sig) {
+        case UI_KEY_ESC_SIG: {
+            return INPUT_CMPS_MNGR_CANCEL_SIG;
+        }
+
+        case UI_KEY_UP_SIG:
+        case UI_KEY_CTRL_P_SIG: {
+            return INPUT_CMPS_MNGR_SELECT_PREV_SIG;
+        }
+
+        case UI_KEY_DOWN_SIG:
+        case UI_KEY_CTRL_N_SIG: {
+            return INPUT_CMPS_MNGR_SELECT_NEXT_SIG;
         }
 
         case UI_KEY_BACKSPACE_SIG: {
@@ -169,6 +775,14 @@ static UI_Signal SM_InputCmpsMngr_routeSignal_(UI_Signal const sig) {
             return INPUT_CMPS_MNGR_MOVE_RIGHT_SIG;
         }
 
+        case UI_KEY_CTRL_LEFT_SIG: {
+            return INPUT_CMPS_MNGR_MOVE_PREV_WORD_SIG;
+        }
+
+        case UI_KEY_CTRL_RIGHT_SIG: {
+            return INPUT_CMPS_MNGR_MOVE_NEXT_WORD_SIG;
+        }
+
         case UI_KEY_HOME_SIG: {
             return INPUT_CMPS_MNGR_MOVE_HOME_SIG;
         }
@@ -177,14 +791,26 @@ static UI_Signal SM_InputCmpsMngr_routeSignal_(UI_Signal const sig) {
             return INPUT_CMPS_MNGR_MOVE_END_SIG;
         }
 
-        case UI_INPUT_SIG:
-        case UI_KEY_ESC_SIG:
-        case UI_KEY_UP_SIG:
-        case UI_KEY_DOWN_SIG:
+        case UI_KEY_TAB_SIG: {
+            return INPUT_CMPS_MNGR_COMPLETE_SIG;
+        }
+
+        case UI_KEY_ENTER_SIG: {
+            return INPUT_CMPS_MNGR_CONFIRM_SIG;
+        }
+
+        case UI_INPUT_SIG: {
+            size_t const inputSize =
+                SM_InputCmpsMngr_inputSize_(&e->input);
+            if ((inputSize == 1U) && (e->input.utf8[0] == '/')) {
+                return INPUT_CMPS_MNGR_SLASH_INPUT_SIG;
+            } else {
+                return INPUT_CMPS_MNGR_TERM_INPUT_SIG;
+            }
+        }
+
         case UI_KEY_J_SIG:
-        case UI_KEY_K_SIG:
-        case UI_KEY_CTRL_N_SIG:
-        case UI_KEY_CTRL_P_SIG: {
+        case UI_KEY_K_SIG: {
             return INPUT_CMPS_MNGR_TERM_INPUT_SIG;
         }
 
@@ -225,7 +851,9 @@ static size_t SM_InputCmpsMngr_utf8CodepointSize_(
     return size;
 }
 
-static size_t SM_InputCmpsMngr_inputSize_(UI_Input const * const input) {
+static size_t SM_InputCmpsMngr_inputSize_(
+    UI_Input const * const input)
+{
     size_t size = 0U;
     while ((size < sizeof(input->utf8)) && (input->utf8[size] != '\0')) {
         ++size;
@@ -257,6 +885,20 @@ static size_t SM_InputCmpsMngr_prevPos_(
     return pos;
 }
 
+static size_t SM_InputCmpsMngr_nextPos_(
+    SM_InputCmpsMngr const * const me,
+    size_t const currentPos)
+{
+    if (currentPos >= me->length) {
+        return me->length;
+    }
+
+    size_t const size = SM_InputCmpsMngr_utf8CodepointSize_(
+        &me->buffer[currentPos], me->length - currentPos);
+    DBC_ASSERT(500, size > 0U);
+    return currentPos + size;
+}
+
 static bool SM_InputCmpsMngr_isWhitespaceAt_(
     SM_InputCmpsMngr const * const me,
     size_t const pos)
@@ -270,41 +912,170 @@ static bool SM_InputCmpsMngr_isWhitespaceAt_(
            || ch == '\f';
 }
 
-static size_t SM_InputCmpsMngr_nextPos_(
-    SM_InputCmpsMngr const * const me)
+static bool SM_InputCmpsMngr_tokenEndingAt_(
+    SM_InputCmpsMngr const * const me,
+    size_t const pos,
+    size_t * const tokenIndex)
 {
-    if (me->editPos >= me->length) {
-        return me->length;
+    for (size_t i = 0U; i < me->tokenCount; ++i) {
+        if (me->tokens[i].end == pos) {
+            *tokenIndex = i;
+            return true;
+        }
     }
-
-    size_t const size = SM_InputCmpsMngr_utf8CodepointSize_(
-        &me->buffer[me->editPos], me->length - me->editPos);
-    DBC_ASSERT(500, size > 0U);
-    return me->editPos + size;
+    return false;
 }
 
-static void SM_InputCmpsMngr_insert_(
+static bool SM_InputCmpsMngr_tokenStartingAt_(
+    SM_InputCmpsMngr const * const me,
+    size_t const pos,
+    size_t * const tokenIndex)
+{
+    for (size_t i = 0U; i < me->tokenCount; ++i) {
+        if (me->tokens[i].begin == pos) {
+            *tokenIndex = i;
+            return true;
+        }
+    }
+    return false;
+}
+
+static void SM_InputCmpsMngr_validate_(
+    SM_InputCmpsMngr const * const me)
+{
+    DBC_INVARIANT(600, me->length < sizeof(me->buffer));
+    DBC_INVARIANT(601, me->buffer[me->length] == '\0');
+    DBC_INVARIANT(602, me->editPos <= me->length);
+    DBC_INVARIANT(603, me->tokenCount <= SM_INPUT_CMPS_MNGR_MAX_TOKENS);
+    DBC_INVARIANT(611, (me->editPos == me->length)
+                       || (((unsigned char)me->buffer[me->editPos] & 0xC0U)
+                           != 0x80U));
+
+    for (size_t i = 0U; i < me->tokenCount; ++i) {
+        SM_InputCmpsMngrToken const * const token = &me->tokens[i];
+        DBC_INVARIANT(604, token->begin < token->end);
+        DBC_INVARIANT(605, token->end <= me->length);
+        DBC_INVARIANT(606, token->command < SM_INPUT_COMMAND_NUM);
+        DBC_INVARIANT(607, (me->editPos <= token->begin)
+                           || (me->editPos >= token->end));
+        DBC_INVARIANT(612, (token->begin == me->length)
+                           || (((unsigned char)me->buffer[token->begin]
+                                & 0xC0U) != 0x80U));
+        DBC_INVARIANT(613, (token->end == me->length)
+                           || (((unsigned char)me->buffer[token->end]
+                                & 0xC0U) != 0x80U));
+        if (i > 0U) {
+            DBC_INVARIANT(608, me->tokens[i - 1U].end <= token->begin);
+        }
+
+        char const * const expected = l_commands_[token->command].token;
+        size_t const expectedLen = strlen(expected);
+        DBC_INVARIANT(609, (token->end - token->begin) == expectedLen);
+        DBC_INVARIANT(610, memcmp(&me->buffer[token->begin], expected,
+                                  expectedLen) == 0);
+    }
+}
+
+static bool SM_InputCmpsMngr_insertBytes_(
+    SM_InputCmpsMngr * const me,
+    char const * const text,
+    size_t const size,
+    bool const project)
+{
+    if ((size == 0U) || ((me->length + size) >= sizeof(me->buffer))) {
+        return false;
+    }
+
+    size_t const dirtyPos = me->editPos;
+    for (size_t i = 0U; i < me->tokenCount; ++i) {
+        DBC_ASSERT(520, (me->editPos <= me->tokens[i].begin)
+                        || (me->editPos >= me->tokens[i].end));
+        if (me->tokens[i].begin >= me->editPos) {
+            me->tokens[i].begin += size;
+            me->tokens[i].end += size;
+        }
+    }
+
+    memmove(&me->buffer[me->editPos + size],
+            &me->buffer[me->editPos],
+            me->length - me->editPos + 1U);
+    memcpy(&me->buffer[me->editPos], text, size);
+    me->length += size;
+    me->editPos += size;
+    SM_InputCmpsMngr_validate_(me);
+
+    if (project) {
+        InputComposer_projectFrom(&me->composer, me->buffer,
+                                  me->length, me->editPos, dirtyPos);
+    }
+    return true;
+}
+
+static void SM_InputCmpsMngr_removeRange_(
+    SM_InputCmpsMngr * const me,
+    size_t begin,
+    size_t end,
+    bool const project)
+{
+    DBC_REQUIRE(530, begin <= end);
+    DBC_REQUIRE(531, end <= me->length);
+    if (begin == end) {
+        return;
+    }
+
+    for (size_t i = 0U; i < me->tokenCount; ++i) {
+        if ((me->tokens[i].end > begin)
+            && (me->tokens[i].begin < end))
+        {
+            if (me->tokens[i].begin < begin) {
+                begin = me->tokens[i].begin;
+            }
+            if (me->tokens[i].end > end) {
+                end = me->tokens[i].end;
+            }
+        }
+    }
+
+    size_t const removed = end - begin;
+    memmove(&me->buffer[begin], &me->buffer[end],
+            me->length - end + 1U);
+    me->length -= removed;
+
+    if (me->editPos >= end) {
+        me->editPos -= removed;
+    } else if (me->editPos > begin) {
+        me->editPos = begin;
+    }
+
+    size_t kept = 0U;
+    for (size_t i = 0U; i < me->tokenCount; ++i) {
+        SM_InputCmpsMngrToken token = me->tokens[i];
+        if ((token.begin >= begin) && (token.end <= end)) {
+            continue;
+        }
+        if (token.begin >= end) {
+            token.begin -= removed;
+            token.end -= removed;
+        }
+        me->tokens[kept] = token;
+        ++kept;
+    }
+    me->tokenCount = kept;
+    SM_InputCmpsMngr_validate_(me);
+
+    if (project) {
+        InputComposer_projectFrom(&me->composer, me->buffer,
+                                  me->length, me->editPos, begin);
+    }
+}
+
+static bool SM_InputCmpsMngr_insert_(
     SM_InputCmpsMngr * const me,
     UI_Input const * const input)
 {
     size_t const inputSize = SM_InputCmpsMngr_inputSize_(input);
-    if (inputSize == 0U) {
-        return;
-    }
-    if ((me->length + inputSize) >= sizeof(me->buffer)) {
-        return;
-    }
-
-    size_t const dirtyPos = me->editPos;
-    memmove(&me->buffer[me->editPos + inputSize],
-            &me->buffer[me->editPos],
-            me->length - me->editPos + 1U);
-    memcpy(&me->buffer[me->editPos], input->utf8, inputSize);
-    me->length += inputSize;
-    me->editPos += inputSize;
-
-    InputComposer_projectFrom(&me->composer, me->buffer,
-                              me->length, me->editPos, dirtyPos);
+    return SM_InputCmpsMngr_insertBytes_(me, input->utf8,
+                                         inputSize, true);
 }
 
 static void SM_InputCmpsMngr_deletePrev_(SM_InputCmpsMngr * const me) {
@@ -312,29 +1083,23 @@ static void SM_InputCmpsMngr_deletePrev_(SM_InputCmpsMngr * const me) {
         return;
     }
 
+    size_t tokenIndex;
+    if (SM_InputCmpsMngr_tokenEndingAt_(me, me->editPos, &tokenIndex)) {
+        SM_InputCmpsMngr_removeRange_(me,
+                                     me->tokens[tokenIndex].begin,
+                                     me->tokens[tokenIndex].end,
+                                     true);
+        return;
+    }
+
     size_t const prevPos = SM_InputCmpsMngr_prevPos_(me, me->editPos);
-    size_t const removed = me->editPos - prevPos;
-    memmove(&me->buffer[prevPos], &me->buffer[me->editPos],
-            me->length - me->editPos + 1U);
-    me->length -= removed;
-    me->editPos = prevPos;
-    InputComposer_projectFrom(&me->composer, me->buffer,
-                              me->length, me->editPos, prevPos);
+    SM_InputCmpsMngr_removeRange_(me, prevPos, me->editPos, true);
 }
 
 static void SM_InputCmpsMngr_deleteToStart_(
     SM_InputCmpsMngr * const me)
 {
-    if (me->editPos == 0U) {
-        return;
-    }
-
-    memmove(me->buffer, &me->buffer[me->editPos],
-            me->length - me->editPos + 1U);
-    me->length -= me->editPos;
-    me->editPos = 0U;
-    InputComposer_projectFrom(&me->composer, me->buffer,
-                              me->length, me->editPos, 0U);
+    SM_InputCmpsMngr_removeRange_(me, 0U, me->editPos, true);
 }
 
 static void SM_InputCmpsMngr_deletePrevWord_(
@@ -356,37 +1121,110 @@ static void SM_InputCmpsMngr_deletePrevWord_(
         }
         wordStart = prevPos;
     }
-    if (wordStart == me->editPos) {
-        return;
-    }
-
-    size_t const removed = me->editPos - wordStart;
-    memmove(&me->buffer[wordStart], &me->buffer[me->editPos],
-            me->length - me->editPos + 1U);
-    me->length -= removed;
-    me->editPos = wordStart;
-    InputComposer_projectFrom(&me->composer, me->buffer,
-                              me->length, me->editPos, wordStart);
+    SM_InputCmpsMngr_removeRange_(me, wordStart, me->editPos, true);
 }
 
 static void SM_InputCmpsMngr_moveLeft_(SM_InputCmpsMngr * const me) {
-    size_t const prevPos = SM_InputCmpsMngr_prevPos_(me, me->editPos);
-    if (prevPos == me->editPos) {
-        return;
+    size_t nextPos;
+    size_t tokenIndex;
+    if (SM_InputCmpsMngr_tokenEndingAt_(me, me->editPos, &tokenIndex)) {
+        nextPos = me->tokens[tokenIndex].begin;
+    } else {
+        nextPos = SM_InputCmpsMngr_prevPos_(me, me->editPos);
     }
-
-    me->editPos = prevPos;
-    InputComposer_moveCursor(&me->composer, me->buffer,
-                             me->length, me->editPos);
-}
-
-static void SM_InputCmpsMngr_moveRight_(SM_InputCmpsMngr * const me) {
-    size_t const nextPos = SM_InputCmpsMngr_nextPos_(me);
     if (nextPos == me->editPos) {
         return;
     }
 
     me->editPos = nextPos;
+    SM_InputCmpsMngr_validate_(me);
+    InputComposer_moveCursor(&me->composer, me->buffer,
+                             me->length, me->editPos);
+}
+
+static void SM_InputCmpsMngr_moveRight_(SM_InputCmpsMngr * const me) {
+    size_t nextPos;
+    size_t tokenIndex;
+    if (SM_InputCmpsMngr_tokenStartingAt_(me, me->editPos, &tokenIndex)) {
+        nextPos = me->tokens[tokenIndex].end;
+    } else {
+        nextPos = SM_InputCmpsMngr_nextPos_(me, me->editPos);
+    }
+    if (nextPos == me->editPos) {
+        return;
+    }
+
+    me->editPos = nextPos;
+    SM_InputCmpsMngr_validate_(me);
+    InputComposer_moveCursor(&me->composer, me->buffer,
+                             me->length, me->editPos);
+}
+
+static void SM_InputCmpsMngr_movePrevWord_(
+    SM_InputCmpsMngr * const me)
+{
+    size_t nextPos = me->editPos;
+
+    while (nextPos > 0U) {
+        size_t const prevPos = SM_InputCmpsMngr_prevPos_(me, nextPos);
+        if (!SM_InputCmpsMngr_isWhitespaceAt_(me, prevPos)) {
+            break;
+        }
+        nextPos = prevPos;
+    }
+
+    size_t tokenIndex;
+    if (SM_InputCmpsMngr_tokenEndingAt_(me, nextPos, &tokenIndex)) {
+        nextPos = me->tokens[tokenIndex].begin;
+    } else {
+        while (nextPos > 0U) {
+            size_t const prevPos =
+                SM_InputCmpsMngr_prevPos_(me, nextPos);
+            if (SM_InputCmpsMngr_isWhitespaceAt_(me, prevPos)) {
+                break;
+            }
+            nextPos = prevPos;
+        }
+    }
+
+    if (nextPos == me->editPos) {
+        return;
+    }
+
+    me->editPos = nextPos;
+    SM_InputCmpsMngr_validate_(me);
+    InputComposer_moveCursor(&me->composer, me->buffer,
+                             me->length, me->editPos);
+}
+
+static void SM_InputCmpsMngr_moveNextWord_(
+    SM_InputCmpsMngr * const me)
+{
+    size_t nextPos = me->editPos;
+    size_t tokenIndex;
+
+    if (SM_InputCmpsMngr_tokenStartingAt_(me, nextPos, &tokenIndex)) {
+        nextPos = me->tokens[tokenIndex].end;
+    } else {
+        while ((nextPos < me->length)
+               && !SM_InputCmpsMngr_isWhitespaceAt_(me, nextPos))
+        {
+            nextPos = SM_InputCmpsMngr_nextPos_(me, nextPos);
+        }
+    }
+
+    while ((nextPos < me->length)
+           && SM_InputCmpsMngr_isWhitespaceAt_(me, nextPos))
+    {
+        nextPos = SM_InputCmpsMngr_nextPos_(me, nextPos);
+    }
+
+    if (nextPos == me->editPos) {
+        return;
+    }
+
+    me->editPos = nextPos;
+    SM_InputCmpsMngr_validate_(me);
     InputComposer_moveCursor(&me->composer, me->buffer,
                              me->length, me->editPos);
 }
@@ -397,6 +1235,7 @@ static void SM_InputCmpsMngr_moveHome_(SM_InputCmpsMngr * const me) {
     }
 
     me->editPos = 0U;
+    SM_InputCmpsMngr_validate_(me);
     InputComposer_moveCursor(&me->composer, me->buffer,
                              me->length, me->editPos);
 }
@@ -407,8 +1246,142 @@ static void SM_InputCmpsMngr_moveEnd_(SM_InputCmpsMngr * const me) {
     }
 
     me->editPos = me->length;
+    SM_InputCmpsMngr_validate_(me);
     InputComposer_moveCursor(&me->composer, me->buffer,
                              me->length, me->editPos);
+}
+
+//============================================================================
+//=== Command suggestion and Token model
+
+static void SM_InputCmpsMngr_filterCandidates_(
+    SM_InputCmpsMngr * const me)
+{
+    size_t const prefixBegin = me->suggestionStart + 1U;
+    DBC_ASSERT(560, prefixBegin <= me->editPos);
+    DBC_ASSERT(561, me->editPos <= me->suggestionEnd);
+    size_t const prefixLen = me->suggestionEnd - prefixBegin;
+
+    me->candidateCount = 0U;
+    me->selectedCandidate = 0U;
+    for (size_t i = 0U; i < SM_INPUT_COMMAND_NUM; ++i) {
+        size_t const nameLen = strlen(l_commands_[i].name);
+        if ((prefixLen <= nameLen)
+            && (memcmp(l_commands_[i].name,
+                       &me->buffer[prefixBegin], prefixLen) == 0))
+        {
+            me->candidates[me->candidateCount] = l_commands_[i].id;
+            ++me->candidateCount;
+        }
+    }
+}
+
+static InputSuggestionContext SM_InputCmpsMngr_suggestionContext_(
+    SM_InputCmpsMngr * const me)
+{
+    me->candidateCount = 0U;
+    me->selectedCandidate = 0U;
+    me->suggestionStart = me->editPos;
+    me->suggestionEnd = me->editPos;
+
+    if (me->tokenCount < SM_INPUT_CMPS_MNGR_MAX_TOKENS) {
+        size_t start = me->editPos;
+        while ((start > 0U)
+               && !SM_InputCmpsMngr_isWhitespaceAt_(me, start - 1U))
+        {
+            --start;
+        }
+
+        if ((start < me->editPos) && (me->buffer[start] == '/')) {
+            size_t end = me->editPos;
+            while ((end < me->length)
+                   && !SM_InputCmpsMngr_isWhitespaceAt_(me, end))
+            {
+                ++end;
+            }
+
+            me->suggestionStart = start;
+            me->suggestionEnd = end;
+            SM_InputCmpsMngr_filterCandidates_(me);
+            if (me->candidateCount > 0U) {
+                return INPUT_SUGGEST_CANDIDATES_AVAILABLE;
+            } else {
+                return INPUT_SUGGEST_NOT_AVAILABLE;
+            }
+        }
+
+        if ((me->editPos == 0U)
+            || SM_InputCmpsMngr_isWhitespaceAt_(me,
+                                                me->editPos - 1U))
+        {
+            return INPUT_SUGGEST_AVAILABLE;
+        } else {
+            return INPUT_SUGGEST_NOT_AVAILABLE;
+        }
+    } else {
+        return INPUT_SUGGEST_NOT_AVAILABLE;
+    }
+}
+
+static void SM_InputCmpsMngr_showSuggestions_(
+    SM_InputCmpsMngr * const me)
+{
+    DBC_REQUIRE(570, me->candidateCount > 0U);
+    DBC_REQUIRE(571, me->selectedCandidate < me->candidateCount);
+
+    char const *items[SM_INPUT_COMMAND_NUM];
+    for (size_t i = 0U; i < me->candidateCount; ++i) {
+        SM_InputCommand const command = me->candidates[i];
+        DBC_ASSERT(572, command < SM_INPUT_COMMAND_NUM);
+        items[i] = l_commands_[command].suggestion;
+    }
+    CommandSuggestion_show(&me->suggestion, me->inputY, me->cols,
+                           items, me->candidateCount,
+                           me->selectedCandidate);
+}
+
+static bool SM_InputCmpsMngr_acceptSuggestion_(
+    SM_InputCmpsMngr * const me)
+{
+    DBC_REQUIRE(580, me->candidateCount > 0U);
+    DBC_REQUIRE(581, me->selectedCandidate < me->candidateCount);
+
+    SM_InputCommand const command =
+        me->candidates[me->selectedCandidate];
+    DBC_ASSERT(582, command < SM_INPUT_COMMAND_NUM);
+    char const * const tokenText = l_commands_[command].token;
+    size_t const tokenLen = strlen(tokenText);
+    size_t const rawLen = me->suggestionEnd - me->suggestionStart;
+
+    if ((me->tokenCount >= SM_INPUT_CMPS_MNGR_MAX_TOKENS)
+        || ((me->length - rawLen + tokenLen) >= sizeof(me->buffer)))
+    {
+        return false;
+    }
+
+    size_t const tokenBegin = me->suggestionStart;
+    SM_InputCmpsMngr_removeRange_(me, tokenBegin,
+                                 me->suggestionEnd, false);
+    bool const inserted = SM_InputCmpsMngr_insertBytes_(
+        me, tokenText, tokenLen, false);
+    DBC_ASSERT(583, inserted);
+
+    size_t insertAt = me->tokenCount;
+    while ((insertAt > 0U)
+           && (me->tokens[insertAt - 1U].begin > tokenBegin))
+    {
+        me->tokens[insertAt] = me->tokens[insertAt - 1U];
+        --insertAt;
+    }
+    me->tokens[insertAt].begin = tokenBegin;
+    me->tokens[insertAt].end = tokenBegin + tokenLen;
+    me->tokens[insertAt].command = command;
+    ++me->tokenCount;
+    SM_InputCmpsMngr_validate_(me);
+
+    InputComposer_projectAll(&me->composer, me->buffer,
+                             me->length, me->editPos);
+    return true;
 }
 
 //============================================================================
@@ -417,17 +1390,27 @@ static void SM_InputCmpsMngr_moveEnd_(SM_InputCmpsMngr * const me) {
 void SM_InputCmpsMngr_ctor(SM_InputCmpsMngr * const me) {
     DBC_REQUIRE(100, me != (SM_InputCmpsMngr *)0);
 
+    me->super.curr = (SM_StatePtr)0;
+    me->super.next = (SM_StatePtr)0;
     me->buffer[0] = '\0';
     me->length = 0U;
     me->editPos = 0U;
+    me->tokenCount = 0U;
+    me->candidateCount = 0U;
+    me->selectedCandidate = 0U;
+    me->suggestionStart = 0U;
+    me->suggestionEnd = 0U;
+    me->inputY = 0;
+    me->cols = 0U;
     InputComposer_init(&me->composer);
+    CommandSuggestion_init(&me->suggestion);
+    SM_InputCmpsMngr_validate_(me);
 }
 
 void SM_InputCmpsMngr_init(SM_InputCmpsMngr * const me) {
     DBC_REQUIRE(200, me != (SM_InputCmpsMngr *)0);
-    SM_Hsm_init_(
-        &me->super,
-        (SM_InitHandler)SM_InputCmpsMngr_TOP_initial);
+    SM_Hsm_init_(&me->super,
+                 (SM_InitHandler)SM_InputCmpsMngr_TOP_initial);
 }
 
 void SM_InputCmpsMngr_dispatchEvt(SM_InputCmpsMngr * const me,
@@ -436,7 +1419,7 @@ void SM_InputCmpsMngr_dispatchEvt(SM_InputCmpsMngr * const me,
     DBC_REQUIRE(300, me != (SM_InputCmpsMngr *)0);
     DBC_REQUIRE(301, e != (UI_InputEvt const *)0);
 
-    UI_Signal const sig = SM_InputCmpsMngr_routeSignal_(e->super.sig);
+    UI_Signal const sig = SM_InputCmpsMngr_routeSignal_(e);
     DBC_REQUIRE(302, sig != INPUT_CMPS_MNGR_NULL_SIG);
 
     InputCmpsMngrEvt const managerEvt = {
@@ -455,13 +1438,17 @@ void SM_InputCmpsMngr_create(
     InputComposer_ResizeCb const resizeCb)
 {
     DBC_REQUIRE(400, me != (SM_InputCmpsMngr *)0);
+    me->inputY = y;
+    me->cols = cols;
     InputComposer_create(&me->composer, parent, owner, y, cols, resizeCb);
+    CommandSuggestion_create(&me->suggestion, parent);
     InputComposer_projectAll(&me->composer, me->buffer,
                              me->length, me->editPos);
 }
 
 void SM_InputCmpsMngr_destroy(SM_InputCmpsMngr * const me) {
     DBC_REQUIRE(410, me != (SM_InputCmpsMngr *)0);
+    CommandSuggestion_destroy(&me->suggestion);
     InputComposer_destroy(&me->composer);
 }
 
@@ -470,20 +1457,23 @@ void SM_InputCmpsMngr_resize(SM_InputCmpsMngr * const me,
                              unsigned const cols)
 {
     DBC_REQUIRE(420, me != (SM_InputCmpsMngr *)0);
+    me->inputY = y;
+    me->cols = cols;
     InputComposer_resize(&me->composer, y, cols);
     InputComposer_projectAll(&me->composer, me->buffer,
                              me->length, me->editPos);
+    if (me->super.curr == &SM_InputCmpsMngr_suggesting) {
+        SM_InputCmpsMngr_showSuggestions_(me);
+    }
 }
 
 void SM_InputCmpsMngr_setActive(SM_InputCmpsMngr * const me,
                                 bool const active)
 {
     DBC_REQUIRE(430, me != (SM_InputCmpsMngr *)0);
-    if (active) {
-        InputComposer_showCursor(&me->composer, me->buffer,
-                                 me->length, me->editPos);
-    } else {
-        InputComposer_hideCursor(&me->composer, me->buffer,
-                                 me->length, me->editPos);
-    }
+    UI_Evt const e = {
+        .sig = active ? INPUT_CMPS_MNGR_ACTIVATE_SIG
+                      : INPUT_CMPS_MNGR_DEACTIVATE_SIG,
+    };
+    SM_Hsm_dispatch_(&me->super, &e);
 }

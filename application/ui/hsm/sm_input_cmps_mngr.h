@@ -13,19 +13,44 @@
 #include <stddef.h>
 #include "sm_hsm.h"
 #include "sm_ui_evt.h"
+#include "widgets/command_suggestion.h"
 #include "widgets/input_composer.h"
 
 #define SM_INPUT_CMPS_MNGR_BUFFER_SIZE 256U
+#define SM_INPUT_CMPS_MNGR_MAX_TOKENS  32U
 
 //============================================================================
 //=== InputComposer Manager HSM -- input editing state owner
+
+typedef enum {
+    SM_INPUT_COMMAND_CONNECT,
+    SM_INPUT_COMMAND_DISCONNECT,
+    SM_INPUT_COMMAND_REFRESH,
+    SM_INPUT_COMMAND_NUM
+} SM_InputCommand;
+
+typedef struct {
+    size_t begin;
+    size_t end;
+    SM_InputCommand command;
+} SM_InputCmpsMngrToken;
 
 typedef struct {
     SM_Hsm super;
     char buffer[SM_INPUT_CMPS_MNGR_BUFFER_SIZE]; // canonical UTF-8 text
     size_t length;
     size_t editPos; // UTF-8 byte offset, never a terminal cursor coordinate
+    SM_InputCmpsMngrToken tokens[SM_INPUT_CMPS_MNGR_MAX_TOKENS];
+    size_t tokenCount;
+    SM_InputCommand candidates[SM_INPUT_COMMAND_NUM];
+    size_t candidateCount;
+    size_t selectedCandidate;
+    size_t suggestionStart;
+    size_t suggestionEnd;
+    int inputY;
+    unsigned cols;
     struct InputComposer composer;
+    struct CommandSuggestion suggestion;
 } SM_InputCmpsMngr;
 
 void SM_InputCmpsMngr_ctor(SM_InputCmpsMngr *me);

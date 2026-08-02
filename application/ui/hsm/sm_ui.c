@@ -212,11 +212,14 @@ static SM_RetState SM_UI_showMain_(SM_Hsm * const me,
         case UI_KEY_DOWN_SIG:
         case UI_KEY_LEFT_SIG:
         case UI_KEY_RIGHT_SIG:
+        case UI_KEY_CTRL_LEFT_SIG:
+        case UI_KEY_CTRL_RIGHT_SIG:
         case UI_KEY_BACKSPACE_SIG:
         case UI_KEY_CTRL_U_SIG:
         case UI_KEY_CTRL_W_SIG:
         case UI_KEY_HOME_SIG:
         case UI_KEY_END_SIG:
+        case UI_KEY_TAB_SIG:
         case UI_KEY_ENTER_SIG:
         case UI_KEY_J_SIG:
         case UI_KEY_K_SIG:

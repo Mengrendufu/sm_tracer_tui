@@ -196,6 +196,28 @@ if(BUILD_TESTING)
         ENVIRONMENT "TERM=xterm-256color"
     )
 
+    add_executable(ui_command_suggestion_lifecycle_test
+        tests/ui_command_suggestion_lifecycle.c
+        application/ui/widgets/command_suggestion.c
+    )
+    target_include_directories(ui_command_suggestion_lifecycle_test PRIVATE
+        ${INC_ALL}
+    )
+    target_compile_definitions(ui_command_suggestion_lifecycle_test PRIVATE
+        DBC_DISABLE
+        _DEFAULT_SOURCE
+        _POSIX_C_SOURCE=200809L
+        _XOPEN_SOURCE=700
+    )
+    target_link_libraries(ui_command_suggestion_lifecycle_test PRIVATE
+        ${NOTCURSES_LIBRARY}
+    )
+    add_test(NAME ui_command_suggestion_lifecycle
+             COMMAND ui_command_suggestion_lifecycle_test)
+    set_tests_properties(ui_command_suggestion_lifecycle PROPERTIES
+        ENVIRONMENT "TERM=xterm-256color"
+    )
+
     add_executable(scrollbar_test
         tests/scrollbar_test.c
         application/ui/widgets/text_buffer_view.c

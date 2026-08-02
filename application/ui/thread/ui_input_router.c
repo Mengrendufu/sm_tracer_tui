@@ -35,6 +35,16 @@ UI_Signal UI_InputRouter_route(UI_Input const * const input) {
     if (id == NCKEY_DOWN) {
         return UI_KEY_DOWN_SIG;
     }
+    if (id == NCKEY_LEFT
+        && (modifiers & NCKEY_MOD_CTRL) != 0U)
+    {
+        return UI_KEY_CTRL_LEFT_SIG;
+    }
+    if (id == NCKEY_RIGHT
+        && (modifiers & NCKEY_MOD_CTRL) != 0U)
+    {
+        return UI_KEY_CTRL_RIGHT_SIG;
+    }
     if (id == NCKEY_LEFT) {
         return UI_KEY_LEFT_SIG;
     }
@@ -61,6 +71,9 @@ UI_Signal UI_InputRouter_route(UI_Input const * const input) {
     }
     if (id == NCKEY_END) {
         return UI_KEY_END_SIG;
+    }
+    if (id == NCKEY_TAB) {
+        return UI_KEY_TAB_SIG;
     }
     if (id == NCKEY_ENTER) {
         return UI_KEY_ENTER_SIG;

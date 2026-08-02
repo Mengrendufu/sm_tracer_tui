@@ -83,17 +83,21 @@ notcurses_get_nblock
 - `UIThreadWake` borrows terminal/event FDs, owns `pollfd[2]`, and reports
   terminal, event, or render-timeout readiness without consuming input.
 - `SM_UI` owns page state and the top-level widget graph. Its embedded manager
-  directly owns the `InputComposer` instance and lifecycle.
+  directly owns the `InputComposer` and `CommandSuggestion` lifecycles.
 - `SM_UI_HostOps` is a required contract owned by `SM_UI`; the UI runtime
   injects `requestQuit`, `requestFrame`, and a host-owned context.
 - `SM_InputCmpsMngr` owns canonical UTF-8 text, byte length, edit position,
-  editing semantics, and the `InputComposer` lifetime.
+  editing semantics, command candidates, and accepted Token spans.
 - `InputComposer` is a passive `ncplane` projection with a software cursor.
   It does not consume UI events or own canonical input text.
+- `CommandSuggestion` is a passive sibling `ncplane`; Manager HSM state owns
+  its candidates, selection, and visibility semantics.
 
 The manager supports incremental left/right movement, insertion, backspace,
 `Ctrl-U`, `Ctrl-W`, `Home`, and `End`. Its `editPos` is a UTF-8 byte offset,
-not a terminal column.
+not a terminal column. A leading or space-delimited `/` opens sorted command
+suggestions. `Tab` or `Enter` accepts one as an atomic `$command` Token;
+multiple Tokens can coexist in the canonical buffer.
 
 ## UI event system
 
@@ -117,8 +121,9 @@ UI_INPUT_SIG,
 UI_KEY_ESC_SIG, UI_KEY_CTRL_SLASH_SIG,
 UI_KEY_UP_SIG, UI_KEY_DOWN_SIG,
 UI_KEY_LEFT_SIG, UI_KEY_RIGHT_SIG,
+UI_KEY_CTRL_LEFT_SIG, UI_KEY_CTRL_RIGHT_SIG,
 UI_KEY_BACKSPACE_SIG, UI_KEY_CTRL_U_SIG, UI_KEY_CTRL_W_SIG,
-UI_KEY_HOME_SIG, UI_KEY_END_SIG, UI_KEY_ENTER_SIG,
+UI_KEY_HOME_SIG, UI_KEY_END_SIG, UI_KEY_TAB_SIG, UI_KEY_ENTER_SIG,
 UI_KEY_J_SIG, UI_KEY_K_SIG,
 UI_KEY_CTRL_N_SIG, UI_KEY_CTRL_P_SIG,
 UI_KEY_PGUP_SIG, UI_KEY_PGDN_SIG, UI_RESIZE_SIG,
@@ -238,6 +243,7 @@ CTest currently exercises:
 - `ui_input_router`
 - `ui_input_cmps_mngr`
 - `ui_input_composer_lifecycle`
+- `ui_command_suggestion_lifecycle`
 - `scrollbar`
 - `text_area`
 - `ui_widget_boundary_contract`

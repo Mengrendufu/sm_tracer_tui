@@ -23,6 +23,10 @@ int main(void) {
     failed += expectRoute_(NCKEY_DOWN, 0U, UI_KEY_DOWN_SIG);
     failed += expectRoute_(NCKEY_LEFT, 0U, UI_KEY_LEFT_SIG);
     failed += expectRoute_(NCKEY_RIGHT, 0U, UI_KEY_RIGHT_SIG);
+    failed += expectRoute_(NCKEY_LEFT, NCKEY_MOD_CTRL,
+                           UI_KEY_CTRL_LEFT_SIG);
+    failed += expectRoute_(NCKEY_RIGHT, NCKEY_MOD_CTRL,
+                           UI_KEY_CTRL_RIGHT_SIG);
     failed += expectRoute_(NCKEY_BACKSPACE, 0U, UI_KEY_BACKSPACE_SIG);
     failed += expectRoute_(0x15U, 0U, UI_KEY_CTRL_U_SIG);
     failed += expectRoute_('u', NCKEY_MOD_CTRL, UI_KEY_CTRL_U_SIG);
@@ -32,6 +36,7 @@ int main(void) {
     failed += expectRoute_('W', NCKEY_MOD_CTRL, UI_KEY_CTRL_W_SIG);
     failed += expectRoute_(NCKEY_HOME, 0U, UI_KEY_HOME_SIG);
     failed += expectRoute_(NCKEY_END, 0U, UI_KEY_END_SIG);
+    failed += expectRoute_(NCKEY_TAB, 0U, UI_KEY_TAB_SIG);
     failed += expectRoute_(NCKEY_ENTER, 0U, UI_KEY_ENTER_SIG);
     failed += expectRoute_('j', 0U, UI_KEY_J_SIG);
     failed += expectRoute_('k', 0U, UI_KEY_K_SIG);
