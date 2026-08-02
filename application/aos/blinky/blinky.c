@@ -17,7 +17,9 @@
 #include "dbc_assert.h"
 #include "ui_evt.h"
 #include "blinky.h"
-DBC_MODULE_NAME("blinky")
+
+//============================================================================
+// DBC_MODULE_NAME("blinky")
 
 //============================================================================
 //=== Blinky AO
