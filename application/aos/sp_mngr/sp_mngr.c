@@ -9,10 +9,12 @@
 //============================================================================
 //============================================================================
 //=== AO_SpMngr subsystem root: SST task + HSM
+#include <stdio.h>
 #include "sst.h"
 #include "sm_port.h"
 #include "sm_hsm.h"
 #include "dbc_assert.h"
+#include "app_sig.h"
 #include "ui_evt.h"
 #include <bits/sockaddr.h>
 #include "sp_mngr.h"
@@ -28,6 +30,9 @@ typedef struct {
 
 static SpMngr SpMngr_inst_;
 SST_Task * const AO_SpMngr = &SpMngr_inst_.super;
+
+static void SpMngr_reportConfig_(char const *action,
+                                 SpMngrConfigEvt const *e);
 
 //============================================================================
 //=== HSM states
@@ -56,10 +61,55 @@ static SM_RetState SpMngr_active_(SM_Hsm * const me, SST_Evt const * const e) SM
     (void)me;
 
     switch (e->sig) {
+        case SPMNGR_CONFIG_UPDATE_SIG: {
+            SpMngr_reportConfig_(
+                "configuration updated",
+                SST_EVT_DOWNCAST(SpMngrConfigEvt, e));
+            return _SM_HANDLED();
+        }
+
+        case SPMNGR_PORT_CONNECT_SIG: {
+            SpMngr_reportConfig_(
+                "connect requested",
+                SST_EVT_DOWNCAST(SpMngrConfigEvt, e));
+            return _SM_HANDLED();
+        }
+
+        case SPMNGR_PORT_DISCONNECT_SIG: {
+            UI_postText("SpMngr: disconnect requested.\n");
+            return _SM_HANDLED();
+        }
+
+        case SPMNGR_REFRESH_PORTS_SIG: {
+            UI_postText("SpMngr: port refresh requested.\n");
+            return _SM_HANDLED();
+        }
+
         default: {
             return _SM_SUPER();
         }
     }
+}
+
+static void SpMngr_reportConfig_(
+    char const * const action,
+    SpMngrConfigEvt const * const e)
+{
+    DBC_REQUIRE(300, action != (char const *)0);
+    DBC_REQUIRE(301, e != (SpMngrConfigEvt const *)0);
+
+    char text[2048];
+    int const len = snprintf(
+        text, sizeof(text),
+        "SpMngr: %s: port=%s baud=%s data=%s stop=%s "
+        "parity=%s flow=%s proto=%s\n",
+        action, e->config.port, e->config.baudrate,
+        e->config.dataBits, e->config.stopBits,
+        e->config.parity, e->config.flowControl,
+        e->config.protocol);
+    DBC_ASSERT(302, (len > 0) && ((size_t)len < sizeof(text)));
+    (void)len;
+    UI_postText(text);
 }
 
 //============================================================================

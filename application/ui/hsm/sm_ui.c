@@ -10,6 +10,11 @@
 //============================================================================
 //=== UI HSM -- state and widget orchestration
 #include <notcurses/notcurses.h>
+#include <string.h>
+#include "sst.h"
+#include "sst_evt_pool.h"
+#include "app_sig.h"
+#include "aos/sp_mngr/sp_mngr.h"
 #include "sm_port.h"
 #include "sm_hsm.h"
 #include "dbc_assert.h"
@@ -32,6 +37,7 @@ typedef struct {
     struct notcurses *nc;
     struct TitleBar title;
     struct ConnectionStatusBar status;
+    SpMngrConfig serialConfig;
     struct TextBufferView mainBuffer;
     struct Keybar keybar;
     struct Menu menu;
@@ -73,6 +79,9 @@ static void        SM_UI_menu_sync_(SM_UI *me);
 static void        SM_UI_menu_selectNext_(SM_UI *me);
 static void        SM_UI_menu_selectPrev_(SM_UI *me);
 static void        SM_UI_requestFrame_(void);
+static void        SM_UI_submitCommand_(
+                        void *ctx,
+                        SM_InputCmpsMngrSubmission const *submission);
 
 // Notcurses callback adapters:
 // - adapt raw ncplane callback context back into SM_UI.
@@ -336,8 +345,23 @@ static void SM_UI_ctor_(SM_UI * const me) {
     me->nc = (struct notcurses *)0;
     TitleBar_init(&me->title);
     ConnectionStatusBar_init(&me->status);
+    SpMngrConfig const defaultConfig = {
+        .port = "none",
+        .baudrate = "115200",
+        .dataBits = "8",
+        .stopBits = "1",
+        .parity = "none",
+        .flowControl = "none",
+        .protocol = "none",
+    };
+    me->serialConfig = defaultConfig;
     TextBufferView_init(&me->mainBuffer);
     SM_InputCmpsMngr_ctor(&me->inputManager);
+    SM_InputCmpsMngr_CommandSink const commandSink = {
+        .submit = &SM_UI_submitCommand_,
+        .ctx = me,
+    };
+    SM_InputCmpsMngr_setCommandSink(&me->inputManager, &commandSink);
     Keybar_init(&me->keybar);
     Menu_init(&me->menu);
 }
@@ -538,6 +562,77 @@ static void SM_UI_menu_selectPrev_(SM_UI * const me) {
 
 static void SM_UI_requestFrame_(void) {
     (*SM_UI_hostOps_.requestFrame)(SM_UI_hostOps_.ctx);
+}
+
+static void SM_UI_applyCommandOverride_(
+    char * const dst,
+    SM_InputCmpsMngrArg const * const override)
+{
+    if (!override->present) {
+        return;
+    }
+
+    size_t const len = override->len;
+    DBC_ASSERT(630, len < SPMNGR_VALUE_LEN);
+    memcpy(dst, override->text, len);
+    dst[len] = '\0';
+}
+
+static void SM_UI_submitCommand_(
+    void * const ctx,
+    SM_InputCmpsMngrSubmission const * const submission)
+{
+    DBC_REQUIRE(631, ctx != (void *)0);
+    DBC_REQUIRE(632,
+        submission != (SM_InputCmpsMngrSubmission const *)0);
+    SM_UI * const me = (SM_UI *)ctx;
+
+    if ((submission->action == SM_INPUT_ACTION_CONFIG)
+        || (submission->action == SM_INPUT_ACTION_CONNECT))
+    {
+        SM_UI_applyCommandOverride_(me->serialConfig.port,
+                                    &submission->port);
+        SM_UI_applyCommandOverride_(me->serialConfig.baudrate,
+                                    &submission->baudrate);
+        SM_UI_applyCommandOverride_(me->serialConfig.dataBits,
+                                    &submission->dataBits);
+        SM_UI_applyCommandOverride_(me->serialConfig.stopBits,
+                                    &submission->stopBits);
+        SM_UI_applyCommandOverride_(me->serialConfig.parity,
+                                    &submission->parity);
+        SM_UI_applyCommandOverride_(me->serialConfig.flowControl,
+                                    &submission->flowControl);
+        SM_UI_applyCommandOverride_(me->serialConfig.protocol,
+                                    &submission->protocol);
+
+        ConnectionStatusBar_setSerial(
+            &me->status, me->serialConfig.port,
+            me->serialConfig.baudrate, me->serialConfig.dataBits,
+            me->serialConfig.stopBits, me->serialConfig.parity,
+            me->serialConfig.flowControl);
+        ConnectionStatusBar_setProtocol(&me->status,
+                                        me->serialConfig.protocol);
+
+        SpMngrConfigEvt * const command = SST_NEW(SpMngrConfigEvt);
+        command->super.sig =
+            (submission->action == SM_INPUT_ACTION_CONNECT)
+            ? SPMNGR_PORT_CONNECT_SIG
+            : SPMNGR_CONFIG_UPDATE_SIG;
+        command->config = me->serialConfig;
+        SST_Task_post(AO_SpMngr, &command->super);
+    } else if (submission->action == SM_INPUT_ACTION_DISCONNECT) {
+        static SST_Evt const disconnectEvt = {
+            .sig = SPMNGR_PORT_DISCONNECT_SIG,
+        };
+        SST_Task_post(AO_SpMngr, &disconnectEvt);
+    } else if (submission->action == SM_INPUT_ACTION_REFRESH) {
+        static SST_Evt const refreshEvt = {
+            .sig = SPMNGR_REFRESH_PORTS_SIG,
+        };
+        SST_Task_post(AO_SpMngr, &refreshEvt);
+    } else {
+        DBC_ERROR(633);
+    }
 }
 
 //----------------------------------------------------------------------------

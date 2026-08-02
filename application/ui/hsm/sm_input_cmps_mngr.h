@@ -10,6 +10,7 @@
 #ifndef SM_INPUT_CMPS_MNGR_H_
 #define SM_INPUT_CMPS_MNGR_H_
 
+#include <stdbool.h>
 #include <stddef.h>
 #include "sm_hsm.h"
 #include "sm_ui_evt.h"
@@ -23,11 +24,48 @@
 //=== InputComposer Manager HSM -- input editing state owner
 
 typedef enum {
+    SM_INPUT_COMMAND_BAUDRATE,
     SM_INPUT_COMMAND_CONNECT,
+    SM_INPUT_COMMAND_DATA_BITS,
     SM_INPUT_COMMAND_DISCONNECT,
+    SM_INPUT_COMMAND_FLOW_CONTROL,
+    SM_INPUT_COMMAND_PARITY,
+    SM_INPUT_COMMAND_PROTOCOL,
     SM_INPUT_COMMAND_REFRESH,
+    SM_INPUT_COMMAND_STOP_BITS,
     SM_INPUT_COMMAND_NUM
 } SM_InputCommand;
+
+typedef enum {
+    SM_INPUT_ACTION_CONFIG,
+    SM_INPUT_ACTION_CONNECT,
+    SM_INPUT_ACTION_DISCONNECT,
+    SM_INPUT_ACTION_REFRESH,
+} SM_InputCmpsMngrAction;
+
+// Borrowed text span valid only during CommandSink.submit().
+typedef struct {
+    char const *text;
+    size_t len;
+    bool present;
+} SM_InputCmpsMngrArg;
+
+typedef struct {
+    SM_InputCmpsMngrAction action;
+    SM_InputCmpsMngrArg port;
+    SM_InputCmpsMngrArg baudrate;
+    SM_InputCmpsMngrArg dataBits;
+    SM_InputCmpsMngrArg stopBits;
+    SM_InputCmpsMngrArg parity;
+    SM_InputCmpsMngrArg flowControl;
+    SM_InputCmpsMngrArg protocol;
+} SM_InputCmpsMngrSubmission;
+
+typedef struct {
+    void (*submit)(void *ctx,
+                   SM_InputCmpsMngrSubmission const *submission);
+    void *ctx;
+} SM_InputCmpsMngr_CommandSink;
 
 typedef struct {
     size_t begin;
@@ -49,12 +87,16 @@ typedef struct {
     size_t suggestionEnd;
     int inputY;
     unsigned cols;
+    SM_InputCmpsMngr_CommandSink commandSink;
     struct InputComposer composer;
     struct CommandSuggestion suggestion;
 } SM_InputCmpsMngr;
 
 void SM_InputCmpsMngr_ctor(SM_InputCmpsMngr *me);
 void SM_InputCmpsMngr_init(SM_InputCmpsMngr * const me);
+void SM_InputCmpsMngr_setCommandSink(
+         SM_InputCmpsMngr *me,
+         SM_InputCmpsMngr_CommandSink const *commandSink);
 // One-way state-machine event dispatch; no action result is returned.
 void SM_InputCmpsMngr_dispatchEvt(SM_InputCmpsMngr * const me,
                                   UI_InputEvt const * const e);

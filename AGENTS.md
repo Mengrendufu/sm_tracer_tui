@@ -60,8 +60,9 @@ UI_init -> SpThread_start -> SST_init/SST_Task_run -> UI_run
 
 UI infrastructure must exist before the serial HSM and SST AOs initialize,
 because their initial transitions can call `UI_postText()`.
-`SpThread_start()` and the SST launch create threads asynchronously; this order
-does not assert completion order between those new threads.
+`SpThread_start()` and the SST launch create threads asynchronously. Before
+entering `UI_run()`, main waits until `SST_onStart()` confirms that all AOs
+have completed synchronous construction, queue setup, and initial transition.
 
 ## UI boundaries
 
@@ -88,6 +89,10 @@ notcurses_get_nblock
   injects `requestQuit`, `requestFrame`, and a host-owned context.
 - `SM_InputCmpsMngr` owns canonical UTF-8 text, byte length, edit position,
   editing semantics, command candidates, and accepted Token spans.
+- Its command sink emits a validated submission intent to `SM_UI`; `SM_UI`
+  merges optional overrides into its authoritative selected serial
+  configuration, updates `ConnectionStatusBar` as a projection, and posts a
+  complete snapshot event to `AO_SpMngr`.
 - `InputComposer` is a passive `ncplane` projection with a software cursor.
   It does not consume UI events or own canonical input text.
 - `CommandSuggestion` is a passive sibling `ncplane`; Manager HSM state owns
@@ -98,6 +103,11 @@ The manager supports incremental left/right movement, insertion, backspace,
 not a terminal column. A leading or space-delimited `/` opens sorted command
 suggestions. `Tab` or `Enter` accepts one as an atomic `$command` Token;
 multiple Tokens can coexist in the canonical buffer.
+
+Submission accepts configuration-only updates or one `$connect` plus optional
+configuration Tokens. `$disconnect` and `$refresh` are standalone. Duplicate
+commands, mixed lifecycle actions, missing configuration values, and stray
+text reject the whole submission without posting or clearing the input.
 
 ## UI event system
 
@@ -193,7 +203,7 @@ instance.
 - `SST_Task_lock()` and `SST_Task_unlock()` are no-ops in this port.
 - The event-pool mechanism is compile-time optional through
   `SST_EVT_POOL_NUM`; this port currently fixes it to `3U`, while BSP currently
-  initializes one pool.
+  initializes a small base-event pool and a larger `SpMngrConfigEvt` pool.
 - When enabled, `SST_Evt_new()` selects the first fitting initialized pool and
   initializes `poolId` and `refCtr`. For dynamic events, `SST_Evt_gc()`
   decrements `refCtr` when it exceeds one and otherwise returns the event to
@@ -242,6 +252,7 @@ CTest currently exercises:
 
 - `ui_input_router`
 - `ui_input_cmps_mngr`
+- `sp_mngr_command`
 - `ui_input_composer_lifecycle`
 - `ui_command_suggestion_lifecycle`
 - `scrollbar`

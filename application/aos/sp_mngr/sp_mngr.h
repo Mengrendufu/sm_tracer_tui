@@ -12,6 +12,26 @@
 
 #include "sst.h"
 
+enum {
+    SPMNGR_VALUE_LEN = 256U
+};
+
+typedef struct {
+    char port[SPMNGR_VALUE_LEN];
+    char baudrate[SPMNGR_VALUE_LEN];
+    char dataBits[SPMNGR_VALUE_LEN];
+    char stopBits[SPMNGR_VALUE_LEN];
+    char parity[SPMNGR_VALUE_LEN];
+    char flowControl[SPMNGR_VALUE_LEN];
+    char protocol[SPMNGR_VALUE_LEN];
+} SpMngrConfig;
+
+// Complete serial configuration snapshot carried across the AO boundary.
+typedef struct {
+    SST_Evt super;
+    SpMngrConfig config;
+} SpMngrConfigEvt;
+
 //============================================================================
 //=== AO_SpMngr lifecycle
 

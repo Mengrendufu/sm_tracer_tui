@@ -19,6 +19,11 @@ enum AppSignals {
     // global non-published SST_Evt signals
     BLINKY_TIMEOUT_SIG,
 
+    SPMNGR_CONFIG_UPDATE_SIG,
+    SPMNGR_PORT_CONNECT_SIG,
+    SPMNGR_PORT_DISCONNECT_SIG,
+    SPMNGR_REFRESH_PORTS_SIG,
+
     MAX_SIG
 };
 

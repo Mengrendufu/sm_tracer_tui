@@ -21,6 +21,15 @@ static char l_presentedText_[SM_INPUT_CMPS_MNGR_BUFFER_SIZE];
 static size_t l_presentedLen_;
 static size_t l_presentedEditPos_;
 static size_t l_dirtyPos_;
+static unsigned l_submissionCount_;
+static SM_InputCmpsMngrSubmission l_submission_;
+static char l_submissionPort_[SM_INPUT_CMPS_MNGR_BUFFER_SIZE];
+static char l_submissionBaudrate_[SM_INPUT_CMPS_MNGR_BUFFER_SIZE];
+static char l_submissionDataBits_[SM_INPUT_CMPS_MNGR_BUFFER_SIZE];
+static char l_submissionStopBits_[SM_INPUT_CMPS_MNGR_BUFFER_SIZE];
+static char l_submissionParity_[SM_INPUT_CMPS_MNGR_BUFFER_SIZE];
+static char l_submissionFlowControl_[SM_INPUT_CMPS_MNGR_BUFFER_SIZE];
+static char l_submissionProtocol_[SM_INPUT_CMPS_MNGR_BUFFER_SIZE];
 
 void DBC_fault_handler(char const * const module, int const label) {
     l_faultModule_ = module;
@@ -186,6 +195,52 @@ static void resetProjection_(void) {
     l_dirtyPos_ = 0U;
 }
 
+static void copyArg_(SM_InputCmpsMngrArg const * const arg,
+                     char * const dst,
+                     size_t const dstSize)
+{
+    dst[0] = '\0';
+    if (arg->present && (arg->len < dstSize)) {
+        memcpy(dst, arg->text, arg->len);
+        dst[arg->len] = '\0';
+    }
+}
+
+static void recordSubmission_(
+    void * const ctx,
+    SM_InputCmpsMngrSubmission const * const submission)
+{
+    (void)ctx;
+    ++l_submissionCount_;
+    l_submission_ = *submission;
+    copyArg_(&submission->port, l_submissionPort_,
+             sizeof(l_submissionPort_));
+    copyArg_(&submission->baudrate, l_submissionBaudrate_,
+             sizeof(l_submissionBaudrate_));
+    copyArg_(&submission->dataBits, l_submissionDataBits_,
+             sizeof(l_submissionDataBits_));
+    copyArg_(&submission->stopBits, l_submissionStopBits_,
+             sizeof(l_submissionStopBits_));
+    copyArg_(&submission->parity, l_submissionParity_,
+             sizeof(l_submissionParity_));
+    copyArg_(&submission->flowControl, l_submissionFlowControl_,
+             sizeof(l_submissionFlowControl_));
+    copyArg_(&submission->protocol, l_submissionProtocol_,
+             sizeof(l_submissionProtocol_));
+}
+
+static void resetSubmission_(void) {
+    l_submissionCount_ = 0U;
+    memset(&l_submission_, 0, sizeof(l_submission_));
+    l_submissionPort_[0] = '\0';
+    l_submissionBaudrate_[0] = '\0';
+    l_submissionDataBits_[0] = '\0';
+    l_submissionStopBits_[0] = '\0';
+    l_submissionParity_[0] = '\0';
+    l_submissionFlowControl_[0] = '\0';
+    l_submissionProtocol_[0] = '\0';
+}
+
 static void dispatchInput_(SM_InputCmpsMngr * const manager,
                            UI_Signal const sig,
                            char const * const utf8)
@@ -211,6 +266,14 @@ static void dispatchAsciiText_(SM_InputCmpsMngr * const manager,
         input[0] = text[i];
         dispatchInput_(manager, UI_INPUT_SIG, input);
     }
+}
+
+static void acceptCommand_(SM_InputCmpsMngr * const manager,
+                           char const * const command)
+{
+    dispatchInput_(manager, UI_INPUT_SIG, "/");
+    dispatchAsciiText_(manager, command);
+    dispatchInput_(manager, UI_KEY_ENTER_SIG, (char const *)0);
 }
 
 int main(void) {
@@ -479,7 +542,7 @@ int main(void) {
     resetProjection_();
     dispatchInput_(&whitespaceManager, UI_INPUT_SIG, "/");
     failed += strcmp(whitespaceManager.buffer, "alpha\t/") == 0
-              && whitespaceManager.candidateCount == 3U
+              && whitespaceManager.candidateCount == SM_INPUT_COMMAND_NUM
               && l_suggestionShowCount_ == 1U
               ? 0 : 1;
 
@@ -491,23 +554,26 @@ int main(void) {
     resetProjection_();
     dispatchInput_(&tokenManager, UI_INPUT_SIG, "/");
     failed += strcmp(tokenManager.buffer, "/") == 0
-              && tokenManager.candidateCount == 3U
+              && tokenManager.candidateCount == SM_INPUT_COMMAND_NUM
               && tokenManager.selectedCandidate == 0U
               && l_suggestionShowCount_ == 1U
-              && l_suggestionCount_ == 3U
+              && l_suggestionCount_ == SM_INPUT_COMMAND_NUM
               && l_suggestionSelected_ == 0U
               ? 0 : 1;
 
     resetProjection_();
     dispatchInput_(&tokenManager, UI_KEY_UP_SIG, (char const *)0);
-    failed += tokenManager.selectedCandidate == 2U
+    failed += tokenManager.selectedCandidate
+                  == (SM_INPUT_COMMAND_NUM - 1U)
               && l_suggestionShowCount_ == 1U
-              && l_suggestionSelected_ == 2U
+              && l_suggestionSelected_
+                  == (SM_INPUT_COMMAND_NUM - 1U)
               ? 0 : 1;
     dispatchInput_(&tokenManager, UI_KEY_DOWN_SIG, (char const *)0);
     failed += tokenManager.selectedCandidate == 0U ? 0 : 1;
 
     resetProjection_();
+    dispatchInput_(&tokenManager, UI_INPUT_SIG, "c");
     dispatchInput_(&tokenManager, UI_KEY_ENTER_SIG, (char const *)0);
     failed += strcmp(tokenManager.buffer, "$connect") == 0
               && tokenManager.length == 8U
@@ -523,7 +589,7 @@ int main(void) {
 
     dispatchInput_(&tokenManager, UI_INPUT_SIG, " ");
     dispatchInput_(&tokenManager, UI_INPUT_SIG, "/");
-    dispatchInput_(&tokenManager, UI_KEY_DOWN_SIG, (char const *)0);
+    dispatchAsciiText_(&tokenManager, "dis");
     dispatchInput_(&tokenManager, UI_KEY_TAB_SIG, (char const *)0);
     failed += strcmp(tokenManager.buffer, "$connect $disconnect") == 0
               && tokenManager.length == 20U
@@ -582,11 +648,11 @@ int main(void) {
                    (char const *)0);
     dispatchInput_(&matchManager, UI_INPUT_SIG, "/");
     resetProjection_();
-    dispatchInput_(&matchManager, UI_INPUT_SIG, "d");
-    failed += strcmp(matchManager.buffer, "/d") == 0
+    dispatchInput_(&matchManager, UI_INPUT_SIG, "r");
+    failed += strcmp(matchManager.buffer, "/r") == 0
               && matchManager.candidateCount == 1U
               && matchManager.candidates[0]
-                 == SM_INPUT_COMMAND_DISCONNECT
+                 == SM_INPUT_COMMAND_REFRESH
               && l_suggestionShowCount_ == 1U
               && l_suggestionCount_ == 1U
               ? 0 : 1;
@@ -595,9 +661,9 @@ int main(void) {
     dispatchInput_(&matchManager, UI_KEY_BACKSPACE_SIG,
                    (char const *)0);
     failed += strcmp(matchManager.buffer, "/") == 0
-              && matchManager.candidateCount == 3U
+              && matchManager.candidateCount == SM_INPUT_COMMAND_NUM
               && l_suggestionShowCount_ == 1U
-              && l_suggestionCount_ == 3U
+              && l_suggestionCount_ == SM_INPUT_COMMAND_NUM
               ? 0 : 1;
 
     resetProjection_();
@@ -613,7 +679,7 @@ int main(void) {
     failed += l_hideCursorCount_ == 1U
               && l_showCursorCount_ == 1U
               && l_suggestionShowCount_ == 1U
-              && matchManager.candidateCount == 3U
+              && matchManager.candidateCount == SM_INPUT_COMMAND_NUM
               ? 0 : 1;
 
     SM_InputCmpsMngr recoveryManager;
@@ -632,11 +698,11 @@ int main(void) {
     resetProjection_();
     dispatchInput_(&recoveryManager, UI_KEY_BACKSPACE_SIG,
                    (char const *)0);
-    dispatchInput_(&recoveryManager, UI_INPUT_SIG, "d");
-    failed += strcmp(recoveryManager.buffer, "/d") == 0
+    dispatchInput_(&recoveryManager, UI_INPUT_SIG, "r");
+    failed += strcmp(recoveryManager.buffer, "/r") == 0
               && recoveryManager.candidateCount == 1U
               && recoveryManager.candidates[0]
-                 == SM_INPUT_COMMAND_DISCONNECT
+                 == SM_INPUT_COMMAND_REFRESH
               && l_suggestionShowCount_ == 2U
               && l_suggestionCount_ == 1U
               ? 0 : 1;
@@ -653,9 +719,9 @@ int main(void) {
     dispatchInput_(&cursorManager, UI_KEY_RIGHT_SIG,
                    (char const *)0);
     failed += cursorManager.editPos == 1U
-              && cursorManager.candidateCount == 3U
+              && cursorManager.candidateCount == SM_INPUT_COMMAND_NUM
               && l_suggestionShowCount_ == 1U
-              && l_suggestionCount_ == 3U
+              && l_suggestionCount_ == SM_INPUT_COMMAND_NUM
               ? 0 : 1;
 
     resetProjection_();
@@ -742,7 +808,7 @@ int main(void) {
     failed += fullManager.length == 249U
               && fullManager.editPos == 249U
               && fullManager.buffer[248] == '/'
-              && fullManager.candidateCount == 3U
+              && fullManager.candidateCount == SM_INPUT_COMMAND_NUM
               && fullManager.tokenCount == 0U
               && l_projectAllCount_ == 0U
               && l_suggestionHideCount_ == 0U
@@ -753,6 +819,238 @@ int main(void) {
     failed += fullManager.candidateCount == 0U
               && l_suggestionHideCount_ == 1U
               && l_hideCursorCount_ == 1U
+              ? 0 : 1;
+
+    SM_InputCmpsMngr_CommandSink const commandSink = {
+        .submit = &recordSubmission_,
+        .ctx = (void *)0,
+    };
+
+    SM_InputCmpsMngr connectManager;
+    SM_InputCmpsMngr_ctor(&connectManager);
+    SM_InputCmpsMngr_setCommandSink(&connectManager, &commandSink);
+    SM_InputCmpsMngr_init(&connectManager);
+    SM_InputCmpsMngr_setActive(&connectManager, true);
+    acceptCommand_(&connectManager, "connect");
+    resetSubmission_();
+    resetProjection_();
+    dispatchInput_(&connectManager, UI_KEY_ENTER_SIG,
+                   (char const *)0);
+    failed += l_submissionCount_ == 1U
+              && l_submission_.action == SM_INPUT_ACTION_CONNECT
+              && !l_submission_.port.present
+              && !l_submission_.baudrate.present
+              && connectManager.length == 0U
+              && connectManager.tokenCount == 0U
+              && l_projectAllCount_ == 1U
+              ? 0 : 1;
+
+    SM_InputCmpsMngr overrideManager;
+    SM_InputCmpsMngr_ctor(&overrideManager);
+    SM_InputCmpsMngr_setCommandSink(&overrideManager, &commandSink);
+    SM_InputCmpsMngr_init(&overrideManager);
+    SM_InputCmpsMngr_setActive(&overrideManager, true);
+    acceptCommand_(&overrideManager, "connect");
+    dispatchAsciiText_(&overrideManager, " com3 ");
+    acceptCommand_(&overrideManager, "baudrate");
+    dispatchAsciiText_(&overrideManager, " 9600 ");
+    acceptCommand_(&overrideManager, "dataBits");
+    dispatchAsciiText_(&overrideManager, " 7 ");
+    acceptCommand_(&overrideManager, "stopBits");
+    dispatchAsciiText_(&overrideManager, " 2 ");
+    acceptCommand_(&overrideManager, "protocol");
+    dispatchAsciiText_(&overrideManager, " hdlc");
+    resetSubmission_();
+    dispatchInput_(&overrideManager, UI_KEY_ENTER_SIG,
+                   (char const *)0);
+    failed += l_submissionCount_ == 1U
+              && l_submission_.action == SM_INPUT_ACTION_CONNECT
+              && strcmp(l_submissionPort_, "com3") == 0
+              && strcmp(l_submissionBaudrate_, "9600") == 0
+              && strcmp(l_submissionDataBits_, "7") == 0
+              && strcmp(l_submissionStopBits_, "2") == 0
+              && strcmp(l_submissionProtocol_, "hdlc") == 0
+              && overrideManager.length == 0U
+              ? 0 : 1;
+
+    SM_InputCmpsMngr configManager;
+    SM_InputCmpsMngr_ctor(&configManager);
+    SM_InputCmpsMngr_setCommandSink(&configManager, &commandSink);
+    SM_InputCmpsMngr_init(&configManager);
+    SM_InputCmpsMngr_setActive(&configManager, true);
+    acceptCommand_(&configManager, "baudrate");
+    dispatchAsciiText_(&configManager, " 115200 ");
+    acceptCommand_(&configManager, "parity");
+    dispatchAsciiText_(&configManager, " none ");
+    acceptCommand_(&configManager, "flowControl");
+    dispatchAsciiText_(&configManager, " none");
+    resetSubmission_();
+    dispatchInput_(&configManager, UI_KEY_ENTER_SIG,
+                   (char const *)0);
+    failed += l_submissionCount_ == 1U
+              && l_submission_.action == SM_INPUT_ACTION_CONFIG
+              && strcmp(l_submissionBaudrate_, "115200") == 0
+              && strcmp(l_submissionParity_, "none") == 0
+              && strcmp(l_submissionFlowControl_, "none") == 0
+              && configManager.length == 0U
+              ? 0 : 1;
+
+    SM_InputCmpsMngr disconnectManager;
+    SM_InputCmpsMngr_ctor(&disconnectManager);
+    SM_InputCmpsMngr_setCommandSink(&disconnectManager, &commandSink);
+    SM_InputCmpsMngr_init(&disconnectManager);
+    SM_InputCmpsMngr_setActive(&disconnectManager, true);
+    acceptCommand_(&disconnectManager, "disconnect");
+    resetSubmission_();
+    dispatchInput_(&disconnectManager, UI_KEY_ENTER_SIG,
+                   (char const *)0);
+    failed += l_submissionCount_ == 1U
+              && l_submission_.action == SM_INPUT_ACTION_DISCONNECT
+              && disconnectManager.length == 0U
+              ? 0 : 1;
+
+    SM_InputCmpsMngr refreshManager;
+    SM_InputCmpsMngr_ctor(&refreshManager);
+    SM_InputCmpsMngr_setCommandSink(&refreshManager, &commandSink);
+    SM_InputCmpsMngr_init(&refreshManager);
+    SM_InputCmpsMngr_setActive(&refreshManager, true);
+    acceptCommand_(&refreshManager, "refresh");
+    resetSubmission_();
+    dispatchInput_(&refreshManager, UI_KEY_ENTER_SIG,
+                   (char const *)0);
+    failed += l_submissionCount_ == 1U
+              && l_submission_.action == SM_INPUT_ACTION_REFRESH
+              && refreshManager.length == 0U
+              ? 0 : 1;
+
+    SM_InputCmpsMngr mixedManager;
+    SM_InputCmpsMngr_ctor(&mixedManager);
+    SM_InputCmpsMngr_setCommandSink(&mixedManager, &commandSink);
+    SM_InputCmpsMngr_init(&mixedManager);
+    SM_InputCmpsMngr_setActive(&mixedManager, true);
+    acceptCommand_(&mixedManager, "connect");
+    dispatchAsciiText_(&mixedManager, " ");
+    acceptCommand_(&mixedManager, "disconnect");
+    resetSubmission_();
+    dispatchInput_(&mixedManager, UI_KEY_ENTER_SIG,
+                   (char const *)0);
+    failed += l_submissionCount_ == 0U
+              && strcmp(mixedManager.buffer,
+                        "$connect $disconnect") == 0
+              && mixedManager.tokenCount == 2U
+              ? 0 : 1;
+
+    SM_InputCmpsMngr invalidArgsManager;
+    SM_InputCmpsMngr_ctor(&invalidArgsManager);
+    SM_InputCmpsMngr_setCommandSink(&invalidArgsManager, &commandSink);
+    SM_InputCmpsMngr_init(&invalidArgsManager);
+    SM_InputCmpsMngr_setActive(&invalidArgsManager, true);
+    acceptCommand_(&invalidArgsManager, "disconnect");
+    dispatchAsciiText_(&invalidArgsManager, " now");
+    resetSubmission_();
+    dispatchInput_(&invalidArgsManager, UI_KEY_ENTER_SIG,
+                   (char const *)0);
+    failed += l_submissionCount_ == 0U
+              && strcmp(invalidArgsManager.buffer,
+                        "$disconnect now") == 0
+              ? 0 : 1;
+
+    SM_InputCmpsMngr reorderedManager;
+    SM_InputCmpsMngr_ctor(&reorderedManager);
+    SM_InputCmpsMngr_setCommandSink(&reorderedManager, &commandSink);
+    SM_InputCmpsMngr_init(&reorderedManager);
+    SM_InputCmpsMngr_setActive(&reorderedManager, true);
+    acceptCommand_(&reorderedManager, "baudrate");
+    dispatchAsciiText_(&reorderedManager, " 57600 ");
+    acceptCommand_(&reorderedManager, "connect");
+    dispatchAsciiText_(&reorderedManager, " ttyUSB0");
+    resetSubmission_();
+    dispatchInput_(&reorderedManager, UI_KEY_ENTER_SIG,
+                   (char const *)0);
+    failed += l_submissionCount_ == 1U
+              && l_submission_.action == SM_INPUT_ACTION_CONNECT
+              && strcmp(l_submissionPort_, "ttyUSB0") == 0
+              && strcmp(l_submissionBaudrate_, "57600") == 0
+              ? 0 : 1;
+
+    SM_InputCmpsMngr duplicateManager;
+    SM_InputCmpsMngr_ctor(&duplicateManager);
+    SM_InputCmpsMngr_setCommandSink(&duplicateManager, &commandSink);
+    SM_InputCmpsMngr_init(&duplicateManager);
+    SM_InputCmpsMngr_setActive(&duplicateManager, true);
+    acceptCommand_(&duplicateManager, "connect");
+    dispatchAsciiText_(&duplicateManager, " ");
+    acceptCommand_(&duplicateManager, "connect");
+    resetSubmission_();
+    dispatchInput_(&duplicateManager, UI_KEY_ENTER_SIG,
+                   (char const *)0);
+    failed += l_submissionCount_ == 0U
+              && duplicateManager.tokenCount == 2U
+              ? 0 : 1;
+
+    SM_InputCmpsMngr missingValueManager;
+    SM_InputCmpsMngr_ctor(&missingValueManager);
+    SM_InputCmpsMngr_setCommandSink(&missingValueManager, &commandSink);
+    SM_InputCmpsMngr_init(&missingValueManager);
+    SM_InputCmpsMngr_setActive(&missingValueManager, true);
+    acceptCommand_(&missingValueManager, "baudrate");
+    resetSubmission_();
+    dispatchInput_(&missingValueManager, UI_KEY_ENTER_SIG,
+                   (char const *)0);
+    failed += l_submissionCount_ == 0U
+              && missingValueManager.tokenCount == 1U
+              ? 0 : 1;
+
+    SM_InputCmpsMngr refreshConfigManager;
+    SM_InputCmpsMngr_ctor(&refreshConfigManager);
+    SM_InputCmpsMngr_setCommandSink(&refreshConfigManager, &commandSink);
+    SM_InputCmpsMngr_init(&refreshConfigManager);
+    SM_InputCmpsMngr_setActive(&refreshConfigManager, true);
+    acceptCommand_(&refreshConfigManager, "refresh");
+    dispatchAsciiText_(&refreshConfigManager, " ");
+    acceptCommand_(&refreshConfigManager, "parity");
+    dispatchAsciiText_(&refreshConfigManager, " odd");
+    resetSubmission_();
+    dispatchInput_(&refreshConfigManager, UI_KEY_ENTER_SIG,
+                   (char const *)0);
+    failed += l_submissionCount_ == 0U
+              && refreshConfigManager.tokenCount == 2U
+              ? 0 : 1;
+
+    SM_InputCmpsMngr joinedTokenManager;
+    SM_InputCmpsMngr_ctor(&joinedTokenManager);
+    SM_InputCmpsMngr_setCommandSink(&joinedTokenManager, &commandSink);
+    SM_InputCmpsMngr_init(&joinedTokenManager);
+    SM_InputCmpsMngr_setActive(&joinedTokenManager, true);
+    acceptCommand_(&joinedTokenManager, "connect");
+    dispatchAsciiText_(&joinedTokenManager, " ");
+    acceptCommand_(&joinedTokenManager, "baudrate");
+    dispatchInput_(&joinedTokenManager, UI_KEY_CTRL_LEFT_SIG,
+                   (char const *)0);
+    dispatchInput_(&joinedTokenManager, UI_KEY_BACKSPACE_SIG,
+                   (char const *)0);
+    dispatchInput_(&joinedTokenManager, UI_KEY_END_SIG,
+                   (char const *)0);
+    dispatchAsciiText_(&joinedTokenManager, " 9600");
+    resetSubmission_();
+    dispatchInput_(&joinedTokenManager, UI_KEY_ENTER_SIG,
+                   (char const *)0);
+    failed += l_submissionCount_ == 0U
+              && joinedTokenManager.tokenCount == 2U
+              ? 0 : 1;
+
+    SM_InputCmpsMngr joinedArgManager;
+    SM_InputCmpsMngr_ctor(&joinedArgManager);
+    SM_InputCmpsMngr_setCommandSink(&joinedArgManager, &commandSink);
+    SM_InputCmpsMngr_init(&joinedArgManager);
+    SM_InputCmpsMngr_setActive(&joinedArgManager, true);
+    acceptCommand_(&joinedArgManager, "connect");
+    dispatchAsciiText_(&joinedArgManager, "com3");
+    resetSubmission_();
+    dispatchInput_(&joinedArgManager, UI_KEY_ENTER_SIG,
+                   (char const *)0);
+    failed += l_submissionCount_ == 0U
+              && joinedArgManager.tokenCount == 1U
               ? 0 : 1;
 
     UI_InputEvt const invalidEvt = {

@@ -173,6 +173,21 @@ if(BUILD_TESTING)
     add_test(NAME ui_input_cmps_mngr
              COMMAND ui_input_cmps_mngr_test)
 
+    add_executable(sp_mngr_command_test
+        tests/sp_mngr_command_test.c
+        application/aos/sp_mngr/sp_mngr.c
+        ${SM_HSM_SRC}
+    )
+    target_include_directories(sp_mngr_command_test PRIVATE
+        ${INC_ALL}
+    )
+    target_compile_definitions(sp_mngr_command_test PRIVATE
+        DBC_DISABLE
+        SM_DBC_DISABLE
+    )
+    add_test(NAME sp_mngr_command
+             COMMAND sp_mngr_command_test)
+
     add_executable(ui_input_composer_lifecycle_test
         tests/ui_input_composer_lifecycle.c
         application/ui/widgets/input_composer.c

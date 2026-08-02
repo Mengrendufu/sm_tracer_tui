@@ -14,6 +14,7 @@
 #include <locale.h>
 #include <pthread.h>
 #include "sst.h"
+#include "bsp.h"
 #include "ui.h"
 #include "sp_thread/sp_thread.h"
 #include "dbc_assert.h"
@@ -54,7 +55,11 @@ int main(int const argc, char const ** const argv) {
 
     // AOs -------------------------------------------------------------------
     SST_init();
-    pthread_create(&SST_tid, NULL, SST_thread, NULL);
+    if (pthread_create(&SST_tid, NULL, SST_thread, NULL) != 0) {
+        fprintf(stderr, "SST thread start failed\n");
+        return 1;
+    }
+    BSP_waitForSSTStart();
 
     // main thread -----------------------------------------------------------
     if (UI_run() != 0) {

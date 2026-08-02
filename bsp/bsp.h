@@ -18,5 +18,6 @@ typedef void (*BSP_TickHandler)(void);
 
 void BSP_registerTickHandler(BSP_TickHandler handler);
 void BSP_onTick(void);
+void BSP_waitForSSTStart(void);
 
 #endif // BSP_H_

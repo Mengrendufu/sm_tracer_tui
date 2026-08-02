@@ -71,8 +71,11 @@ void SST_Task_setPrio(SST_Task * const me, SST_TaskPrio const prio) {
     me->prio = prio;
     SST_tasks_[prio] = me;
 
-    sem_init(&me->sem, 0, 0);
-    pthread_create(&me->thread, NULL, ao_thread, me);
+    int result = sem_init(&me->sem, 0, 0);
+    DBC_ENSURE(402, result == 0);
+    result = pthread_create(&me->thread, NULL, ao_thread, me);
+    DBC_ENSURE(403, result == 0);
+    (void)result;
 }
 
 //============================================================================

@@ -11,9 +11,11 @@
 //=== Board Support Package: assertions, tick, SST runtime init
 #include <stdio.h>
 #include <stdlib.h>
+#include <pthread.h>
 #include "sst.h"
 #include "sst_pubsub.h"
 #include "app_sig.h"
+#include "aos/sp_mngr/sp_mngr.h"
 #include "bsp.h"
 #include "sm_assert.h"
 #include "dbc_assert.h"
@@ -22,6 +24,9 @@ DBC_MODULE_NAME("bsp")
 //============================================================================
 //=== Tick rate + idle hook.
 static uint32_t l_tickRateMs = 10U;
+static pthread_mutex_t l_sstStartMutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t l_sstStartCond = PTHREAD_COND_INITIALIZER;
+static bool l_sstStarted;
 
 void SST_setTickRate(uint32_t ticksPerSec) {
     l_tickRateMs = ticksPerSec > 0U ? 1000U / ticksPerSec : l_tickRateMs;
@@ -66,13 +71,39 @@ void SST_init(void) {
     SST_PubSub_init(subscrSto, ARRAY_NELEM(subscrSto));
 
 #if (SST_EVT_POOL_NUM > 0U)
-    static uint8_t smallPoolSto[16U * sizeof(SST_Evt)];
-    SST_EvtPool_init(smallPoolSto, sizeof(smallPoolSto), sizeof(SST_Evt));
+    static STATIC_POOL_ELEM_TYPE(SST_Evt) smallPoolSto[16U];
+    SST_EvtPool_init(smallPoolSto, sizeof(smallPoolSto),
+                     sizeof(SST_Evt));
+
+    static STATIC_POOL_ELEM_TYPE(SpMngrConfigEvt) midPoolSto[17U];
+    SST_EvtPool_init(midPoolSto, sizeof(midPoolSto),
+                     sizeof(SpMngrConfigEvt));
 #endif
 }
 
 void SST_onStart(void) {
     SST_setTickRate(BSP_TICKS_PER_SEC);
+
+    int result = pthread_mutex_lock(&l_sstStartMutex);
+    DBC_ASSERT(500, result == 0);
+    l_sstStarted = true;
+    result = pthread_cond_broadcast(&l_sstStartCond);
+    DBC_ASSERT(501, result == 0);
+    result = pthread_mutex_unlock(&l_sstStartMutex);
+    DBC_ASSERT(502, result == 0);
+    (void)result;
+}
+
+void BSP_waitForSSTStart(void) {
+    int result = pthread_mutex_lock(&l_sstStartMutex);
+    DBC_ASSERT(510, result == 0);
+    while (!l_sstStarted) {
+        result = pthread_cond_wait(&l_sstStartCond, &l_sstStartMutex);
+        DBC_ASSERT(511, result == 0);
+    }
+    result = pthread_mutex_unlock(&l_sstStartMutex);
+    DBC_ASSERT(512, result == 0);
+    (void)result;
 }
 
 //============================================================================

@@ -27,9 +27,24 @@ typedef struct {
 } InputCommandDef;
 
 static InputCommandDef const l_commands_[SM_INPUT_COMMAND_NUM] = {
-    {SM_INPUT_COMMAND_CONNECT,    "connect",    "/connect",    "$connect"},
-    {SM_INPUT_COMMAND_DISCONNECT, "disconnect", "/disconnect", "$disconnect"},
-    {SM_INPUT_COMMAND_REFRESH,    "refresh",    "/refresh",    "$refresh"},
+    {SM_INPUT_COMMAND_BAUDRATE,
+     "baudrate", "/baudrate", "$baudrate"},
+    {SM_INPUT_COMMAND_CONNECT,
+     "connect", "/connect", "$connect"},
+    {SM_INPUT_COMMAND_DATA_BITS,
+     "dataBits", "/dataBits", "$dataBits"},
+    {SM_INPUT_COMMAND_DISCONNECT,
+     "disconnect", "/disconnect", "$disconnect"},
+    {SM_INPUT_COMMAND_FLOW_CONTROL,
+     "flowControl", "/flowControl", "$flowControl"},
+    {SM_INPUT_COMMAND_PARITY,
+     "parity", "/parity", "$parity"},
+    {SM_INPUT_COMMAND_PROTOCOL,
+     "protocol", "/protocol", "$protocol"},
+    {SM_INPUT_COMMAND_REFRESH,
+     "refresh", "/refresh", "$refresh"},
+    {SM_INPUT_COMMAND_STOP_BITS,
+     "stopBits", "/stopBits", "$stopBits"},
 };
 
 enum InputCmpsMngrSignals {
@@ -107,6 +122,10 @@ static void      SM_InputCmpsMngr_showSuggestions_(
                         SM_InputCmpsMngr *me);
 static bool      SM_InputCmpsMngr_acceptSuggestion_(
                         SM_InputCmpsMngr *me);
+static bool      SM_InputCmpsMngr_buildSubmission_(
+                        SM_InputCmpsMngr const *me,
+                        SM_InputCmpsMngrSubmission *submission);
+static void      SM_InputCmpsMngr_clear_(SM_InputCmpsMngr *me);
 
 //============================================================================
 //=== States
@@ -433,11 +452,30 @@ static SM_RetState SM_InputCmpsMngr_normal_(
             }
         }
 
+        case INPUT_CMPS_MNGR_CONFIRM_SIG: {
+            SM_InputCmpsMngrSubmission submission;
+            bool const valid = SM_InputCmpsMngr_buildSubmission_(
+                manager, &submission);
+
+            if (valid) {
+                DBC_ASSERT(590,
+                    manager->commandSink.submit
+                        != (void (*)(
+                            void *,
+                            SM_InputCmpsMngrSubmission const *))0);
+                (*manager->commandSink.submit)(
+                    manager->commandSink.ctx, &submission);
+                SM_InputCmpsMngr_clear_(manager);
+                return _SM_HANDLED();
+            } else {
+                return _SM_HANDLED();
+            }
+        }
+
         case INPUT_CMPS_MNGR_CANCEL_SIG:
         case INPUT_CMPS_MNGR_SELECT_PREV_SIG:
         case INPUT_CMPS_MNGR_SELECT_NEXT_SIG:
-        case INPUT_CMPS_MNGR_COMPLETE_SIG:
-        case INPUT_CMPS_MNGR_CONFIRM_SIG: {
+        case INPUT_CMPS_MNGR_COMPLETE_SIG: {
             return _SM_HANDLED();
         }
 
@@ -1385,6 +1423,210 @@ static bool SM_InputCmpsMngr_acceptSuggestion_(
 }
 
 //============================================================================
+//=== Command submission
+
+static bool SM_InputCmpsMngr_isWhitespaceRange_(
+    SM_InputCmpsMngr const * const me,
+    size_t const begin,
+    size_t const end)
+{
+    for (size_t i = begin; i < end; ++i) {
+        if (!SM_InputCmpsMngr_isWhitespaceAt_(me, i)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool SM_InputCmpsMngr_parseArg_(
+    SM_InputCmpsMngr const * const me,
+    size_t begin,
+    size_t end,
+    SM_InputCmpsMngrArg * const arg)
+{
+    while ((begin < end) && SM_InputCmpsMngr_isWhitespaceAt_(me, begin)) {
+        ++begin;
+    }
+    while ((end > begin)
+           && SM_InputCmpsMngr_isWhitespaceAt_(me, end - 1U))
+    {
+        --end;
+    }
+
+    arg->text = (char const *)0;
+    arg->len = 0U;
+    arg->present = false;
+    if (begin == end) {
+        return true;
+    }
+
+    size_t wordEnd = begin;
+    while ((wordEnd < end)
+           && !SM_InputCmpsMngr_isWhitespaceAt_(me, wordEnd))
+    {
+        ++wordEnd;
+    }
+    if (!SM_InputCmpsMngr_isWhitespaceRange_(me, wordEnd, end)) {
+        return false;
+    }
+
+    arg->text = &me->buffer[begin];
+    arg->len = wordEnd - begin;
+    arg->present = true;
+    return true;
+}
+
+static bool SM_InputCmpsMngr_buildSubmission_(
+    SM_InputCmpsMngr const * const me,
+    SM_InputCmpsMngrSubmission * const submission)
+{
+    bool seen[SM_INPUT_COMMAND_NUM] = {false};
+    bool hasConfig = false;
+    bool hasConnect = false;
+    bool hasDisconnect = false;
+    bool hasRefresh = false;
+
+    memset(submission, 0, sizeof(*submission));
+    if ((me->tokenCount == 0U)
+        || !SM_InputCmpsMngr_isWhitespaceRange_(
+                me, 0U, me->tokens[0].begin))
+    {
+        return false;
+    }
+
+    for (size_t i = 0U; i < me->tokenCount; ++i) {
+        SM_InputCmpsMngrToken const * const token = &me->tokens[i];
+        size_t const argEnd = (i + 1U < me->tokenCount)
+            ? me->tokens[i + 1U].begin
+            : me->length;
+        SM_InputCmpsMngrArg arg;
+
+        if (((i > 0U)
+             && ((token->begin == 0U)
+                 || !SM_InputCmpsMngr_isWhitespaceAt_(
+                         me, token->begin - 1U)))
+            || ((token->end < argEnd)
+                && !SM_InputCmpsMngr_isWhitespaceAt_(me, token->end))
+            || seen[token->command]
+            || !SM_InputCmpsMngr_parseArg_(
+                    me, token->end, argEnd, &arg))
+        {
+            return false;
+        }
+        seen[token->command] = true;
+
+        switch (token->command) {
+            case SM_INPUT_COMMAND_BAUDRATE: {
+                if (!arg.present) {
+                    return false;
+                }
+                submission->baudrate = arg;
+                hasConfig = true;
+                break;
+            }
+            case SM_INPUT_COMMAND_CONNECT: {
+                submission->port = arg;
+                hasConnect = true;
+                break;
+            }
+            case SM_INPUT_COMMAND_DATA_BITS: {
+                if (!arg.present) {
+                    return false;
+                }
+                submission->dataBits = arg;
+                hasConfig = true;
+                break;
+            }
+            case SM_INPUT_COMMAND_DISCONNECT: {
+                if (arg.present) {
+                    return false;
+                }
+                hasDisconnect = true;
+                break;
+            }
+            case SM_INPUT_COMMAND_FLOW_CONTROL: {
+                if (!arg.present) {
+                    return false;
+                }
+                submission->flowControl = arg;
+                hasConfig = true;
+                break;
+            }
+            case SM_INPUT_COMMAND_PARITY: {
+                if (!arg.present) {
+                    return false;
+                }
+                submission->parity = arg;
+                hasConfig = true;
+                break;
+            }
+            case SM_INPUT_COMMAND_PROTOCOL: {
+                if (!arg.present) {
+                    return false;
+                }
+                submission->protocol = arg;
+                hasConfig = true;
+                break;
+            }
+            case SM_INPUT_COMMAND_REFRESH: {
+                if (arg.present) {
+                    return false;
+                }
+                hasRefresh = true;
+                break;
+            }
+            case SM_INPUT_COMMAND_STOP_BITS: {
+                if (!arg.present) {
+                    return false;
+                }
+                submission->stopBits = arg;
+                hasConfig = true;
+                break;
+            }
+            default: {
+                return false;
+            }
+        }
+    }
+
+    unsigned const actionCount = (hasConnect ? 1U : 0U)
+                               + (hasDisconnect ? 1U : 0U)
+                               + (hasRefresh ? 1U : 0U);
+    if ((actionCount > 1U)
+        || ((hasDisconnect || hasRefresh) && hasConfig))
+    {
+        return false;
+    }
+
+    if (hasConnect) {
+        submission->action = SM_INPUT_ACTION_CONNECT;
+    } else if (hasDisconnect) {
+        submission->action = SM_INPUT_ACTION_DISCONNECT;
+    } else if (hasRefresh) {
+        submission->action = SM_INPUT_ACTION_REFRESH;
+    } else if (hasConfig) {
+        submission->action = SM_INPUT_ACTION_CONFIG;
+    } else {
+        return false;
+    }
+    return true;
+}
+
+static void SM_InputCmpsMngr_clear_(SM_InputCmpsMngr * const me) {
+    me->buffer[0] = '\0';
+    me->length = 0U;
+    me->editPos = 0U;
+    me->tokenCount = 0U;
+    me->candidateCount = 0U;
+    me->selectedCandidate = 0U;
+    me->suggestionStart = 0U;
+    me->suggestionEnd = 0U;
+    SM_InputCmpsMngr_validate_(me);
+    InputComposer_projectAll(&me->composer, me->buffer,
+                             me->length, me->editPos);
+}
+
+//============================================================================
 //=== Constructor / lifecycle
 
 void SM_InputCmpsMngr_ctor(SM_InputCmpsMngr * const me) {
@@ -1402,6 +1644,9 @@ void SM_InputCmpsMngr_ctor(SM_InputCmpsMngr * const me) {
     me->suggestionEnd = 0U;
     me->inputY = 0;
     me->cols = 0U;
+    me->commandSink.submit = (void (*)(
+        void *, SM_InputCmpsMngrSubmission const *))0;
+    me->commandSink.ctx = (void *)0;
     InputComposer_init(&me->composer);
     CommandSuggestion_init(&me->suggestion);
     SM_InputCmpsMngr_validate_(me);
@@ -1411,6 +1656,20 @@ void SM_InputCmpsMngr_init(SM_InputCmpsMngr * const me) {
     DBC_REQUIRE(200, me != (SM_InputCmpsMngr *)0);
     SM_Hsm_init_(&me->super,
                  (SM_InitHandler)SM_InputCmpsMngr_TOP_initial);
+}
+
+void SM_InputCmpsMngr_setCommandSink(
+    SM_InputCmpsMngr * const me,
+    SM_InputCmpsMngr_CommandSink const * const commandSink)
+{
+    DBC_REQUIRE(440, me != (SM_InputCmpsMngr *)0);
+    DBC_REQUIRE(441,
+        commandSink != (SM_InputCmpsMngr_CommandSink const *)0);
+    DBC_REQUIRE(442,
+        commandSink->submit
+            != (void (*)(
+                void *, SM_InputCmpsMngrSubmission const *))0);
+    me->commandSink = *commandSink;
 }
 
 void SM_InputCmpsMngr_dispatchEvt(SM_InputCmpsMngr * const me,
