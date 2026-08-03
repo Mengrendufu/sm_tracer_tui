@@ -20,7 +20,8 @@
 static pthread_mutex_t l_mutex_ = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t l_cond_ = PTHREAD_COND_INITIALIZER;
 static bool l_refreshDispatched_;
-static char l_resultText_[128];
+static char l_portNames_[128];
+static size_t l_portNamesSize_;
 
 static SST_Task l_spMngr_;
 SST_Task * const AO_SpMngr = &l_spMngr_;
@@ -29,11 +30,12 @@ void UI_postText(char const * const text) {
     (void)text;
 }
 
-char *SerialPortRuntime_listPortsText(void) {
-    char const text[] = "Serial ports:\n/dev/ttyTEST0\n";
-    char * const copy = (char *)malloc(sizeof(text));
+char *SerialPortRuntime_listPorts(size_t * const size) {
+    char const portNames[] = "/dev/ttyTEST0\0";
+    char * const copy = (char *)malloc(sizeof(portNames));
     if (copy != (char *)0) {
-        memcpy(copy, text, sizeof(text));
+        memcpy(copy, portNames, sizeof(portNames));
+        *size = sizeof(portNames);
     }
     return copy;
 }
@@ -48,13 +50,14 @@ void SST_Task_post(SST_Task * const me, SST_Evt const * const e) {
             SST_EVT_DOWNCAST(SpMngrPortsEvt, e);
 
         pthread_mutex_lock(&l_mutex_);
-        (void)snprintf(l_resultText_, sizeof(l_resultText_),
-                       "%s", result->text);
+        l_portNamesSize_ = result->portNamesSize;
+        memcpy(l_portNames_, result->portNames,
+               result->portNamesSize);
         l_refreshDispatched_ = true;
         pthread_cond_signal(&l_cond_);
         pthread_mutex_unlock(&l_mutex_);
 
-        free(result->text);
+        free(result->portNames);
         free((void *)e);
     }
 }
@@ -81,8 +84,10 @@ int main(void) {
         pthread_mutex_unlock(&l_mutex_);
     }
 
-    failed += strcmp(l_resultText_,
-                     "Serial ports:\n/dev/ttyTEST0\n") == 0
+    char const expected[] = "/dev/ttyTEST0\0";
+    failed += l_portNamesSize_ == sizeof(expected)
+              && memcmp(l_portNames_, expected,
+                        sizeof(expected)) == 0
               ? 0 : 1;
 
     return failed;

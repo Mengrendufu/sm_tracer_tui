@@ -51,25 +51,31 @@ int main(void) {
     int failed = 0;
 
     l_mode_ = LIST_MODE_PORTS_;
-    char *text = SerialPortRuntime_listPortsText();
-    failed += text != (char *)0
-              && strcmp(text,
-                        "Serial ports:\n"
-                        "/dev/ttyUSB0\n"
-                        "/dev/ttyACM0\n") == 0
+    size_t portNamesSize = 0U;
+    char *portNames = SerialPortRuntime_listPorts(&portNamesSize);
+    char const expected[] =
+        "/dev/ttyUSB0\0/dev/ttyACM0\0";
+    failed += portNames != (char *)0
+              && portNamesSize == sizeof(expected)
+              && memcmp(portNames, expected, sizeof(expected)) == 0
               ? 0 : 1;
-    free(text);
+    free(portNames);
 
     l_mode_ = LIST_MODE_EMPTY_;
-    text = SerialPortRuntime_listPortsText();
-    failed += text != (char *)0
-              && strcmp(text, "Serial ports: none\n") == 0
+    portNamesSize = 0U;
+    portNames = SerialPortRuntime_listPorts(&portNamesSize);
+    char const empty[] = "\0";
+    failed += portNames != (char *)0
+              && portNamesSize == sizeof(empty)
+              && memcmp(portNames, empty, sizeof(empty)) == 0
               ? 0 : 1;
-    free(text);
+    free(portNames);
 
     l_mode_ = LIST_MODE_ERROR_;
-    text = SerialPortRuntime_listPortsText();
-    failed += text == (char *)0 ? 0 : 1;
+    portNamesSize = 123U;
+    portNames = SerialPortRuntime_listPorts(&portNamesSize);
+    failed += (portNames == (char *)0) && (portNamesSize == 0U)
+              ? 0 : 1;
 
     return failed == 0 ? 0 : 1;
 }

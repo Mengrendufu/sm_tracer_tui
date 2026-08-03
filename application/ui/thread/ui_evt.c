@@ -157,6 +157,29 @@ void UI_postText(char const *text) {
     UI_evtPostText(UI_TEXT_SIG, text);
 }
 
+void UI_postPortList(char const * const portNames,
+                     size_t const portNamesSize)
+{
+    DBC_REQUIRE(330, portNames != (char const *)0);
+    DBC_REQUIRE(331, portNamesSize >= 2U);
+    DBC_REQUIRE(332, portNames[portNamesSize - 1U] == '\0');
+    DBC_REQUIRE(333, portNames[portNamesSize - 2U] == '\0');
+    DBC_REQUIRE(334, UI_eventInbox_.wakeFd >= 0);
+    DBC_REQUIRE(335,
+                portNamesSize <= (SIZE_MAX - sizeof(UI_PortListEvt)));
+
+    size_t const size = sizeof(UI_PortListEvt) + portNamesSize;
+    UI_PortListEvt * const pe =
+        (UI_PortListEvt *)UI_Alloc_(size);
+    pe->super.sig = UI_REFRESHED_PORTS_SIG;
+    pe->portNamesSize = portNamesSize;
+    pe->portNames = (char *)(pe + 1);
+    memcpy(pe->portNames, portNames, portNamesSize);
+
+    UI_enqueue_((UI_Evt *)pe);
+    UI_wake_();
+}
+
 //============================================================================
 //=== Init / Wake fd / Dequeue / Free
 

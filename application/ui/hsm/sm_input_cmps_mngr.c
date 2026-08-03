@@ -47,6 +47,22 @@ static InputCommandDef const l_commands_[SM_INPUT_COMMAND_NUM] = {
      "stopBits", "/stopBits", "$stopBits"},
 };
 
+static char const * const l_baudrateArgs_[] = {
+    "2400", "4800", "9600", "115200", "921600"
+};
+static char const * const l_dataBitsArgs_[] = {
+    "5", "6", "7", "8"
+};
+static char const * const l_stopBitsArgs_[] = {
+    "1", "1.5", "2"
+};
+static char const * const l_parityArgs_[] = {
+    "none", "odd", "even", "mark", "space"
+};
+static char const * const l_flowControlArgs_[] = {
+    "none", "xon/xoff", "rts/cts", "dtr/dsr"
+};
+
 enum InputCmpsMngrSignals {
     INPUT_CMPS_MNGR_NULL_SIG = 0,
     INPUT_CMPS_MNGR_ACTIVATE_SIG,
@@ -67,6 +83,7 @@ enum InputCmpsMngrSignals {
     INPUT_CMPS_MNGR_MOVE_END_SIG,
     INPUT_CMPS_MNGR_COMPLETE_SIG,
     INPUT_CMPS_MNGR_CONFIRM_SIG,
+    INPUT_CMPS_MNGR_PORT_CATALOG_UPDATED_SIG,
 };
 
 typedef struct {
@@ -78,6 +95,7 @@ typedef enum {
     INPUT_SUGGEST_AVAILABLE,
     INPUT_SUGGEST_NOT_AVAILABLE,
     INPUT_SUGGEST_CANDIDATES_AVAILABLE,
+    INPUT_SUGGEST_ARGUMENT_CANDIDATES,
 } InputSuggestionContext;
 
 static UI_Signal SM_InputCmpsMngr_routeSignal_(UI_InputEvt const *e);
@@ -120,86 +138,112 @@ static void      SM_InputCmpsMngr_moveHome_(SM_InputCmpsMngr *me);
 static void      SM_InputCmpsMngr_moveEnd_(SM_InputCmpsMngr *me);
 static void      SM_InputCmpsMngr_filterCandidates_(
                         SM_InputCmpsMngr *me);
+static void      SM_InputCmpsMngr_filterArgumentCandidates_(
+                        SM_InputCmpsMngr *me,
+                        SM_InputCommand command,
+                        size_t prefixBegin,
+                        size_t prefixEnd);
 static InputSuggestionContext SM_InputCmpsMngr_suggestionContext_(
                         SM_InputCmpsMngr *me);
 static void      SM_InputCmpsMngr_showSuggestions_(
                         SM_InputCmpsMngr *me);
+static void      SM_InputCmpsMngr_showArgumentSuggestions_(
+                        SM_InputCmpsMngr *me);
 static bool      SM_InputCmpsMngr_acceptSuggestion_(
                         SM_InputCmpsMngr *me);
+static bool      SM_InputCmpsMngr_acceptArgumentSuggestion_(
+                        SM_InputCmpsMngr *me);
+static bool      SM_InputCmpsMngr_isWhitespaceRange_(
+                        SM_InputCmpsMngr const *me,
+                        size_t begin,
+                        size_t end);
 static bool      SM_InputCmpsMngr_buildSubmission_(
                         SM_InputCmpsMngr const *me,
                         SM_InputCmpsMngrSubmission *submission);
 static void      SM_InputCmpsMngr_clear_(SM_InputCmpsMngr *me);
 
 //============================================================================
-//=== States
+//=== HSM states
 
-static SM_StatePtr SM_InputCmpsMngr_TOP_initial(SM_Hsm *me) SM_HSM_RETT;
+// TOP-INIT
+static SM_StatePtr SM_InputCmpsMngr_TOP_initial(SM_Hsm * const me) SM_HSM_RETT;
 
-static SM_RetState SM_InputCmpsMngr_inactive_(SM_Hsm *me,
-                                              UI_Evt const *e) SM_HSM_RETT;
+// inactive
+static SM_RetState SM_InputCmpsMngr_inactive_(SM_Hsm * const me, UI_Evt const * const e) SM_HSM_RETT;
 SM_HsmState SM_HSM_ROM SM_InputCmpsMngr_inactive = {
-    (SM_StatePtr)0,
-    (SM_InitHandler)0,
-    (SM_ActionHandler)0,
-    (SM_ActionHandler)0,
-    (SM_StateHandler)&SM_InputCmpsMngr_inactive_
+    SM_HSM_TOP,                                         // super
+    (SM_InitHandler)0,                                  // init_
+    (SM_ActionHandler)0,                                // entry_
+    (SM_ActionHandler)0,                                // exit_
+    (SM_StateHandler)&SM_InputCmpsMngr_inactive_        // handler
 };
 
-static SM_StatePtr SM_InputCmpsMngr_active_init_(SM_Hsm *me) SM_HSM_RETT;
-static void        SM_InputCmpsMngr_active_entry_(SM_Hsm *me) SM_HSM_RETT;
-static void        SM_InputCmpsMngr_active_exit_(SM_Hsm *me) SM_HSM_RETT;
-static SM_RetState SM_InputCmpsMngr_active_(SM_Hsm *me,
-                                            UI_Evt const *e) SM_HSM_RETT;
+// active
+static SM_StatePtr SM_InputCmpsMngr_active_init_(SM_Hsm * const me) SM_HSM_RETT;
+static void        SM_InputCmpsMngr_active_entry_(SM_Hsm * const me) SM_HSM_RETT;
+static void        SM_InputCmpsMngr_active_exit_(SM_Hsm * const me) SM_HSM_RETT;
+static SM_RetState SM_InputCmpsMngr_active_(SM_Hsm * const me, UI_Evt const * const e) SM_HSM_RETT;
 SM_HsmState SM_HSM_ROM SM_InputCmpsMngr_active = {
-    (SM_StatePtr)0,
-    (SM_InitHandler)&SM_InputCmpsMngr_active_init_,
-    (SM_ActionHandler)&SM_InputCmpsMngr_active_entry_,
-    (SM_ActionHandler)&SM_InputCmpsMngr_active_exit_,
-    (SM_StateHandler)&SM_InputCmpsMngr_active_
+    SM_HSM_TOP,                                         // super
+    (SM_InitHandler)&SM_InputCmpsMngr_active_init_,     // init_
+    (SM_ActionHandler)&SM_InputCmpsMngr_active_entry_,  // entry_
+    (SM_ActionHandler)&SM_InputCmpsMngr_active_exit_,   // exit_
+    (SM_StateHandler)&SM_InputCmpsMngr_active_          // handler
 };
 
-static SM_StatePtr SM_InputCmpsMngr_normal_init_(SM_Hsm *me) SM_HSM_RETT;
-static SM_RetState SM_InputCmpsMngr_normal_(SM_Hsm *me,
-                                            UI_Evt const *e) SM_HSM_RETT;
+// normal
+static SM_StatePtr SM_InputCmpsMngr_normal_init_(SM_Hsm * const me) SM_HSM_RETT;
+static SM_RetState SM_InputCmpsMngr_normal_(SM_Hsm * const me, UI_Evt const * const e) SM_HSM_RETT;
 SM_HsmState SM_HSM_ROM SM_InputCmpsMngr_normal = {
-    (SM_StatePtr)&SM_InputCmpsMngr_active,
-    (SM_InitHandler)&SM_InputCmpsMngr_normal_init_,
-    (SM_ActionHandler)0,
-    (SM_ActionHandler)0,
-    (SM_StateHandler)&SM_InputCmpsMngr_normal_
+    (SM_StatePtr)&SM_InputCmpsMngr_active,              // super
+    (SM_InitHandler)&SM_InputCmpsMngr_normal_init_,     // init_
+    (SM_ActionHandler)0,                                // entry_
+    (SM_ActionHandler)0,                                // exit_
+    (SM_StateHandler)&SM_InputCmpsMngr_normal_          // handler
 };
 
-static SM_RetState SM_InputCmpsMngr_suggestAvailable_(
-    SM_Hsm *me, UI_Evt const *e) SM_HSM_RETT;
+// suggestAvailable
+static SM_RetState SM_InputCmpsMngr_suggestAvailable_(SM_Hsm * const me, UI_Evt const * const e) SM_HSM_RETT;
 SM_HsmState SM_HSM_ROM SM_InputCmpsMngr_suggestAvailable = {
-    (SM_StatePtr)&SM_InputCmpsMngr_normal,
-    (SM_InitHandler)0,
-    (SM_ActionHandler)0,
-    (SM_ActionHandler)0,
-    (SM_StateHandler)&SM_InputCmpsMngr_suggestAvailable_
+    (SM_StatePtr)&SM_InputCmpsMngr_normal,              // super
+    (SM_InitHandler)0,                                  // init_
+    (SM_ActionHandler)0,                                // entry_
+    (SM_ActionHandler)0,                                // exit_
+    (SM_StateHandler)&SM_InputCmpsMngr_suggestAvailable_ // handler
 };
 
-static SM_RetState SM_InputCmpsMngr_suggestNotAvailable_(
-    SM_Hsm *me, UI_Evt const *e) SM_HSM_RETT;
+// suggestNotAvailable
+static SM_RetState SM_InputCmpsMngr_suggestNotAvailable_(SM_Hsm * const me, UI_Evt const * const e) SM_HSM_RETT;
 SM_HsmState SM_HSM_ROM SM_InputCmpsMngr_suggestNotAvailable = {
-    (SM_StatePtr)&SM_InputCmpsMngr_normal,
-    (SM_InitHandler)0,
-    (SM_ActionHandler)0,
-    (SM_ActionHandler)0,
-    (SM_StateHandler)&SM_InputCmpsMngr_suggestNotAvailable_
+    (SM_StatePtr)&SM_InputCmpsMngr_normal,                // super
+    (SM_InitHandler)0,                                    // init_
+    (SM_ActionHandler)0,                                  // entry_
+    (SM_ActionHandler)0,                                  // exit_
+    (SM_StateHandler)&SM_InputCmpsMngr_suggestNotAvailable_ // handler
 };
 
-static void        SM_InputCmpsMngr_suggesting_entry_(SM_Hsm *me) SM_HSM_RETT;
-static void        SM_InputCmpsMngr_suggesting_exit_(SM_Hsm *me) SM_HSM_RETT;
-static SM_RetState SM_InputCmpsMngr_suggesting_(SM_Hsm *me,
-                                                UI_Evt const *e) SM_HSM_RETT;
-SM_HsmState SM_HSM_ROM SM_InputCmpsMngr_suggesting = {
-    (SM_StatePtr)&SM_InputCmpsMngr_active,
-    (SM_InitHandler)0,
-    (SM_ActionHandler)&SM_InputCmpsMngr_suggesting_entry_,
-    (SM_ActionHandler)&SM_InputCmpsMngr_suggesting_exit_,
-    (SM_StateHandler)&SM_InputCmpsMngr_suggesting_
+// commandSuggesting
+static void        SM_InputCmpsMngr_commandSuggesting_entry_(SM_Hsm * const me) SM_HSM_RETT;
+static void        SM_InputCmpsMngr_commandSuggesting_exit_(SM_Hsm * const me) SM_HSM_RETT;
+static SM_RetState SM_InputCmpsMngr_commandSuggesting_(SM_Hsm * const me, UI_Evt const * const e) SM_HSM_RETT;
+SM_HsmState SM_HSM_ROM SM_InputCmpsMngr_commandSuggesting = {
+    (SM_StatePtr)&SM_InputCmpsMngr_active,                 // super
+    (SM_InitHandler)0,                                     // init_
+    (SM_ActionHandler)&SM_InputCmpsMngr_commandSuggesting_entry_, // entry_
+    (SM_ActionHandler)&SM_InputCmpsMngr_commandSuggesting_exit_, // exit_
+    (SM_StateHandler)&SM_InputCmpsMngr_commandSuggesting_  // handler
+};
+
+// argumentSuggesting
+static void        SM_InputCmpsMngr_argumentSuggesting_entry_(SM_Hsm * const me) SM_HSM_RETT;
+static void        SM_InputCmpsMngr_argumentSuggesting_exit_(SM_Hsm * const me) SM_HSM_RETT;
+static SM_RetState SM_InputCmpsMngr_argumentSuggesting_(SM_Hsm * const me, UI_Evt const * const e) SM_HSM_RETT;
+SM_HsmState SM_HSM_ROM SM_InputCmpsMngr_argumentSuggesting = {
+    (SM_StatePtr)&SM_InputCmpsMngr_normal,                  // super
+    (SM_InitHandler)0,                                      // init_
+    (SM_ActionHandler)&SM_InputCmpsMngr_argumentSuggesting_entry_, // entry_
+    (SM_ActionHandler)&SM_InputCmpsMngr_argumentSuggesting_exit_, // exit_
+    (SM_StateHandler)&SM_InputCmpsMngr_argumentSuggesting_   // handler
 };
 
 //============================================================================
@@ -225,7 +269,10 @@ static SM_RetState SM_InputCmpsMngr_inactive_(
                 SM_InputCmpsMngr_suggestionContext_(manager);
 
             if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
-                return _SM_TRAN(&SM_InputCmpsMngr_suggesting);
+                return _SM_TRAN(&SM_InputCmpsMngr_commandSuggesting);
+            } else if (context == INPUT_SUGGEST_ARGUMENT_CANDIDATES) {
+                return _SM_TRAN(
+                    &SM_InputCmpsMngr_argumentSuggesting);
             } else if (context == INPUT_SUGGEST_AVAILABLE) {
                 return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
             } else {
@@ -268,12 +315,17 @@ static void SM_InputCmpsMngr_active_exit_(
     InputComposer_hideCursor(&manager->composer, manager->buffer,
                              manager->length, manager->editPos);
     SM_InputCmpsMngr_highlightTokens_(manager);
+    manager->candidateCount = 0U;
+    manager->selectedCandidate = 0U;
 }
 
 static SM_RetState SM_InputCmpsMngr_active_(
     SM_Hsm * const me,
     UI_Evt const * const e) SM_HSM_RETT
 {
+    SM_InputCmpsMngr *manager = containerof(
+        me, SM_InputCmpsMngr, super);
+
     switch (e->sig) {
         case INPUT_CMPS_MNGR_DEACTIVATE_SIG: {
             return _SM_TRAN(&SM_InputCmpsMngr_inactive);
@@ -281,6 +333,42 @@ static SM_RetState SM_InputCmpsMngr_active_(
 
         case INPUT_CMPS_MNGR_ACTIVATE_SIG: {
             return _SM_HANDLED();
+        }
+
+        case INPUT_CMPS_MNGR_CONFIRM_SIG: {
+            SM_InputCmpsMngrSubmission submission;
+            bool const valid = SM_InputCmpsMngr_buildSubmission_(
+                manager, &submission);
+
+            if (valid) {
+                DBC_ASSERT(590,
+                    manager->commandSink.submit
+                        != (void (*)(
+                            void *,
+                            SM_InputCmpsMngrSubmission const *))0);
+                (*manager->commandSink.submit)(
+                    manager->commandSink.ctx, &submission);
+                SM_InputCmpsMngr_clear_(manager);
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
+            } else {
+                return _SM_HANDLED();
+            }
+        }
+
+        case INPUT_CMPS_MNGR_PORT_CATALOG_UPDATED_SIG: {
+            InputSuggestionContext const context =
+                SM_InputCmpsMngr_suggestionContext_(manager);
+
+            if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
+                return _SM_TRAN(&SM_InputCmpsMngr_commandSuggesting);
+            } else if (context == INPUT_SUGGEST_ARGUMENT_CANDIDATES) {
+                return _SM_TRAN(
+                    &SM_InputCmpsMngr_argumentSuggesting);
+            } else if (context == INPUT_SUGGEST_AVAILABLE) {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
+            } else {
+                return _SM_TRAN(&SM_InputCmpsMngr_suggestNotAvailable);
+            }
         }
 
         default: {
@@ -306,8 +394,30 @@ static SM_RetState SM_InputCmpsMngr_normal_(
         case INPUT_CMPS_MNGR_SLASH_INPUT_SIG: {
             InputCmpsMngrEvt const * const inputEvt =
                 (InputCmpsMngrEvt const *)e;
-            (void)SM_InputCmpsMngr_insert_(manager, &inputEvt->input);
-            return _SM_HANDLED();
+            if (SM_InputCmpsMngr_insert_(manager,
+                                         &inputEvt->input))
+            {
+                InputSuggestionContext const context =
+                    SM_InputCmpsMngr_suggestionContext_(manager);
+
+                if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
+                    return _SM_TRAN(
+                        &SM_InputCmpsMngr_commandSuggesting);
+                } else if (
+                    context == INPUT_SUGGEST_ARGUMENT_CANDIDATES)
+                {
+                    return _SM_TRAN(
+                        &SM_InputCmpsMngr_argumentSuggesting);
+                } else if (context == INPUT_SUGGEST_AVAILABLE) {
+                    return _SM_TRAN(
+                        &SM_InputCmpsMngr_suggestAvailable);
+                } else {
+                    return _SM_TRAN(
+                        &SM_InputCmpsMngr_suggestNotAvailable);
+                }
+            } else {
+                return _SM_HANDLED();
+            }
         }
 
         case INPUT_CMPS_MNGR_TERM_INPUT_SIG: {
@@ -320,7 +430,13 @@ static SM_RetState SM_InputCmpsMngr_normal_(
                     SM_InputCmpsMngr_suggestionContext_(manager);
 
                 if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
-                    return _SM_TRAN(&SM_InputCmpsMngr_suggesting);
+                    return _SM_TRAN(
+                        &SM_InputCmpsMngr_commandSuggesting);
+                } else if (
+                    context == INPUT_SUGGEST_ARGUMENT_CANDIDATES)
+                {
+                    return _SM_TRAN(
+                        &SM_InputCmpsMngr_argumentSuggesting);
                 } else if (context == INPUT_SUGGEST_AVAILABLE) {
                     return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
                 } else {
@@ -338,7 +454,10 @@ static SM_RetState SM_InputCmpsMngr_normal_(
                 SM_InputCmpsMngr_suggestionContext_(manager);
 
             if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
-                return _SM_TRAN(&SM_InputCmpsMngr_suggesting);
+                return _SM_TRAN(&SM_InputCmpsMngr_commandSuggesting);
+            } else if (context == INPUT_SUGGEST_ARGUMENT_CANDIDATES) {
+                return _SM_TRAN(
+                    &SM_InputCmpsMngr_argumentSuggesting);
             } else if (context == INPUT_SUGGEST_AVAILABLE) {
                 return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
             } else {
@@ -352,7 +471,10 @@ static SM_RetState SM_InputCmpsMngr_normal_(
                 SM_InputCmpsMngr_suggestionContext_(manager);
 
             if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
-                return _SM_TRAN(&SM_InputCmpsMngr_suggesting);
+                return _SM_TRAN(&SM_InputCmpsMngr_commandSuggesting);
+            } else if (context == INPUT_SUGGEST_ARGUMENT_CANDIDATES) {
+                return _SM_TRAN(
+                    &SM_InputCmpsMngr_argumentSuggesting);
             } else if (context == INPUT_SUGGEST_AVAILABLE) {
                 return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
             } else {
@@ -366,7 +488,10 @@ static SM_RetState SM_InputCmpsMngr_normal_(
                 SM_InputCmpsMngr_suggestionContext_(manager);
 
             if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
-                return _SM_TRAN(&SM_InputCmpsMngr_suggesting);
+                return _SM_TRAN(&SM_InputCmpsMngr_commandSuggesting);
+            } else if (context == INPUT_SUGGEST_ARGUMENT_CANDIDATES) {
+                return _SM_TRAN(
+                    &SM_InputCmpsMngr_argumentSuggesting);
             } else if (context == INPUT_SUGGEST_AVAILABLE) {
                 return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
             } else {
@@ -380,7 +505,10 @@ static SM_RetState SM_InputCmpsMngr_normal_(
                 SM_InputCmpsMngr_suggestionContext_(manager);
 
             if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
-                return _SM_TRAN(&SM_InputCmpsMngr_suggesting);
+                return _SM_TRAN(&SM_InputCmpsMngr_commandSuggesting);
+            } else if (context == INPUT_SUGGEST_ARGUMENT_CANDIDATES) {
+                return _SM_TRAN(
+                    &SM_InputCmpsMngr_argumentSuggesting);
             } else if (context == INPUT_SUGGEST_AVAILABLE) {
                 return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
             } else {
@@ -394,7 +522,10 @@ static SM_RetState SM_InputCmpsMngr_normal_(
                 SM_InputCmpsMngr_suggestionContext_(manager);
 
             if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
-                return _SM_TRAN(&SM_InputCmpsMngr_suggesting);
+                return _SM_TRAN(&SM_InputCmpsMngr_commandSuggesting);
+            } else if (context == INPUT_SUGGEST_ARGUMENT_CANDIDATES) {
+                return _SM_TRAN(
+                    &SM_InputCmpsMngr_argumentSuggesting);
             } else if (context == INPUT_SUGGEST_AVAILABLE) {
                 return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
             } else {
@@ -408,7 +539,10 @@ static SM_RetState SM_InputCmpsMngr_normal_(
                 SM_InputCmpsMngr_suggestionContext_(manager);
 
             if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
-                return _SM_TRAN(&SM_InputCmpsMngr_suggesting);
+                return _SM_TRAN(&SM_InputCmpsMngr_commandSuggesting);
+            } else if (context == INPUT_SUGGEST_ARGUMENT_CANDIDATES) {
+                return _SM_TRAN(
+                    &SM_InputCmpsMngr_argumentSuggesting);
             } else if (context == INPUT_SUGGEST_AVAILABLE) {
                 return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
             } else {
@@ -422,7 +556,10 @@ static SM_RetState SM_InputCmpsMngr_normal_(
                 SM_InputCmpsMngr_suggestionContext_(manager);
 
             if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
-                return _SM_TRAN(&SM_InputCmpsMngr_suggesting);
+                return _SM_TRAN(&SM_InputCmpsMngr_commandSuggesting);
+            } else if (context == INPUT_SUGGEST_ARGUMENT_CANDIDATES) {
+                return _SM_TRAN(
+                    &SM_InputCmpsMngr_argumentSuggesting);
             } else if (context == INPUT_SUGGEST_AVAILABLE) {
                 return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
             } else {
@@ -436,7 +573,10 @@ static SM_RetState SM_InputCmpsMngr_normal_(
                 SM_InputCmpsMngr_suggestionContext_(manager);
 
             if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
-                return _SM_TRAN(&SM_InputCmpsMngr_suggesting);
+                return _SM_TRAN(&SM_InputCmpsMngr_commandSuggesting);
+            } else if (context == INPUT_SUGGEST_ARGUMENT_CANDIDATES) {
+                return _SM_TRAN(
+                    &SM_InputCmpsMngr_argumentSuggesting);
             } else if (context == INPUT_SUGGEST_AVAILABLE) {
                 return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
             } else {
@@ -450,31 +590,14 @@ static SM_RetState SM_InputCmpsMngr_normal_(
                 SM_InputCmpsMngr_suggestionContext_(manager);
 
             if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
-                return _SM_TRAN(&SM_InputCmpsMngr_suggesting);
+                return _SM_TRAN(&SM_InputCmpsMngr_commandSuggesting);
+            } else if (context == INPUT_SUGGEST_ARGUMENT_CANDIDATES) {
+                return _SM_TRAN(
+                    &SM_InputCmpsMngr_argumentSuggesting);
             } else if (context == INPUT_SUGGEST_AVAILABLE) {
                 return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
             } else {
                 return _SM_TRAN(&SM_InputCmpsMngr_suggestNotAvailable);
-            }
-        }
-
-        case INPUT_CMPS_MNGR_CONFIRM_SIG: {
-            SM_InputCmpsMngrSubmission submission;
-            bool const valid = SM_InputCmpsMngr_buildSubmission_(
-                manager, &submission);
-
-            if (valid) {
-                DBC_ASSERT(590,
-                    manager->commandSink.submit
-                        != (void (*)(
-                            void *,
-                            SM_InputCmpsMngrSubmission const *))0);
-                (*manager->commandSink.submit)(
-                    manager->commandSink.ctx, &submission);
-                SM_InputCmpsMngr_clear_(manager);
-                return _SM_HANDLED();
-            } else {
-                return _SM_HANDLED();
             }
         }
 
@@ -507,7 +630,7 @@ static SM_RetState SM_InputCmpsMngr_suggestAvailable_(
                     SM_InputCmpsMngr_suggestionContext_(manager);
 
                 if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
-                    return _SM_TRAN(&SM_InputCmpsMngr_suggesting);
+                    return _SM_TRAN(&SM_InputCmpsMngr_commandSuggesting);
                 } else {
                     return _SM_TRAN(
                         &SM_InputCmpsMngr_suggestNotAvailable);
@@ -532,7 +655,7 @@ static SM_RetState SM_InputCmpsMngr_suggestNotAvailable_(
     return _SM_SUPER();
 }
 
-static void SM_InputCmpsMngr_suggesting_entry_(
+static void SM_InputCmpsMngr_commandSuggesting_entry_(
     SM_Hsm * const me) SM_HSM_RETT
 {
     SM_InputCmpsMngr *manager = containerof(
@@ -540,17 +663,15 @@ static void SM_InputCmpsMngr_suggesting_entry_(
     SM_InputCmpsMngr_showSuggestions_(manager);
 }
 
-static void SM_InputCmpsMngr_suggesting_exit_(
+static void SM_InputCmpsMngr_commandSuggesting_exit_(
     SM_Hsm * const me) SM_HSM_RETT
 {
     SM_InputCmpsMngr *manager = containerof(
         me, SM_InputCmpsMngr, super);
     CommandSuggestion_hide(&manager->suggestion);
-    manager->candidateCount = 0U;
-    manager->selectedCandidate = 0U;
 }
 
-static SM_RetState SM_InputCmpsMngr_suggesting_(
+static SM_RetState SM_InputCmpsMngr_commandSuggesting_(
     SM_Hsm * const me,
     UI_Evt const * const e) SM_HSM_RETT
 {
@@ -569,6 +690,11 @@ static SM_RetState SM_InputCmpsMngr_suggesting_(
                 if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
                     SM_InputCmpsMngr_showSuggestions_(manager);
                     return _SM_HANDLED();
+                } else if (
+                    context == INPUT_SUGGEST_ARGUMENT_CANDIDATES)
+                {
+                    return _SM_TRAN(
+                        &SM_InputCmpsMngr_argumentSuggesting);
                 } else if (context == INPUT_SUGGEST_AVAILABLE) {
                     return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
                 } else {
@@ -609,6 +735,9 @@ static SM_RetState SM_InputCmpsMngr_suggesting_(
             if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
                 SM_InputCmpsMngr_showSuggestions_(manager);
                 return _SM_HANDLED();
+            } else if (context == INPUT_SUGGEST_ARGUMENT_CANDIDATES) {
+                return _SM_TRAN(
+                    &SM_InputCmpsMngr_argumentSuggesting);
             } else if (context == INPUT_SUGGEST_AVAILABLE) {
                 return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
             } else {
@@ -619,14 +748,18 @@ static SM_RetState SM_InputCmpsMngr_suggesting_(
         case INPUT_CMPS_MNGR_COMPLETE_SIG:
         case INPUT_CMPS_MNGR_CONFIRM_SIG: {
             if (SM_InputCmpsMngr_acceptSuggestion_(manager)) {
-                bool const available =
-                    (manager->tokenCount
-                     < SM_INPUT_CMPS_MNGR_MAX_TOKENS)
-                    && ((manager->editPos == 0U)
-                        || (manager->buffer[manager->editPos - 1U]
-                            == ' '));
+                InputSuggestionContext const context =
+                    SM_InputCmpsMngr_suggestionContext_(manager);
 
-                if (available) {
+                if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
+                    return _SM_TRAN(
+                        &SM_InputCmpsMngr_commandSuggesting);
+                } else if (
+                    context == INPUT_SUGGEST_ARGUMENT_CANDIDATES)
+                {
+                    return _SM_TRAN(
+                        &SM_InputCmpsMngr_argumentSuggesting);
+                } else if (context == INPUT_SUGGEST_AVAILABLE) {
                     return _SM_TRAN(
                         &SM_InputCmpsMngr_suggestAvailable);
                 } else {
@@ -639,6 +772,8 @@ static SM_RetState SM_InputCmpsMngr_suggesting_(
         }
 
         case INPUT_CMPS_MNGR_CANCEL_SIG: {
+            manager->candidateCount = 0U;
+            manager->selectedCandidate = 0U;
             bool const available =
                 (manager->tokenCount < SM_INPUT_CMPS_MNGR_MAX_TOKENS)
                 && ((manager->editPos == 0U)
@@ -660,6 +795,9 @@ static SM_RetState SM_InputCmpsMngr_suggesting_(
             if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
                 SM_InputCmpsMngr_showSuggestions_(manager);
                 return _SM_HANDLED();
+            } else if (context == INPUT_SUGGEST_ARGUMENT_CANDIDATES) {
+                return _SM_TRAN(
+                    &SM_InputCmpsMngr_argumentSuggesting);
             } else if (context == INPUT_SUGGEST_AVAILABLE) {
                 return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
             } else {
@@ -675,6 +813,9 @@ static SM_RetState SM_InputCmpsMngr_suggesting_(
             if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
                 SM_InputCmpsMngr_showSuggestions_(manager);
                 return _SM_HANDLED();
+            } else if (context == INPUT_SUGGEST_ARGUMENT_CANDIDATES) {
+                return _SM_TRAN(
+                    &SM_InputCmpsMngr_argumentSuggesting);
             } else if (context == INPUT_SUGGEST_AVAILABLE) {
                 return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
             } else {
@@ -690,6 +831,9 @@ static SM_RetState SM_InputCmpsMngr_suggesting_(
             if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
                 SM_InputCmpsMngr_showSuggestions_(manager);
                 return _SM_HANDLED();
+            } else if (context == INPUT_SUGGEST_ARGUMENT_CANDIDATES) {
+                return _SM_TRAN(
+                    &SM_InputCmpsMngr_argumentSuggesting);
             } else if (context == INPUT_SUGGEST_AVAILABLE) {
                 return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
             } else {
@@ -705,6 +849,9 @@ static SM_RetState SM_InputCmpsMngr_suggesting_(
             if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
                 SM_InputCmpsMngr_showSuggestions_(manager);
                 return _SM_HANDLED();
+            } else if (context == INPUT_SUGGEST_ARGUMENT_CANDIDATES) {
+                return _SM_TRAN(
+                    &SM_InputCmpsMngr_argumentSuggesting);
             } else if (context == INPUT_SUGGEST_AVAILABLE) {
                 return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
             } else {
@@ -720,6 +867,9 @@ static SM_RetState SM_InputCmpsMngr_suggesting_(
             if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
                 SM_InputCmpsMngr_showSuggestions_(manager);
                 return _SM_HANDLED();
+            } else if (context == INPUT_SUGGEST_ARGUMENT_CANDIDATES) {
+                return _SM_TRAN(
+                    &SM_InputCmpsMngr_argumentSuggesting);
             } else if (context == INPUT_SUGGEST_AVAILABLE) {
                 return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
             } else {
@@ -735,6 +885,9 @@ static SM_RetState SM_InputCmpsMngr_suggesting_(
             if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
                 SM_InputCmpsMngr_showSuggestions_(manager);
                 return _SM_HANDLED();
+            } else if (context == INPUT_SUGGEST_ARGUMENT_CANDIDATES) {
+                return _SM_TRAN(
+                    &SM_InputCmpsMngr_argumentSuggesting);
             } else if (context == INPUT_SUGGEST_AVAILABLE) {
                 return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
             } else {
@@ -750,6 +903,9 @@ static SM_RetState SM_InputCmpsMngr_suggesting_(
             if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
                 SM_InputCmpsMngr_showSuggestions_(manager);
                 return _SM_HANDLED();
+            } else if (context == INPUT_SUGGEST_ARGUMENT_CANDIDATES) {
+                return _SM_TRAN(
+                    &SM_InputCmpsMngr_argumentSuggesting);
             } else if (context == INPUT_SUGGEST_AVAILABLE) {
                 return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
             } else {
@@ -765,11 +921,96 @@ static SM_RetState SM_InputCmpsMngr_suggesting_(
             if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
                 SM_InputCmpsMngr_showSuggestions_(manager);
                 return _SM_HANDLED();
+            } else if (context == INPUT_SUGGEST_ARGUMENT_CANDIDATES) {
+                return _SM_TRAN(
+                    &SM_InputCmpsMngr_argumentSuggesting);
             } else if (context == INPUT_SUGGEST_AVAILABLE) {
                 return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
             } else {
                 return _SM_TRAN(&SM_InputCmpsMngr_suggestNotAvailable);
             }
+        }
+
+        default: {
+            return _SM_SUPER();
+        }
+    }
+}
+
+static void SM_InputCmpsMngr_argumentSuggesting_entry_(
+    SM_Hsm * const me) SM_HSM_RETT
+{
+    SM_InputCmpsMngr *manager = containerof(
+        me, SM_InputCmpsMngr, super);
+    SM_InputCmpsMngr_showArgumentSuggestions_(manager);
+}
+
+static void SM_InputCmpsMngr_argumentSuggesting_exit_(
+    SM_Hsm * const me) SM_HSM_RETT
+{
+    SM_InputCmpsMngr *manager = containerof(
+        me, SM_InputCmpsMngr, super);
+    CommandSuggestion_hide(&manager->suggestion);
+}
+
+static SM_RetState SM_InputCmpsMngr_argumentSuggesting_(
+    SM_Hsm * const me,
+    UI_Evt const * const e) SM_HSM_RETT
+{
+    SM_InputCmpsMngr *manager = containerof(
+        me, SM_InputCmpsMngr, super);
+
+    switch (e->sig) {
+        case INPUT_CMPS_MNGR_SELECT_PREV_SIG: {
+            manager->selectedCandidate =
+                (manager->selectedCandidate == 0U)
+                ? (manager->candidateCount - 1U)
+                : (manager->selectedCandidate - 1U);
+            SM_InputCmpsMngr_showArgumentSuggestions_(manager);
+            return _SM_HANDLED();
+        }
+
+        case INPUT_CMPS_MNGR_SELECT_NEXT_SIG: {
+            ++manager->selectedCandidate;
+            if (manager->selectedCandidate >= manager->candidateCount) {
+                manager->selectedCandidate = 0U;
+                SM_InputCmpsMngr_showArgumentSuggestions_(manager);
+                return _SM_HANDLED();
+            } else {
+                SM_InputCmpsMngr_showArgumentSuggestions_(manager);
+                return _SM_HANDLED();
+            }
+        }
+
+        case INPUT_CMPS_MNGR_COMPLETE_SIG: {
+            if (SM_InputCmpsMngr_acceptArgumentSuggestion_(manager)) {
+                InputSuggestionContext const context =
+                    SM_InputCmpsMngr_suggestionContext_(manager);
+
+                if (context == INPUT_SUGGEST_CANDIDATES_AVAILABLE) {
+                    return _SM_TRAN(
+                        &SM_InputCmpsMngr_commandSuggesting);
+                } else if (
+                    context == INPUT_SUGGEST_ARGUMENT_CANDIDATES)
+                {
+                    return _SM_TRAN(
+                        &SM_InputCmpsMngr_argumentSuggesting);
+                } else if (context == INPUT_SUGGEST_AVAILABLE) {
+                    return _SM_TRAN(
+                        &SM_InputCmpsMngr_suggestAvailable);
+                } else {
+                    return _SM_TRAN(
+                        &SM_InputCmpsMngr_suggestNotAvailable);
+                }
+            } else {
+                return _SM_HANDLED();
+            }
+        }
+
+        case INPUT_CMPS_MNGR_CANCEL_SIG: {
+            manager->candidateCount = 0U;
+            manager->selectedCandidate = 0U;
+            return _SM_TRAN(&SM_InputCmpsMngr_suggestNotAvailable);
         }
 
         default: {
@@ -1356,6 +1597,108 @@ static void SM_InputCmpsMngr_filterCandidates_(
     }
 }
 
+static bool SM_InputCmpsMngr_argumentMatches_(
+    char const * const candidate,
+    char const * const prefix,
+    size_t const prefixLen)
+{
+    size_t const candidateLen = strlen(candidate);
+    return (prefixLen <= candidateLen)
+           && (memcmp(candidate, prefix, prefixLen) == 0);
+}
+
+static void SM_InputCmpsMngr_addArgumentCandidate_(
+    SM_InputCmpsMngr * const me,
+    char const * const candidate,
+    char const * const prefix,
+    size_t const prefixLen)
+{
+    if ((me->candidateCount
+         < SM_INPUT_CMPS_MNGR_MAX_ARG_CANDIDATES)
+        && SM_InputCmpsMngr_argumentMatches_(candidate, prefix,
+                                             prefixLen))
+    {
+        me->argumentCandidates[me->candidateCount] = candidate;
+        ++me->candidateCount;
+    }
+}
+
+static void SM_InputCmpsMngr_filterArgumentCandidates_(
+    SM_InputCmpsMngr * const me,
+    SM_InputCommand const command,
+    size_t const prefixBegin,
+    size_t const prefixEnd)
+{
+    DBC_REQUIRE(562, prefixBegin <= prefixEnd);
+    DBC_REQUIRE(563, prefixEnd <= me->length);
+
+    me->candidateCount = 0U;
+    me->selectedCandidate = 0U;
+    char const * const prefix = &me->buffer[prefixBegin];
+    size_t const prefixLen = prefixEnd - prefixBegin;
+
+    if (command == SM_INPUT_COMMAND_CONNECT) {
+        size_t offset = 0U;
+        while ((me->portCatalog != (char const *)0)
+               && (offset + 1U < me->portCatalogSize)
+               && (me->portCatalog[offset] != '\0'))
+        {
+            char const * const port = &me->portCatalog[offset];
+            size_t const remaining = me->portCatalogSize - offset;
+            char const * const end =
+                (char const *)memchr(port, '\0', remaining);
+            DBC_ASSERT(564, end != (char const *)0);
+            SM_InputCmpsMngr_addArgumentCandidate_(
+                me, port, prefix, prefixLen);
+            offset += (size_t)(end - port) + 1U;
+        }
+        return;
+    }
+
+    char const * const *values = (char const * const *)0;
+    size_t valueCount = 0U;
+    switch (command) {
+        case SM_INPUT_COMMAND_BAUDRATE: {
+            values = l_baudrateArgs_;
+            valueCount = sizeof(l_baudrateArgs_)
+                         / sizeof(l_baudrateArgs_[0]);
+            break;
+        }
+        case SM_INPUT_COMMAND_DATA_BITS: {
+            values = l_dataBitsArgs_;
+            valueCount = sizeof(l_dataBitsArgs_)
+                         / sizeof(l_dataBitsArgs_[0]);
+            break;
+        }
+        case SM_INPUT_COMMAND_STOP_BITS: {
+            values = l_stopBitsArgs_;
+            valueCount = sizeof(l_stopBitsArgs_)
+                         / sizeof(l_stopBitsArgs_[0]);
+            break;
+        }
+        case SM_INPUT_COMMAND_PARITY: {
+            values = l_parityArgs_;
+            valueCount = sizeof(l_parityArgs_)
+                         / sizeof(l_parityArgs_[0]);
+            break;
+        }
+        case SM_INPUT_COMMAND_FLOW_CONTROL: {
+            values = l_flowControlArgs_;
+            valueCount = sizeof(l_flowControlArgs_)
+                         / sizeof(l_flowControlArgs_[0]);
+            break;
+        }
+        default: {
+            break;
+        }
+    }
+
+    for (size_t i = 0U; i < valueCount; ++i) {
+        SM_InputCmpsMngr_addArgumentCandidate_(
+            me, values[i], prefix, prefixLen);
+    }
+}
+
 static InputSuggestionContext SM_InputCmpsMngr_suggestionContext_(
     SM_InputCmpsMngr * const me)
 {
@@ -1385,11 +1728,60 @@ static InputSuggestionContext SM_InputCmpsMngr_suggestionContext_(
             SM_InputCmpsMngr_filterCandidates_(me);
             if (me->candidateCount > 0U) {
                 return INPUT_SUGGEST_CANDIDATES_AVAILABLE;
-            } else {
-                return INPUT_SUGGEST_NOT_AVAILABLE;
             }
         }
+    }
 
+    for (size_t i = 0U; i < me->tokenCount; ++i) {
+        SM_InputCmpsMngrToken const * const token = &me->tokens[i];
+        size_t const regionEnd = (i + 1U < me->tokenCount)
+            ? me->tokens[i + 1U].begin : me->length;
+        bool const beforeNextToken = (i + 1U == me->tokenCount)
+            || (me->editPos < regionEnd);
+
+        if ((token->end >= me->editPos)
+            || (me->editPos > regionEnd)
+            || !beforeNextToken)
+        {
+            continue;
+        }
+
+        size_t wordStart = me->editPos;
+        while ((wordStart > token->end)
+               && !SM_InputCmpsMngr_isWhitespaceAt_(
+                       me, wordStart - 1U))
+        {
+            --wordStart;
+        }
+        if ((wordStart <= token->end)
+            || !SM_InputCmpsMngr_isWhitespaceRange_(
+                    me, token->end, wordStart))
+        {
+            continue;
+        }
+
+        size_t wordEnd = me->editPos;
+        while ((wordEnd < regionEnd)
+               && !SM_InputCmpsMngr_isWhitespaceAt_(me, wordEnd))
+        {
+            ++wordEnd;
+        }
+        if (!SM_InputCmpsMngr_isWhitespaceRange_(
+                me, wordEnd, regionEnd))
+        {
+            continue;
+        }
+
+        me->suggestionStart = wordStart;
+        me->suggestionEnd = wordEnd;
+        SM_InputCmpsMngr_filterArgumentCandidates_(
+            me, token->command, wordStart, wordEnd);
+        return me->candidateCount > 0U
+               ? INPUT_SUGGEST_ARGUMENT_CANDIDATES
+               : INPUT_SUGGEST_NOT_AVAILABLE;
+    }
+
+    if (me->tokenCount < SM_INPUT_CMPS_MNGR_MAX_TOKENS) {
         if ((me->editPos == 0U)
             || SM_InputCmpsMngr_isWhitespaceAt_(me,
                                                 me->editPos - 1U))
@@ -1398,9 +1790,8 @@ static InputSuggestionContext SM_InputCmpsMngr_suggestionContext_(
         } else {
             return INPUT_SUGGEST_NOT_AVAILABLE;
         }
-    } else {
-        return INPUT_SUGGEST_NOT_AVAILABLE;
     }
+    return INPUT_SUGGEST_NOT_AVAILABLE;
 }
 
 static void SM_InputCmpsMngr_showSuggestions_(
@@ -1418,6 +1809,18 @@ static void SM_InputCmpsMngr_showSuggestions_(
     CommandSuggestion_show(&me->suggestion, me->inputY, me->cols,
                            items, me->candidateCount,
                            me->selectedCandidate);
+}
+
+static void SM_InputCmpsMngr_showArgumentSuggestions_(
+    SM_InputCmpsMngr * const me)
+{
+    DBC_REQUIRE(573, me->candidateCount > 0U);
+    DBC_REQUIRE(574, me->selectedCandidate < me->candidateCount);
+
+    CommandSuggestion_show(
+        &me->suggestion, me->inputY, me->cols,
+        me->argumentCandidates, me->candidateCount,
+        me->selectedCandidate);
 }
 
 static bool SM_InputCmpsMngr_acceptSuggestion_(
@@ -1470,6 +1873,53 @@ static bool SM_InputCmpsMngr_acceptSuggestion_(
     (void)spaceInserted;
     SM_InputCmpsMngr_validate_(me);
 
+    InputComposer_projectAll(&me->composer, me->buffer,
+                             me->length, me->editPos);
+    SM_InputCmpsMngr_highlightTokens_(me);
+    return true;
+}
+
+static bool SM_InputCmpsMngr_acceptArgumentSuggestion_(
+    SM_InputCmpsMngr * const me)
+{
+    DBC_REQUIRE(585, me->candidateCount > 0U);
+    DBC_REQUIRE(586, me->selectedCandidate < me->candidateCount);
+
+    char const * const value =
+        me->argumentCandidates[me->selectedCandidate];
+    DBC_ASSERT(587, value != (char const *)0);
+    size_t const valueLen = strlen(value);
+    size_t const rawLen = me->suggestionEnd - me->suggestionStart;
+    bool const hasSeparator = (me->suggestionEnd < me->length)
+        && SM_InputCmpsMngr_isWhitespaceAt_(me, me->suggestionEnd);
+    size_t const replacementLen = valueLen + (hasSeparator ? 0U : 1U);
+
+    if ((me->length - rawLen + replacementLen) >= sizeof(me->buffer)) {
+        SM_InputCmpsMngr_setLimitReached_(me, true);
+        InputComposer_projectAll(&me->composer, me->buffer,
+                                 me->length, me->editPos);
+        SM_InputCmpsMngr_highlightTokens_(me);
+        return false;
+    }
+
+    SM_InputCmpsMngr_removeRange_(me, me->suggestionStart,
+                                 me->suggestionEnd, false);
+    bool const inserted = SM_InputCmpsMngr_insertBytes_(
+        me, value, valueLen, false);
+    DBC_ASSERT(588, inserted);
+
+    if ((me->editPos < me->length)
+        && SM_InputCmpsMngr_isWhitespaceAt_(me, me->editPos))
+    {
+        me->editPos = SM_InputCmpsMngr_nextPos_(me, me->editPos);
+    } else {
+        bool const spaceInserted = SM_InputCmpsMngr_insertBytes_(
+            me, " ", 1U, false);
+        DBC_ASSERT(589, spaceInserted);
+        (void)spaceInserted;
+    }
+
+    SM_InputCmpsMngr_validate_(me);
     InputComposer_projectAll(&me->composer, me->buffer,
                              me->length, me->editPos);
     SM_InputCmpsMngr_highlightTokens_(me);
@@ -1698,6 +2148,8 @@ void SM_InputCmpsMngr_ctor(SM_InputCmpsMngr * const me) {
     me->selectedCandidate = 0U;
     me->suggestionStart = 0U;
     me->suggestionEnd = 0U;
+    me->portCatalog = (char const *)0;
+    me->portCatalogSize = 0U;
     me->limitReached = false;
     me->inputY = 0;
     me->cols = 0U;
@@ -1727,6 +2179,31 @@ void SM_InputCmpsMngr_setCommandSink(
             != (void (*)(
                 void *, SM_InputCmpsMngrSubmission const *))0);
     me->commandSink = *commandSink;
+}
+
+void SM_InputCmpsMngr_setPortCatalog(
+    SM_InputCmpsMngr * const me,
+    char const * const portCatalog,
+    size_t const portCatalogSize)
+{
+    DBC_REQUIRE(443, me != (SM_InputCmpsMngr *)0);
+    DBC_REQUIRE(444, ((portCatalog == (char const *)0)
+                      && (portCatalogSize == 0U))
+                     || ((portCatalog != (char const *)0)
+                         && (portCatalogSize >= 2U)));
+    if (portCatalog != (char const *)0) {
+        DBC_REQUIRE(445, portCatalog[portCatalogSize - 1U] == '\0');
+        DBC_REQUIRE(446, portCatalog[portCatalogSize - 2U] == '\0');
+    }
+
+    me->portCatalog = portCatalog;
+    me->portCatalogSize = portCatalogSize;
+    if (me->super.curr != (SM_StatePtr)0) {
+        UI_Evt const event = {
+            .sig = INPUT_CMPS_MNGR_PORT_CATALOG_UPDATED_SIG,
+        };
+        SM_Hsm_dispatch_(&me->super, &event);
+    }
 }
 
 void SM_InputCmpsMngr_dispatchEvt(SM_InputCmpsMngr * const me,
@@ -1781,8 +2258,12 @@ void SM_InputCmpsMngr_resize(SM_InputCmpsMngr * const me,
     InputComposer_projectAll(&me->composer, me->buffer,
                              me->length, me->editPos);
     SM_InputCmpsMngr_highlightTokens_(me);
-    if (me->super.curr == &SM_InputCmpsMngr_suggesting) {
+    if (me->super.curr == &SM_InputCmpsMngr_commandSuggesting) {
         SM_InputCmpsMngr_showSuggestions_(me);
+    } else if (me->super.curr
+               == &SM_InputCmpsMngr_argumentSuggesting)
+    {
+        SM_InputCmpsMngr_showArgumentSuggestions_(me);
     }
 }
 

@@ -10,6 +10,7 @@
 //============================================================================
 //=== UI HSM -- state and widget orchestration
 #include <notcurses/notcurses.h>
+#include <stdlib.h>
 #include <string.h>
 #include "sst.h"
 #include "sst_evt_pool.h"
@@ -38,6 +39,8 @@ typedef struct {
     struct TitleBar title;
     struct ConnectionStatusBar status;
     SpMngrConfig serialConfig;
+    char *availablePortNames;
+    size_t availablePortNamesSize;
     struct TextBufferView mainBuffer;
     struct Keybar keybar;
     struct Menu menu;
@@ -76,6 +79,9 @@ static void        SM_UI_syncInputLayout_(SM_UI *me);
 static void        SM_UI_widgets_create_(SM_UI *me);
 static void        SM_UI_mainBuffer_pushText_(SM_UI *me,
                                         char const *text, size_t len);
+static void        SM_UI_updateAvailablePorts_(
+                        SM_UI *me,
+                        UI_PortListEvt const *ports);
 static void        SM_UI_mainBuffer_clear_(SM_UI *me);
 static void        SM_UI_mainBuffer_scrollPageUp_(SM_UI *me);
 static void        SM_UI_mainBuffer_scrollPageDown_(SM_UI *me);
@@ -100,49 +106,53 @@ static int         SM_UI_input_cb_(struct ncplane *n);
 static int         SM_UI_keybar_cb_(struct ncplane *n);
 static int         SM_UI_menu_cb_(struct ncplane *n);
 
-//============================================================================
-//=== State tables
-
-static SM_StatePtr SM_UI_TOP_initial(SM_Hsm *me) SM_HSM_RETT;
-
-static SM_StatePtr SM_UI_active_init_(SM_Hsm *me) SM_HSM_RETT;
-static void        SM_UI_active_entry_(SM_Hsm *me) SM_HSM_RETT;
-static SM_RetState SM_UI_active_(SM_Hsm *me, UI_Evt const *e) SM_HSM_RETT;
-
-SM_HsmState SM_HSM_ROM SM_UI_active = {
-    (SM_StatePtr)0,                           // super (top)
-    (SM_InitHandler)SM_UI_active_init_,       // init_ → showMain
-    (SM_ActionHandler)&SM_UI_active_entry_,   // entry_
-    (SM_ActionHandler)0,                      // exit_
-    (SM_StateHandler)&SM_UI_active_           // handler_
-};
-
-static void        SM_UI_showMain_entry_(SM_Hsm *me) SM_HSM_RETT;
-static SM_RetState SM_UI_showMain_(SM_Hsm *me, UI_Evt const *e) SM_HSM_RETT;
-
-SM_HsmState SM_HSM_ROM SM_UI_showMain = {
-    (SM_StatePtr)&SM_UI_active,                // super
-    (SM_InitHandler)0,                        // init_ (leaf)
-    (SM_ActionHandler)&SM_UI_showMain_entry_, // entry_
-    (SM_ActionHandler)0,                      // exit_
-    (SM_StateHandler)&SM_UI_showMain_         // handler_
-};
-
-static void        SM_UI_showMenu_entry_(SM_Hsm *me) SM_HSM_RETT;
-static void        SM_UI_showMenu_exit_(SM_Hsm *me) SM_HSM_RETT;
-static SM_RetState SM_UI_showMenu_(SM_Hsm *me, UI_Evt const *e) SM_HSM_RETT;
-
 //--- shared layout constants ---
 #define SM_UI_MAIN_Y_  5U
 #define SM_UI_MAIN_MIN_ROWS_ 3U
 #define SM_UI_MAIN_MIN_COLS_ 4U
 #define SM_UI_SIDE_MARGIN_COLS_ 4U
+
+//============================================================================
+//=== HSM states
+
+// TOP-INIT
+static SM_StatePtr SM_UI_TOP_initial(SM_Hsm * const me) SM_HSM_RETT;
+
+// active
+static SM_StatePtr SM_UI_active_init_(SM_Hsm * const me) SM_HSM_RETT;
+static void        SM_UI_active_entry_(SM_Hsm * const me) SM_HSM_RETT;
+static SM_RetState SM_UI_active_(SM_Hsm * const me, UI_Evt const * const e) SM_HSM_RETT;
+
+SM_HsmState SM_HSM_ROM SM_UI_active = {
+    SM_HSM_TOP,                                  // super
+    (SM_InitHandler)&SM_UI_active_init_,         // init_
+    (SM_ActionHandler)&SM_UI_active_entry_,      // entry_
+    (SM_ActionHandler)0,                         // exit_
+    (SM_StateHandler)&SM_UI_active_              // handler
+};
+
+// showMain
+static void        SM_UI_showMain_entry_(SM_Hsm * const me) SM_HSM_RETT;
+static SM_RetState SM_UI_showMain_(SM_Hsm * const me, UI_Evt const * const e) SM_HSM_RETT;
+
+SM_HsmState SM_HSM_ROM SM_UI_showMain = {
+    (SM_StatePtr)&SM_UI_active,                  // super
+    (SM_InitHandler)0,                           // init_
+    (SM_ActionHandler)&SM_UI_showMain_entry_,    // entry_
+    (SM_ActionHandler)0,                         // exit_
+    (SM_StateHandler)&SM_UI_showMain_            // handler
+};
+
+// showMenu
+static void        SM_UI_showMenu_entry_(SM_Hsm * const me) SM_HSM_RETT;
+static void        SM_UI_showMenu_exit_(SM_Hsm * const me) SM_HSM_RETT;
+static SM_RetState SM_UI_showMenu_(SM_Hsm * const me, UI_Evt const * const e) SM_HSM_RETT;
 SM_HsmState SM_HSM_ROM SM_UI_showMenu = {
-    (SM_StatePtr)&SM_UI_active,                // super
-    (SM_InitHandler)0,                         // init_ (leaf)
-    (SM_ActionHandler)&SM_UI_showMenu_entry_,  // entry_
-    (SM_ActionHandler)&SM_UI_showMenu_exit_,   // exit_
-    (SM_StateHandler)&SM_UI_showMenu_          // handler_
+    (SM_StatePtr)&SM_UI_active,                  // super
+    (SM_InitHandler)0,                           // init_
+    (SM_ActionHandler)&SM_UI_showMenu_entry_,    // entry_
+    (SM_ActionHandler)&SM_UI_showMenu_exit_,     // exit_
+    (SM_StateHandler)&SM_UI_showMenu_            // handler
 };
 
 //============================================================================
@@ -166,7 +176,9 @@ static void SM_UI_active_entry_(SM_Hsm * const me) SM_HSM_RETT {
     (void)me;
 }
 
-static SM_RetState SM_UI_active_(SM_Hsm * const me, UI_Evt const * const e) {
+static SM_RetState SM_UI_active_(
+    SM_Hsm * const me, UI_Evt const * const e) SM_HSM_RETT
+{
     SM_UI *ao = containerof(me, SM_UI, super);
 
     switch (e->sig) {
@@ -189,6 +201,12 @@ static SM_RetState SM_UI_active_(SM_Hsm * const me, UI_Evt const * const e) {
             return _SM_HANDLED();
         }
 
+        case UI_REFRESHED_PORTS_SIG: {
+            SM_UI_updateAvailablePorts_(
+                ao, (UI_PortListEvt const *)e);
+            return _SM_HANDLED();
+        }
+
         default: {
             return _SM_SUPER();
         }
@@ -202,7 +220,7 @@ static void SM_UI_showMain_entry_(SM_Hsm * const me) SM_HSM_RETT {
 }
 
 static SM_RetState SM_UI_showMain_(SM_Hsm * const me,
-                                   UI_Evt const * const e)
+                                   UI_Evt const * const e) SM_HSM_RETT
 {
     SM_UI *ao = containerof(me, SM_UI, super);
 
@@ -267,7 +285,7 @@ static void SM_UI_showMenu_exit_(SM_Hsm * const me) SM_HSM_RETT {
 }
 
 static SM_RetState SM_UI_showMenu_(SM_Hsm * const me,
-                                   UI_Evt const * const e)
+                                   UI_Evt const * const e) SM_HSM_RETT
 {
     SM_UI *ao = containerof(me, SM_UI, super);
 
@@ -361,6 +379,8 @@ static void SM_UI_ctor_(SM_UI * const me) {
         .protocol = "none",
     };
     me->serialConfig = defaultConfig;
+    me->availablePortNames = (char *)0;
+    me->availablePortNamesSize = 0U;
     TextBufferView_init(&me->mainBuffer);
     SM_InputCmpsMngr_ctor(&me->inputManager);
     SM_InputCmpsMngr_CommandSink const commandSink = {
@@ -397,6 +417,9 @@ void SM_UI_teardown(void) {
     DBC_REQUIRE(510, SM_UI_inst_.nc != (struct notcurses *)0);
 
     SM_InputCmpsMngr_destroy(&SM_UI_inst_.inputManager);
+    free(SM_UI_inst_.availablePortNames);
+    SM_UI_inst_.availablePortNames = (char *)0;
+    SM_UI_inst_.availablePortNamesSize = 0U;
     SM_UI_inst_.nc = (struct notcurses *)0;
 }
 
@@ -550,6 +573,48 @@ static void SM_UI_mainBuffer_pushText_(SM_UI * const me,
     DBC_REQUIRE(610, me != (SM_UI *)0);
     TextBufferView_pushText(&me->mainBuffer, text, len);
     SM_UI_requestFrame_();
+}
+
+static void SM_UI_updateAvailablePorts_(
+    SM_UI * const me,
+    UI_PortListEvt const * const ports)
+{
+    DBC_REQUIRE(614, me != (SM_UI *)0);
+    DBC_REQUIRE(615, ports != (UI_PortListEvt const *)0);
+    DBC_REQUIRE(616, ports->portNames != (char *)0);
+    DBC_REQUIRE(617, ports->portNamesSize >= 2U);
+
+    char * const copy = (char *)malloc(ports->portNamesSize);
+    DBC_ASSERT(618, copy != (char *)0);
+    memcpy(copy, ports->portNames, ports->portNamesSize);
+
+    char * const oldPortNames = me->availablePortNames;
+    me->availablePortNames = copy;
+    me->availablePortNamesSize = ports->portNamesSize;
+    SM_InputCmpsMngr_setPortCatalog(
+        &me->inputManager, copy, ports->portNamesSize);
+    free(oldPortNames);
+
+    if (copy[0] == '\0') {
+        char const empty[] = "Serial ports: none\n";
+        SM_UI_mainBuffer_pushText_(me, empty, sizeof(empty) - 1U);
+        return;
+    }
+
+    char const heading[] = "Serial ports:\n";
+    SM_UI_mainBuffer_pushText_(me, heading, sizeof(heading) - 1U);
+
+    size_t offset = 0U;
+    while (copy[offset] != '\0') {
+        size_t const remaining = me->availablePortNamesSize - offset;
+        char const * const end =
+            (char const *)memchr(&copy[offset], '\0', remaining);
+        DBC_ASSERT(619, end != (char const *)0);
+        size_t const nameSize = (size_t)(end - &copy[offset]);
+        SM_UI_mainBuffer_pushText_(me, &copy[offset], nameSize);
+        SM_UI_mainBuffer_pushText_(me, "\n", 1U);
+        offset += nameSize + 1U;
+    }
 }
 
 static void SM_UI_mainBuffer_clear_(SM_UI * const me) {

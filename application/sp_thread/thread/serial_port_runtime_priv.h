@@ -10,8 +10,10 @@
 #ifndef SERIAL_PORT_RUNTIME_PRIV_H_
 #define SERIAL_PORT_RUNTIME_PRIV_H_
 
-// Return an owned, display-ready port-list string. The caller must free the
-// result. Return NULL when libserialport cannot enumerate the system ports.
-char *SerialPortRuntime_listPortsText(void);
+#include <stddef.h>
+
+// Return an owned, double-NUL-terminated sequence of NUL-terminated names.
+// The caller must free the result. Return NULL and size zero on failure.
+char *SerialPortRuntime_listPorts(size_t *portNamesSize);
 
 #endif // SERIAL_PORT_RUNTIME_PRIV_H_

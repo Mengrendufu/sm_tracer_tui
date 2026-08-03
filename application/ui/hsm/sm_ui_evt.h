@@ -38,6 +38,12 @@ typedef struct {
     UI_Input input;
 } UI_InputEvt;
 
+typedef struct {
+    UI_Evt super;
+    size_t portNamesSize;
+    char *portNames;
+} UI_PortListEvt;
+
 enum UIEventSignals {
     UI_NULL_SIG = 0,
 
@@ -70,6 +76,7 @@ enum UIEventSignals {
 
     UI_TIMER_SIG,
     UI_TEXT_SIG,
+    UI_REFRESHED_PORTS_SIG,
 };
 
 #endif // SM_UI_EVT_H_

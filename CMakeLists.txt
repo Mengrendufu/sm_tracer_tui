@@ -257,6 +257,20 @@ if(BUILD_TESTING)
     add_test(NAME serial_port_runtime
              COMMAND serial_port_runtime_test)
 
+    add_executable(ui_port_list_event_test
+        tests/ui_port_list_event_test.c
+        application/ui/thread/ui_evt.c
+    )
+    target_include_directories(ui_port_list_event_test PRIVATE
+        ${INC_ALL}
+    )
+    target_compile_definitions(ui_port_list_event_test PRIVATE
+        DBC_DISABLE
+        _POSIX_C_SOURCE=200809L
+    )
+    add_test(NAME ui_port_list_event
+             COMMAND ui_port_list_event_test)
+
     add_executable(ui_input_composer_lifecycle_test
         tests/ui_input_composer_lifecycle.c
         application/ui/widgets/input_composer.c

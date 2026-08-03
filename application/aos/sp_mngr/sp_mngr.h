@@ -10,6 +10,7 @@
 #ifndef SP_MNGR_H_
 #define SP_MNGR_H_
 
+#include <stddef.h>
 #include "sst.h"
 
 enum {
@@ -32,10 +33,12 @@ typedef struct {
     SpMngrConfig config;
 } SpMngrConfigEvt;
 
-// Serial-port-list result. Ownership of text transfers with the event.
+// Serial-port-list result. Ownership of the packed names transfers with the
+// event. Names are NUL-separated and the sequence is double-NUL-terminated.
 typedef struct {
     SST_Evt super;
-    char *text;
+    char *portNames;
+    size_t portNamesSize;
 } SpMngrPortsEvt;
 
 //============================================================================

@@ -15,59 +15,56 @@
 #include "libserialport.h"
 #include "serial_port_runtime_priv.h"
 
-static char *SerialPortRuntime_copyText_(char const * const text) {
-    size_t const size = strlen(text) + 1U;
-    char * const copy = (char *)malloc(size);
-    if (copy != (char *)0) {
-        memcpy(copy, text, size);
+char *SerialPortRuntime_listPorts(size_t * const portNamesSize) {
+    if (portNamesSize == (size_t *)0) {
+        return (char *)0;
     }
-    return copy;
-}
-
-char *SerialPortRuntime_listPortsText(void) {
-    static char const heading[] = "Serial ports:\n";
-    static char const empty[] = "Serial ports: none\n";
+    *portNamesSize = 0U;
 
     struct sp_port **ports = (struct sp_port **)0;
     if (sp_list_ports(&ports) != SP_OK) {
         return (char *)0;
     }
 
-    if (ports[0] == (struct sp_port *)0) {
-        sp_free_port_list(ports);
-        return SerialPortRuntime_copyText_(empty);
-    }
-
-    size_t textSize = sizeof(heading);
+    size_t size = 1U; // final terminator after the last name
+    size_t count = 0U;
     for (size_t i = 0U; ports[i] != (struct sp_port *)0; ++i) {
         char const * const name = sp_get_port_name(ports[i]);
-        if ((name == (char const *)0)
-            || (strlen(name) > (SIZE_MAX - textSize - 1U)))
-        {
+        if (name == (char const *)0) {
             sp_free_port_list(ports);
             return (char *)0;
         }
-        textSize += strlen(name) + 1U;
+        size_t const nameSize = strlen(name) + 1U;
+        if (nameSize > (SIZE_MAX - size)) {
+            sp_free_port_list(ports);
+            return (char *)0;
+        }
+        size += nameSize;
+        ++count;
+    }
+    if (count == 0U) {
+        size = 2U;
     }
 
-    char * const text = (char *)malloc(textSize);
-    if (text == (char *)0) {
+    char * const portNames = (char *)malloc(size);
+    if (portNames == (char *)0) {
         sp_free_port_list(ports);
         return (char *)0;
     }
 
-    size_t offset = sizeof(heading) - 1U;
-    memcpy(text, heading, offset);
+    size_t offset = 0U;
     for (size_t i = 0U; ports[i] != (struct sp_port *)0; ++i) {
         char const * const name = sp_get_port_name(ports[i]);
-        size_t const nameSize = strlen(name);
-        memcpy(&text[offset], name, nameSize);
+        size_t const nameSize = strlen(name) + 1U;
+        memcpy(&portNames[offset], name, nameSize);
         offset += nameSize;
-        text[offset] = '\n';
-        ++offset;
     }
-    text[offset] = '\0';
+    portNames[offset] = '\0';
+    if (count == 0U) {
+        portNames[1] = '\0';
+    }
 
     sp_free_port_list(ports);
-    return text;
+    *portNamesSize = size;
+    return portNames;
 }

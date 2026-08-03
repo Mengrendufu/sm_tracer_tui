@@ -24,15 +24,18 @@ DBC_MODULE_NAME("sm_sp_thread")
 //============================================================================
 //=== HSM states
 
+// TOP-INIT
 static SM_StatePtr SM_SpThread_TOP_initial_(SM_Hsm * const me) SM_HSM_RETT;
+
+// idle
 static SM_RetState SM_SpThread_idle_(SM_Hsm * const me, SpThreadEvt const * const e) SM_HSM_RETT;
 
 static SM_HsmState SM_HSM_ROM SM_SpThread_idle = {
-    SM_HSM_TOP,                              // super (top)
-    (SM_InitHandler)0,                       // init_ (leaf)
+    SM_HSM_TOP,                              // super
+    (SM_InitHandler)0,                       // init_
     (SM_ActionHandler)0,                     // entry_
     (SM_ActionHandler)0,                     // exit_
-    (SM_StateHandler)&SM_SpThread_idle_      // handler_
+    (SM_StateHandler)&SM_SpThread_idle_      // handler
 };
 
 //============================================================================
@@ -51,7 +54,8 @@ static SM_RetState SM_SpThread_idle_(SM_Hsm * const me, SpThreadEvt const * cons
         case SPTHRD_REFRESH_PORTS_SIG: {
             SpMngrPortsEvt * const result = SST_NEW(SpMngrPortsEvt);
             result->super.sig = SPMNGR_REFRESHED_PORTS_SIG;
-            result->text = SerialPortRuntime_listPortsText();
+            result->portNames = SerialPortRuntime_listPorts(
+                &result->portNamesSize);
             SST_Task_post(AO_SpMngr, &result->super);
             return _SM_HANDLED();
         }

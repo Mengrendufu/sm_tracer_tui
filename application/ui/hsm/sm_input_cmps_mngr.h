@@ -19,6 +19,7 @@
 
 #define SM_INPUT_CMPS_MNGR_BUFFER_SIZE 256U
 #define SM_INPUT_CMPS_MNGR_MAX_TOKENS  32U
+#define SM_INPUT_CMPS_MNGR_MAX_ARG_CANDIDATES 64U
 
 //============================================================================
 //=== InputComposer Manager HSM -- input editing state owner
@@ -81,10 +82,14 @@ typedef struct {
     SM_InputCmpsMngrToken tokens[SM_INPUT_CMPS_MNGR_MAX_TOKENS];
     size_t tokenCount;
     SM_InputCommand candidates[SM_INPUT_COMMAND_NUM];
+    char const *argumentCandidates[
+        SM_INPUT_CMPS_MNGR_MAX_ARG_CANDIDATES];
     size_t candidateCount;
     size_t selectedCandidate;
     size_t suggestionStart;
     size_t suggestionEnd;
+    char const *portCatalog; // borrowed from SM_UI
+    size_t portCatalogSize;
     bool limitReached;
     int inputY;
     unsigned cols;
@@ -98,6 +103,10 @@ void SM_InputCmpsMngr_init(SM_InputCmpsMngr * const me);
 void SM_InputCmpsMngr_setCommandSink(
          SM_InputCmpsMngr *me,
          SM_InputCmpsMngr_CommandSink const *commandSink);
+// Borrows portCatalog until the next call or Manager teardown.
+void SM_InputCmpsMngr_setPortCatalog(SM_InputCmpsMngr *me,
+                                     char const *portCatalog,
+                                     size_t portCatalogSize);
 // One-way state-machine event dispatch; no action result is returned.
 void SM_InputCmpsMngr_dispatchEvt(SM_InputCmpsMngr * const me,
                                   UI_InputEvt const * const e);

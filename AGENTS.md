@@ -86,6 +86,8 @@ notcurses_getvec
   terminal, event, or render-timeout readiness without consuming input.
 - `SM_UI` owns page state and the top-level widget graph. Its embedded manager
   directly owns the `InputComposer` and `CommandSuggestion` lifecycles.
+- `SM_UI` also owns the latest successful packed serial-port list. The serial
+  thread and SpMngr only transfer transient copies and retain no list state.
 - `SM_UI_HostOps` is a required contract owned by `SM_UI`; the UI runtime
   injects `requestQuit`, `requestFrame`, and a host-owned context.
 - `SM_InputCmpsMngr` owns canonical UTF-8 text, byte length, edit position,
@@ -111,6 +113,13 @@ multiple Tokens can coexist in the canonical buffer. Acceptance always inserts
 one ordinary trailing space and projects the Token span in blue. Typed or
 pasted `$command` text is not a Token because it has no accepted span.
 
+Command arguments remain ordinary editable text. Moving into or editing an
+argument recomputes its suggestions against the whole word. `$connect` borrows
+the current packed port catalog from `SM_UI`; baudrate, data bits, stop bits,
+parity, and flow control use built-in candidate lists. Baudrate and protocol
+still accept free text. `Tab` accepts an argument candidate, while `Enter`
+submits the command and therefore preserves parameterless `$connect`.
+
 Submission accepts configuration-only updates or one `$connect` plus optional
 configuration Tokens. `$disconnect` and `$refresh` are standalone. Duplicate
 commands, mixed lifecycle actions, missing configuration values, and stray
@@ -121,16 +130,17 @@ text reject the whole submission without posting or clearing the input.
 - The inbox is a mutex-guarded 512-entry ring buffer.
 - Queue `head` and `tail` both decrement and wrap from zero to the last slot.
 - `UI_NULL_SIG` is reserved and invalid for posting.
-- `UI_AppEvt` stores text inline after the event object; the descriptor points
-  at that copied payload.
+- `UI_AppEvt` stores text inline after the event object; `UI_PortListEvt` does
+  the same for NUL-separated, double-NUL-terminated port names.
 - `UI_InputEvt` copies the complete normalized `UI_Input` payload.
 - `UI_evtFree()` uses `free()`; UI events are not reference counted.
 - Terminal-originated events are already on the UI thread, so enqueueing them
   does not write the eventfd. Once terminal readiness is reported, the runtime
   drains notcurses input in bounded batches and dispatches each batch before
   reading the next one. Cross-thread posts enqueue and wake the loop.
-- The public application ingress is `UI_postText()`; allocation, queue, wake,
-  dequeue, and signal-specific helpers remain private to the UI thread/HSM.
+- The public application ingress consists of `UI_postText()` and
+  `UI_postPortList()`; allocation, queue, wake, and dequeue remain private to
+  the UI thread/HSM.
 
 Current `enum UIEventSignals` order is:
 
@@ -146,7 +156,7 @@ UI_KEY_HOME_SIG, UI_KEY_END_SIG, UI_KEY_TAB_SIG, UI_KEY_ENTER_SIG,
 UI_KEY_J_SIG, UI_KEY_K_SIG,
 UI_KEY_CTRL_N_SIG, UI_KEY_CTRL_P_SIG,
 UI_KEY_PGUP_SIG, UI_KEY_PGDN_SIG, UI_RESIZE_SIG,
-UI_TIMER_SIG, UI_TEXT_SIG
+UI_TIMER_SIG, UI_TEXT_SIG, UI_REFRESHED_PORTS_SIG
 ```
 
 ## Rendering and widgets
@@ -181,19 +191,40 @@ resulting transition and host request.
 
 ## HSM patterns
 
-State handlers are forward-declared and defined with `SM_HSM_RETT`:
+Each HSM declaration block is a visual state index. Use the module divider,
+mark `TOP-INIT`, and name every state before its declarations and table.
+Compact HSM declarations may exceed the normal line-width limit. Forward
+declarations and definitions both include `SM_HSM_RETT`:
 
 ```c
-static SM_StatePtr myState_init_(SM_Hsm *me) SM_HSM_RETT;
-static void        myState_entry_(SM_Hsm *me) SM_HSM_RETT;
-static void        myState_exit_(SM_Hsm *me) SM_HSM_RETT;
-static SM_RetState myState_(SM_Hsm *me,
-                            EvtType const *e) SM_HSM_RETT;
+//============================================================================
+//=== HSM states
+
+// TOP-INIT
+static SM_StatePtr Class_TOP_initial_(SM_Hsm * const me) SM_HSM_RETT;
+
+// state
+static SM_StatePtr Class_state_init_(SM_Hsm * const me) SM_HSM_RETT;
+static void        Class_state_entry_(SM_Hsm * const me) SM_HSM_RETT;
+static void        Class_state_exit_(SM_Hsm * const me) SM_HSM_RETT;
+static SM_RetState Class_state_(SM_Hsm * const me, EvtType const * const e) SM_HSM_RETT;
+SM_HsmState SM_HSM_ROM Class_state = {
+    SM_HSM_TOP,                              // super
+    (SM_InitHandler)&Class_state_init_,      // init_
+    (SM_ActionHandler)&Class_state_entry_,   // entry_
+    (SM_ActionHandler)&Class_state_exit_,    // exit_
+    (SM_StateHandler)&Class_state_           // handler
+};
 ```
 
 State tables use `SM_HSM_ROM`; handlers return `_SM_HANDLED()`, `_SM_SUPER()`,
 `_SM_TRAN(&target)`, or `_SM_INIT(&target)`. Several signals that deliberately
 share one action may be grouped as adjacent `case` labels.
+
+Every state owns uniquely named `init`, `entry`, `exit`, and handler actions.
+Do not bind one state's action directly into another state's table, even when
+their behavior is currently identical. Put reusable implementation in an
+ordinary helper and call it from separate state-specific actions.
 
 Two event domains coexist:
 

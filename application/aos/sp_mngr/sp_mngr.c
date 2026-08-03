@@ -39,15 +39,18 @@ static void SpMngr_reportConfig_(char const *action,
 //============================================================================
 //=== HSM states
 
+// TOP-INIT
 static SM_StatePtr SpMngr_TOP_initial_(SM_Hsm * const me) SM_HSM_RETT;
+
+// active
 static SM_RetState SpMngr_active_(SM_Hsm * const me, SST_Evt const * const e) SM_HSM_RETT;
 
 static SM_HsmState SM_HSM_ROM SpMngr_active = {
-    SM_HSM_TOP,                         // super (top)
-    (SM_InitHandler)0,                  // init_ (leaf)
+    SM_HSM_TOP,                         // super
+    (SM_InitHandler)0,                  // init_
     (SM_ActionHandler)0,                // entry_
     (SM_ActionHandler)0,                // exit_
-    (SM_StateHandler)&SpMngr_active_    // handler_
+    (SM_StateHandler)&SpMngr_active_    // handler
 };
 
 //============================================================================
@@ -90,9 +93,10 @@ static SM_RetState SpMngr_active_(SM_Hsm * const me, SST_Evt const * const e) SM
         case SPMNGR_REFRESHED_PORTS_SIG: {
             SpMngrPortsEvt const * const result =
                 SST_EVT_DOWNCAST(SpMngrPortsEvt, e);
-            if (result->text != (char *)0) {
-                UI_postText(result->text);
-                free(result->text);
+            if (result->portNames != (char *)0) {
+                UI_postPortList(result->portNames,
+                                result->portNamesSize);
+                free(result->portNames);
             } else {
                 UI_postText("Serial port refresh failed.\n");
             }
@@ -132,10 +136,20 @@ static void SpMngr_reportConfig_(
 static void SpMngr_init_(SpMngr * const me,
                          SST_Evt const * const e)
 {
+    static SST_Evt const initialRefreshEvt = {
+        .sig = SPMNGR_REFRESH_PORTS_SIG,
+    };
+
     DBC_REQUIRE(100, me != (SpMngr *)0);
     (void)e;
 
     SM_Hsm_init_(&me->hsm, (SM_InitHandler)SpMngr_TOP_initial_);
+
+    UI_postText("SpMngr: requesting initial serial port refresh.\n");
+
+    // Queue the AO's initial business intent only after its HSM has reached
+    // a stable leaf state; the worker may dispatch as soon as this is posted.
+    SST_Task_post(&me->super, &initialRefreshEvt);
 }
 
 static void SpMngr_dispatch_(SpMngr * const me,

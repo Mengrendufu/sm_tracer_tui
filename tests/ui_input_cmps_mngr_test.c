@@ -706,6 +706,107 @@ int main(void) {
               && l_highlightTokenCount_ == 0U
               ? 0 : 1;
 
+    SM_InputCmpsMngr portArgManager;
+    SM_InputCmpsMngr_ctor(&portArgManager);
+    SM_InputCmpsMngr_init(&portArgManager);
+    SM_InputCmpsMngr_setActive(&portArgManager, true);
+    char const portCatalog[] = "COM3\0COM5\0";
+    SM_InputCmpsMngr_setPortCatalog(
+        &portArgManager, portCatalog, sizeof(portCatalog));
+
+    resetProjection_();
+    acceptCommand_(&portArgManager, "connect");
+    failed += strcmp(portArgManager.buffer, "$connect ") == 0
+              && portArgManager.candidateCount == 2U
+              ? 0 : 1;
+
+    dispatchAsciiText_(&portArgManager, "COM3");
+    failed += portArgManager.candidateCount == 1U ? 0 : 1;
+    dispatchInput_(&portArgManager, UI_KEY_TAB_SIG,
+                   (char const *)0);
+    failed += strcmp(portArgManager.buffer, "$connect COM3 ") == 0
+              && portArgManager.tokenCount == 1U
+              ? 0 : 1;
+
+    dispatchInput_(&portArgManager, UI_KEY_LEFT_SIG,
+                   (char const *)0);
+    failed += portArgManager.candidateCount == 1U ? 0 : 1;
+    dispatchInput_(&portArgManager, UI_KEY_LEFT_SIG,
+                   (char const *)0);
+    failed += portArgManager.candidateCount == 1U ? 0 : 1;
+    dispatchInput_(&portArgManager, UI_KEY_RIGHT_SIG,
+                   (char const *)0);
+    dispatchInput_(&portArgManager, UI_KEY_BACKSPACE_SIG,
+                   (char const *)0);
+    failed += strcmp(portArgManager.buffer, "$connect COM ") == 0
+              && portArgManager.candidateCount == 2U
+              ? 0 : 1;
+    dispatchInput_(&portArgManager, UI_INPUT_SIG, "3");
+    dispatchInput_(&portArgManager, UI_KEY_TAB_SIG,
+                   (char const *)0);
+    failed += strcmp(portArgManager.buffer, "$connect COM3 ") == 0
+              ? 0 : 1;
+
+    SM_InputCmpsMngr fixedArgManager;
+    SM_InputCmpsMngr_ctor(&fixedArgManager);
+    SM_InputCmpsMngr_init(&fixedArgManager);
+    SM_InputCmpsMngr_setActive(&fixedArgManager, true);
+
+    resetProjection_();
+    acceptCommand_(&fixedArgManager, "dataBits");
+    failed += fixedArgManager.candidateCount == 4U
+              ? 0 : 1;
+    dispatchInput_(&fixedArgManager, UI_KEY_TAB_SIG,
+                   (char const *)0);
+    failed += strcmp(fixedArgManager.buffer, "$dataBits 5 ") == 0
+              ? 0 : 1;
+
+    acceptCommand_(&fixedArgManager, "stopBits");
+    failed += fixedArgManager.candidateCount == 3U ? 0 : 1;
+    dispatchInput_(&fixedArgManager, UI_KEY_ESC_SIG,
+                   (char const *)0);
+    acceptCommand_(&fixedArgManager, "parity");
+    failed += fixedArgManager.candidateCount == 5U ? 0 : 1;
+    dispatchInput_(&fixedArgManager, UI_KEY_ESC_SIG,
+                   (char const *)0);
+    acceptCommand_(&fixedArgManager, "flowControl");
+    failed += fixedArgManager.candidateCount == 4U ? 0 : 1;
+
+    SM_InputCmpsMngr updatedPortManager;
+    SM_InputCmpsMngr_ctor(&updatedPortManager);
+    SM_InputCmpsMngr_init(&updatedPortManager);
+    SM_InputCmpsMngr_setActive(&updatedPortManager, true);
+    SM_InputCmpsMngr_setPortCatalog(
+        &updatedPortManager, portCatalog, sizeof(portCatalog));
+    acceptCommand_(&updatedPortManager, "connect");
+    char const updatedCatalog[] = "ttyS0\0";
+    SM_InputCmpsMngr_setPortCatalog(
+        &updatedPortManager, updatedCatalog,
+        sizeof(updatedCatalog));
+    failed += updatedPortManager.candidateCount == 1U ? 0 : 1;
+    dispatchInput_(&updatedPortManager, UI_KEY_TAB_SIG,
+                   (char const *)0);
+    failed += strcmp(updatedPortManager.buffer,
+                     "$connect ttyS0 ") == 0
+              ? 0 : 1;
+
+    SM_InputCmpsMngr linuxPortManager;
+    SM_InputCmpsMngr_ctor(&linuxPortManager);
+    SM_InputCmpsMngr_init(&linuxPortManager);
+    SM_InputCmpsMngr_setActive(&linuxPortManager, true);
+    char const linuxPortCatalog[] = "/dev/ttyUSB0\0";
+    SM_InputCmpsMngr_setPortCatalog(
+        &linuxPortManager, linuxPortCatalog,
+        sizeof(linuxPortCatalog));
+    acceptCommand_(&linuxPortManager, "connect");
+    dispatchAsciiText_(&linuxPortManager, "/dev/ttyUSB0");
+    failed += linuxPortManager.candidateCount == 1U ? 0 : 1;
+    dispatchInput_(&linuxPortManager, UI_KEY_TAB_SIG,
+                   (char const *)0);
+    failed += strcmp(linuxPortManager.buffer,
+                     "$connect /dev/ttyUSB0 ") == 0
+              ? 0 : 1;
+
     SM_InputCmpsMngr matchManager;
     SM_InputCmpsMngr_ctor(&matchManager);
     SM_InputCmpsMngr_init(&matchManager);
@@ -954,6 +1055,43 @@ int main(void) {
         .submit = &recordSubmission_,
         .ctx = (void *)0,
     };
+
+    SM_InputCmpsMngr freeBaudManager;
+    SM_InputCmpsMngr_ctor(&freeBaudManager);
+    SM_InputCmpsMngr_setCommandSink(&freeBaudManager, &commandSink);
+    SM_InputCmpsMngr_init(&freeBaudManager);
+    SM_InputCmpsMngr_setActive(&freeBaudManager, true);
+    acceptCommand_(&freeBaudManager, "baudrate");
+    failed += freeBaudManager.candidateCount == 5U ? 0 : 1;
+    dispatchAsciiText_(&freeBaudManager, "57600");
+    resetSubmission_();
+    dispatchInput_(&freeBaudManager, UI_KEY_ENTER_SIG,
+                   (char const *)0);
+    failed += l_submissionCount_ == 1U
+              && l_submission_.action == SM_INPUT_ACTION_CONFIG
+              && strcmp(l_submissionBaudrate_, "57600") == 0
+              ? 0 : 1;
+
+    SM_InputCmpsMngr defaultConnectManager;
+    SM_InputCmpsMngr_ctor(&defaultConnectManager);
+    SM_InputCmpsMngr_setCommandSink(
+        &defaultConnectManager, &commandSink);
+    SM_InputCmpsMngr_init(&defaultConnectManager);
+    SM_InputCmpsMngr_setActive(&defaultConnectManager, true);
+    SM_InputCmpsMngr_setPortCatalog(
+        &defaultConnectManager, portCatalog, sizeof(portCatalog));
+    acceptCommand_(&defaultConnectManager, "connect");
+    resetSubmission_();
+    resetProjection_();
+    dispatchInput_(&defaultConnectManager, UI_KEY_ENTER_SIG,
+                   (char const *)0);
+    failed += l_submissionCount_ == 1U
+              && l_submission_.action == SM_INPUT_ACTION_CONNECT
+              && !l_submission_.port.present
+              && l_suggestionHideCount_ == 1U
+              ? 0 : 1;
+    acceptCommand_(&defaultConnectManager, "connect");
+    failed += defaultConnectManager.candidateCount == 2U ? 0 : 1;
 
     SM_InputCmpsMngr connectManager;
     SM_InputCmpsMngr_ctor(&connectManager);
