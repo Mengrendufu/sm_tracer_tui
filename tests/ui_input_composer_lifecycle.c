@@ -9,16 +9,24 @@ static int resizeCb_(struct ncplane * const plane) {
     return 0;
 }
 
-static bool cellEquals_(struct ncplane * const plane,
-                        int const x,
-                        char const * const expected)
+static bool cellEqualsYx_(struct ncplane * const plane,
+                          int const y,
+                          int const x,
+                          char const * const expected)
 {
     char * const contents = ncplane_at_yx(
-        plane, 0, x, (uint16_t *)0, (uint64_t *)0);
+        plane, y, x, (uint16_t *)0, (uint64_t *)0);
     bool const equals = contents != (char *)0
                         && strcmp(contents, expected) == 0;
     free(contents);
     return equals;
+}
+
+static bool cellEquals_(struct ncplane * const plane,
+                        int const x,
+                        char const * const expected)
+{
+    return cellEqualsYx_(plane, 0, x, expected);
 }
 
 static bool cellHasCursorChannels_(struct ncplane * const plane,
@@ -29,6 +37,28 @@ static bool cellHasCursorChannels_(struct ncplane * const plane,
         plane, 0, x, (uint16_t *)0, &channels);
     free(contents);
     return channels == ncchannels_reverse(ncplane_channels(plane));
+}
+
+static bool cellHasCursorChannelsYx_(struct ncplane * const plane,
+                                     int const y,
+                                     int const x)
+{
+    uint64_t channels = 0U;
+    char * const contents = ncplane_at_yx(
+        plane, y, x, (uint16_t *)0, &channels);
+    free(contents);
+    return channels == ncchannels_reverse(ncplane_channels(plane));
+}
+
+static uint64_t cellChannelsYx_(struct ncplane * const plane,
+                                int const y,
+                                int const x)
+{
+    uint64_t channels = 0U;
+    char * const contents = ncplane_at_yx(
+        plane, y, x, (uint16_t *)0, &channels);
+    free(contents);
+    return channels;
 }
 
 static bool cellIsWideLeft_(struct ncplane * const plane, int const x) {
@@ -149,13 +179,14 @@ int main(void) {
         return 9;
     }
 
-    InputComposer_resize(&composer, 0, 8U);
+    InputComposer_resize(&composer, 0, 2U, 8U);
     InputComposer_projectAll(&composer, "abcdef", 6U, 6U);
-    if (composer.viewStart != 1U
-        || composer.cursorCol != 5U
-        || !cellEquals_(composer.plane, 2, "b")
-        || !cellEquals_(composer.plane, 6, "f")
-        || !cellHasCursorChannels_(composer.plane, 7))
+    if (composer.viewRow != 0U
+        || composer.cursorRow != 1U
+        || composer.cursorCol != 0U
+        || !cellEquals_(composer.plane, 2, "a")
+        || !cellEquals_(composer.plane, 7, "f")
+        || !cellHasCursorChannelsYx_(composer.plane, 1, 2))
     {
         InputComposer_destroy(&composer);
         notcurses_stop(nc);
@@ -164,7 +195,8 @@ int main(void) {
     }
 
     InputComposer_moveCursor(&composer, "abcdef", 6U, 0U);
-    if (composer.viewStart != 0U
+    if (composer.viewRow != 0U
+        || composer.cursorRow != 0U
         || composer.cursorCol != 0U
         || !cellEquals_(composer.plane, 2, "a")
         || !cellHasCursorChannels_(composer.plane, 2))
@@ -176,7 +208,8 @@ int main(void) {
     }
 
     InputComposer_projectAll(&composer, "abcdefghij", 10U, 0U);
-    if (composer.viewStart != 0U
+    if (composer.viewRow != 0U
+        || composer.cursorRow != 0U
         || composer.cursorCol != 0U
         || !cellEquals_(composer.plane, 2, "a")
         || !cellEquals_(composer.plane, 7, "f")
@@ -217,7 +250,8 @@ int main(void) {
                              sizeof(wideText) - 1U, 0U);
     InputComposer_projectAll(&composer, wideText,
                              sizeof(wideText) - 1U, 3U);
-    if (composer.viewStart != 0U
+    if (composer.viewRow != 0U
+        || composer.cursorRow != 0U
         || composer.cursorCol != 2U
         || !cellHasCursorChannels_(composer.plane, 4))
     {
@@ -228,14 +262,15 @@ int main(void) {
     }
 
     char const wideEdge[] = "a" "\xE4\xBD\xA0";
-    InputComposer_resize(&composer, 0, 5U);
+    InputComposer_resize(&composer, 0, 2U, 5U);
     InputComposer_projectAll(&composer, wideEdge,
                              sizeof(wideEdge) - 1U,
                              sizeof(wideEdge) - 1U);
-    if (composer.viewStart != 1U
-        || composer.cursorCol != 2U
-        || !cellEquals_(composer.plane, 2, "\xE4\xBD\xA0")
-        || !cellHasCursorChannels_(composer.plane, 4))
+    if (composer.viewRow != 0U
+        || composer.cursorRow != 1U
+        || composer.cursorCol != 0U
+        || !cellEquals_(composer.plane, 3, "\xE4\xBD\xA0")
+        || !cellHasCursorChannelsYx_(composer.plane, 1, 2))
     {
         InputComposer_destroy(&composer);
         notcurses_stop(nc);
@@ -247,7 +282,7 @@ int main(void) {
                              sizeof(wideEdge) - 1U,
                              sizeof(wideEdge) - 1U);
     if (composer.cursorVisible
-        || cellHasCursorChannels_(composer.plane, 4))
+        || cellHasCursorChannelsYx_(composer.plane, 1, 2))
     {
         InputComposer_destroy(&composer);
         notcurses_stop(nc);
@@ -257,7 +292,7 @@ int main(void) {
 
     InputComposer_showCursor(&composer, wideText,
                              sizeof(wideText) - 1U, 0U);
-    InputComposer_resize(&composer, 0, 3U);
+    InputComposer_resize(&composer, 0, 2U, 3U);
     InputComposer_projectAll(&composer, wideText,
                              sizeof(wideText) - 1U, 0U);
     if (!cellEquals_(composer.plane, 2, " ")
@@ -270,7 +305,7 @@ int main(void) {
     }
 
     char const combiningText[] = "e\xCC\x81";
-    InputComposer_resize(&composer, 0, 8U);
+    InputComposer_resize(&composer, 0, 1U, 8U);
     InputComposer_projectAll(&composer, combiningText,
                              sizeof(combiningText) - 1U, 1U);
     if (composer.cursorCol != 1U
@@ -283,9 +318,117 @@ int main(void) {
         return 19;
     }
 
+    char const combiningEdge[] = "abcde" "e\xCC\x81";
+    InputComposer_resize(&composer, 0, 2U, 8U);
+    InputComposer_projectAll(&composer, combiningEdge,
+                             sizeof(combiningEdge) - 1U, 6U);
+    if (InputComposer_preferredRows(&composer, combiningEdge,
+                                    sizeof(combiningEdge) - 1U,
+                                    6U, 8U) != 2U
+        || composer.cursorRow != 1U
+        || composer.cursorCol != 0U
+        || !cellHasCursorChannelsYx_(composer.plane, 1, 2))
+    {
+        InputComposer_destroy(&composer);
+        notcurses_stop(nc);
+        fclose(output);
+        return 20;
+    }
+
+    char const wrappedText[] =
+        "abcdefghijklmnopqrstuvwxyz1234";
+    if (InputComposer_preferredRows(&composer, wrappedText,
+                                    sizeof(wrappedText) - 1U,
+                                    sizeof(wrappedText) - 1U,
+                                    8U) != 4U
+        || InputComposer_preferredRows(&composer, wrappedText,
+                                       sizeof(wrappedText) - 1U,
+                                       sizeof(wrappedText) - 1U,
+                                       14U) != 3U)
+    {
+        InputComposer_destroy(&composer);
+        notcurses_stop(nc);
+        fclose(output);
+        return 21;
+    }
+
+    InputComposer_resize(&composer, 0, 4U, 8U);
+    InputComposer_projectAll(&composer, wrappedText,
+                             sizeof(wrappedText) - 1U,
+                             sizeof(wrappedText) - 1U);
+    if (composer.viewRow != 2U
+        || composer.cursorRow != 3U
+        || composer.cursorCol != 0U
+        || !cellEqualsYx_(composer.plane, 0, 0, " ")
+        || !cellEqualsYx_(composer.plane, 0, 2, "m")
+        || !cellHasCursorChannelsYx_(composer.plane, 3, 2))
+    {
+        InputComposer_destroy(&composer);
+        notcurses_stop(nc);
+        fclose(output);
+        return 22;
+    }
+
+    InputComposer_setLimitReached(&composer, true);
+    InputComposer_projectAll(&composer, wrappedText,
+                             sizeof(wrappedText) - 1U,
+                             sizeof(wrappedText) - 1U);
+    if (composer.viewRow != 2U
+        || !cellEqualsYx_(composer.plane, 0, 0, "!"))
+    {
+        InputComposer_destroy(&composer);
+        notcurses_stop(nc);
+        fclose(output);
+        return 23;
+    }
+    InputComposer_setLimitReached(&composer, false);
+
+    InputComposer_moveCursor(&composer, wrappedText,
+                             sizeof(wrappedText) - 1U, 0U);
+    if (composer.viewRow != 0U
+        || composer.cursorRow != 0U
+        || composer.cursorCol != 0U
+        || !cellEqualsYx_(composer.plane, 0, 2, "a")
+        || !cellHasCursorChannelsYx_(composer.plane, 0, 2))
+    {
+        InputComposer_destroy(&composer);
+        notcurses_stop(nc);
+        fclose(output);
+        return 24;
+    }
+
+    InputComposer_resize(&composer, 0, 1U, 12U);
+    InputComposer_projectAll(&composer, "abc", 3U, 3U);
+    uint64_t const normalCursorChannels =
+        cellChannelsYx_(composer.plane, 0, 5);
+    InputComposer_setLimitReached(&composer, true);
+    InputComposer_projectAll(&composer, "abc", 3U, 3U);
+    uint64_t const warningCursorChannels =
+        cellChannelsYx_(composer.plane, 0, 5);
+    if (!cellEquals_(composer.plane, 0, "!")
+        || warningCursorChannels == normalCursorChannels)
+    {
+        InputComposer_destroy(&composer);
+        notcurses_stop(nc);
+        fclose(output);
+        return 25;
+    }
+
+    InputComposer_setLimitReached(&composer, false);
+    InputComposer_projectAll(&composer, "abc", 3U, 3U);
+    if (!cellEquals_(composer.plane, 0, ">")
+        || cellChannelsYx_(composer.plane, 0, 5)
+               != normalCursorChannels)
+    {
+        InputComposer_destroy(&composer);
+        notcurses_stop(nc);
+        fclose(output);
+        return 26;
+    }
+
     InputComposer_destroy(&composer);
 
     int const result = notcurses_stop(nc);
     fclose(output);
-    return result == 0 ? 0 : 20;
+    return result == 0 ? 0 : 27;
 }

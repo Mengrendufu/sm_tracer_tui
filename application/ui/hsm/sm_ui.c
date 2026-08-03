@@ -42,6 +42,7 @@ typedef struct {
     struct Keybar keybar;
     struct Menu menu;
     SM_InputCmpsMngr inputManager;
+    unsigned inputRows;
 } SM_UI;
 
 static SM_UI SM_UI_inst_;
@@ -56,8 +57,11 @@ typedef struct {
 } SM_UI_MainBufferMetrics_;
 
 static unsigned    SM_UI_std_panelCols_(unsigned cols);
-static int         SM_UI_std_inputY_(unsigned rows);
+static int         SM_UI_std_inputY_(unsigned rows,
+                                     unsigned inputRows);
 static int         SM_UI_std_keybarY_(unsigned rows);
+static unsigned    SM_UI_std_inputRows_(unsigned rows,
+                                        unsigned desiredRows);
 
 // Interaction handler declarations:
 // - coordinates multiple components or adapts external callback context.
@@ -66,7 +70,9 @@ static int         SM_UI_std_keybarY_(unsigned rows);
 static uint64_t    SM_UI_std_borderCh_(void);
 static SM_UI_MainBufferMetrics_ SM_UI_std_mainBufferMetrics_(
                         unsigned rows,
-                        unsigned cols);
+                        unsigned cols,
+                        unsigned inputRows);
+static void        SM_UI_syncInputLayout_(SM_UI *me);
 static void        SM_UI_widgets_create_(SM_UI *me);
 static void        SM_UI_mainBuffer_pushText_(SM_UI *me,
                                         char const *text, size_t len);
@@ -131,7 +137,6 @@ static SM_RetState SM_UI_showMenu_(SM_Hsm *me, UI_Evt const *e) SM_HSM_RETT;
 #define SM_UI_MAIN_MIN_ROWS_ 3U
 #define SM_UI_MAIN_MIN_COLS_ 4U
 #define SM_UI_SIDE_MARGIN_COLS_ 4U
-#define SM_UI_MAIN_BOTTOM_ROWS_ 2U
 SM_HsmState SM_HSM_ROM SM_UI_showMenu = {
     (SM_StatePtr)&SM_UI_active,                // super
     (SM_InitHandler)0,                         // init_ (leaf)
@@ -238,6 +243,7 @@ static SM_RetState SM_UI_showMain_(SM_Hsm * const me,
             SM_InputCmpsMngr_dispatchEvt(
                 &ao->inputManager,
                 (UI_InputEvt const *)e);
+            SM_UI_syncInputLayout_(ao);
             SM_UI_requestFrame_();
             return _SM_HANDLED();
         }
@@ -364,6 +370,7 @@ static void SM_UI_ctor_(SM_UI * const me) {
     SM_InputCmpsMngr_setCommandSink(&me->inputManager, &commandSink);
     Keybar_init(&me->keybar);
     Menu_init(&me->menu);
+    me->inputRows = 1U;
 }
 
 static void SM_UI_start_(SM_UI * const me) {
@@ -424,11 +431,13 @@ static uint64_t SM_UI_std_borderCh_(void) {
 
 static SM_UI_MainBufferMetrics_ SM_UI_std_mainBufferMetrics_(
     unsigned const rows,
-    unsigned const cols)
+    unsigned const cols,
+    unsigned const inputRows)
 {
     unsigned mainRows = SM_UI_MAIN_MIN_ROWS_;
-    if (rows > (SM_UI_MAIN_Y_ + SM_UI_MAIN_BOTTOM_ROWS_)) {
-        mainRows = rows - SM_UI_MAIN_Y_ - SM_UI_MAIN_BOTTOM_ROWS_;
+    unsigned const bottomRows = inputRows + 1U;
+    if (rows > (SM_UI_MAIN_Y_ + bottomRows)) {
+        mainRows = rows - SM_UI_MAIN_Y_ - bottomRows;
         if (mainRows < SM_UI_MAIN_MIN_ROWS_) {
             mainRows = SM_UI_MAIN_MIN_ROWS_;
         }
@@ -450,13 +459,25 @@ static SM_UI_MainBufferMetrics_ SM_UI_std_mainBufferMetrics_(
 }
 
 static int SM_UI_std_keybarY_(unsigned const rows) {
-    SM_UI_MainBufferMetrics_ const main =
-        SM_UI_std_mainBufferMetrics_(rows, SM_UI_MAIN_MIN_COLS_);
-    return (int)(SM_UI_MAIN_Y_ + main.rows + 1U);
+    return rows > 0U ? (int)(rows - 1U) : 0;
 }
 
-static int SM_UI_std_inputY_(unsigned const rows) {
-    return SM_UI_std_keybarY_(rows) - 1;
+static int SM_UI_std_inputY_(unsigned const rows,
+                             unsigned const inputRows)
+{
+    return SM_UI_std_keybarY_(rows) - (int)inputRows;
+}
+
+static unsigned SM_UI_std_inputRows_(unsigned const rows,
+                                     unsigned const desiredRows)
+{
+    unsigned maxRows = 1U;
+    unsigned const fixedRows = SM_UI_MAIN_Y_
+                             + SM_UI_MAIN_MIN_ROWS_ + 1U;
+    if (rows > fixedRows) {
+        maxRows = rows - fixedRows;
+    }
+    return desiredRows < maxRows ? desiredRows : maxRows;
 }
 
 //----------------------------------------------------------------------------
@@ -474,8 +495,9 @@ static void SM_UI_widgets_create_(SM_UI * const me) {
     ncplane_dim_yx(std, &rows, &cols);
 
     unsigned const panelCols = SM_UI_std_panelCols_(cols);
+    me->inputRows = 1U;
     SM_UI_MainBufferMetrics_ const main =
-        SM_UI_std_mainBufferMetrics_(rows, cols);
+        SM_UI_std_mainBufferMetrics_(rows, cols, me->inputRows);
     uint64_t const borderCh = SM_UI_std_borderCh_();
 
     ncplane_ascii_box(std, 0, borderCh, rows, cols, 0);
@@ -486,12 +508,39 @@ static void SM_UI_widgets_create_(SM_UI * const me) {
                           main.rows, main.cols, borderCh,
                           SM_UI_main_cb_, SM_UI_content_cb_);
     SM_InputCmpsMngr_create(&me->inputManager, std, me,
-                            SM_UI_std_inputY_(rows), panelCols,
+                            SM_UI_std_inputY_(rows, me->inputRows), panelCols,
                             SM_UI_input_cb_);
     Keybar_create(&me->keybar, std, me, SM_UI_std_keybarY_(rows),
                   panelCols, SM_UI_keybar_cb_);
     Menu_create(&me->menu, std, me, SM_UI_menu_cb_);
     SM_UI_requestFrame_();
+}
+
+static void SM_UI_syncInputLayout_(SM_UI * const me) {
+    DBC_REQUIRE(603, me != (SM_UI *)0);
+    struct ncplane * const std = notcurses_stdplane(me->nc);
+    DBC_REQUIRE(604, std != (struct ncplane *)0);
+
+    unsigned rows;
+    unsigned cols;
+    ncplane_dim_yx(std, &rows, &cols);
+    unsigned const panelCols = SM_UI_std_panelCols_(cols);
+    unsigned const desiredRows = SM_InputCmpsMngr_preferredRows(
+        &me->inputManager, panelCols);
+    unsigned const inputRows = SM_UI_std_inputRows_(rows, desiredRows);
+    if (inputRows == me->inputRows) {
+        return;
+    }
+
+    me->inputRows = inputRows;
+    SM_UI_MainBufferMetrics_ const main =
+        SM_UI_std_mainBufferMetrics_(rows, cols, inputRows);
+    TextBufferView_resizeFrame(&me->mainBuffer, main.rows, main.cols,
+                               SM_UI_std_borderCh_());
+    TextBufferView_resizeContent(&me->mainBuffer);
+    SM_InputCmpsMngr_resize(&me->inputManager,
+                            SM_UI_std_inputY_(rows, inputRows),
+                            inputRows, panelCols);
 }
 
 static void SM_UI_mainBuffer_pushText_(SM_UI * const me,
@@ -670,7 +719,7 @@ static int SM_UI_main_cb_(struct ncplane * const n) {
     unsigned cols;
     ncplane_dim_yx(parent, &rows, &cols);
     SM_UI_MainBufferMetrics_ const main =
-        SM_UI_std_mainBufferMetrics_(rows, cols);
+        SM_UI_std_mainBufferMetrics_(rows, cols, ao->inputRows);
     TextBufferView_resizeFrame(&ao->mainBuffer, main.rows, main.cols,
                                SM_UI_std_borderCh_());
     return 0;
@@ -691,9 +740,19 @@ static int SM_UI_input_cb_(struct ncplane * const n) {
     unsigned rows;
     unsigned cols;
     ncplane_dim_yx(parent, &rows, &cols);
-    SM_InputCmpsMngr_resize(&ao->inputManager,
-                            SM_UI_std_inputY_(rows),
-                            SM_UI_std_panelCols_(cols));
+    unsigned const panelCols = SM_UI_std_panelCols_(cols);
+    unsigned const desiredRows = SM_InputCmpsMngr_preferredRows(
+        &ao->inputManager, panelCols);
+    ao->inputRows = SM_UI_std_inputRows_(rows, desiredRows);
+    SM_UI_MainBufferMetrics_ const main =
+        SM_UI_std_mainBufferMetrics_(rows, cols, ao->inputRows);
+    TextBufferView_resizeFrame(&ao->mainBuffer, main.rows, main.cols,
+                               SM_UI_std_borderCh_());
+    TextBufferView_resizeContent(&ao->mainBuffer);
+    SM_InputCmpsMngr_resize(
+        &ao->inputManager,
+        SM_UI_std_inputY_(rows, ao->inputRows),
+        ao->inputRows, panelCols);
     SM_UI_requestFrame_();
     return 0;
 }

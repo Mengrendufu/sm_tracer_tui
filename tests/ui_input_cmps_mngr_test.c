@@ -12,6 +12,8 @@ static unsigned l_projectFromCount_;
 static unsigned l_moveCursorCount_;
 static unsigned l_showCursorCount_;
 static unsigned l_hideCursorCount_;
+static unsigned l_limitReachedCount_;
+static bool l_limitReached_;
 static unsigned l_suggestionShowCount_;
 static unsigned l_suggestionHideCount_;
 static size_t l_suggestionCount_;
@@ -61,13 +63,39 @@ void InputComposer_destroy(struct InputComposer * const composer) {
     (void)composer;
 }
 
+void InputComposer_setLimitReached(
+    struct InputComposer * const composer,
+    bool const reached)
+{
+    (void)composer;
+    ++l_limitReachedCount_;
+    l_limitReached_ = reached;
+}
+
 void InputComposer_resize(struct InputComposer * const composer,
                           int const y,
+                          unsigned const rows,
                           unsigned const cols)
 {
     (void)composer;
     (void)y;
+    (void)rows;
     (void)cols;
+}
+
+unsigned InputComposer_preferredRows(
+    struct InputComposer const * const composer,
+    char const * const text,
+    size_t const len,
+    size_t const editPos,
+    unsigned const cols)
+{
+    (void)composer;
+    (void)text;
+    (void)len;
+    (void)editPos;
+    (void)cols;
+    return 1U;
 }
 
 static void recordProjection_(
@@ -184,6 +212,8 @@ static void resetProjection_(void) {
     l_moveCursorCount_ = 0U;
     l_showCursorCount_ = 0U;
     l_hideCursorCount_ = 0U;
+    l_limitReachedCount_ = 0U;
+    l_limitReached_ = false;
     l_suggestionShowCount_ = 0U;
     l_suggestionHideCount_ = 0U;
     l_suggestionCount_ = 0U;
@@ -810,8 +840,38 @@ int main(void) {
               && fullManager.buffer[248] == '/'
               && fullManager.candidateCount == SM_INPUT_COMMAND_NUM
               && fullManager.tokenCount == 0U
-              && l_projectAllCount_ == 0U
+              && fullManager.limitReached
+              && l_limitReachedCount_ == 1U
+              && l_limitReached_
+              && l_projectAllCount_ == 1U
               && l_suggestionHideCount_ == 0U
+              ? 0 : 1;
+
+    SM_InputCmpsMngr capacityManager;
+    SM_InputCmpsMngr_ctor(&capacityManager);
+    SM_InputCmpsMngr_init(&capacityManager);
+    SM_InputCmpsMngr_setActive(&capacityManager, true);
+    memset(capacityManager.buffer, 'a',
+           SM_INPUT_CMPS_MNGR_BUFFER_SIZE - 1U);
+    capacityManager.buffer[SM_INPUT_CMPS_MNGR_BUFFER_SIZE - 1U] = '\0';
+    capacityManager.length = SM_INPUT_CMPS_MNGR_BUFFER_SIZE - 1U;
+    capacityManager.editPos = capacityManager.length;
+
+    resetProjection_();
+    dispatchInput_(&capacityManager, UI_INPUT_SIG, "b");
+    failed += capacityManager.limitReached
+              && l_limitReachedCount_ == 1U
+              && l_limitReached_
+              && l_projectAllCount_ == 1U
+              ? 0 : 1;
+
+    resetProjection_();
+    dispatchInput_(&capacityManager, UI_KEY_BACKSPACE_SIG,
+                   (char const *)0);
+    failed += !capacityManager.limitReached
+              && l_limitReachedCount_ == 1U
+              && !l_limitReached_
+              && l_projectFromCount_ == 1U
               ? 0 : 1;
 
     resetProjection_();

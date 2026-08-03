@@ -85,6 +85,7 @@ typedef struct {
     size_t selectedCandidate;
     size_t suggestionStart;
     size_t suggestionEnd;
+    bool limitReached;
     int inputY;
     unsigned cols;
     SM_InputCmpsMngr_CommandSink commandSink;
@@ -109,7 +110,11 @@ void SM_InputCmpsMngr_create(SM_InputCmpsMngr *me,
 void SM_InputCmpsMngr_destroy(SM_InputCmpsMngr *me);
 void SM_InputCmpsMngr_resize(SM_InputCmpsMngr *me,
                              int y,
+                             unsigned rows,
                              unsigned cols);
+unsigned SM_InputCmpsMngr_preferredRows(
+             SM_InputCmpsMngr const *me,
+             unsigned cols);
 void SM_InputCmpsMngr_setActive(SM_InputCmpsMngr *me, bool active);
 
 #endif // SM_INPUT_CMPS_MNGR_H_

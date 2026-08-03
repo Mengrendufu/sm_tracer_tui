@@ -97,6 +97,8 @@ static bool      SM_InputCmpsMngr_tokenStartingAt_(
                         SM_InputCmpsMngr const *me, size_t pos,
                         size_t *tokenIndex);
 static void      SM_InputCmpsMngr_validate_(SM_InputCmpsMngr const *me);
+static void      SM_InputCmpsMngr_setLimitReached_(
+                        SM_InputCmpsMngr *me, bool reached);
 static bool      SM_InputCmpsMngr_insertBytes_(
                         SM_InputCmpsMngr *me, char const *text,
                         size_t size, bool project);
@@ -1014,13 +1016,29 @@ static void SM_InputCmpsMngr_validate_(
     }
 }
 
+static void SM_InputCmpsMngr_setLimitReached_(
+    SM_InputCmpsMngr * const me,
+    bool const reached)
+{
+    if (me->limitReached != reached) {
+        me->limitReached = reached;
+        InputComposer_setLimitReached(&me->composer, reached);
+    }
+}
+
 static bool SM_InputCmpsMngr_insertBytes_(
     SM_InputCmpsMngr * const me,
     char const * const text,
     size_t const size,
     bool const project)
 {
-    if ((size == 0U) || ((me->length + size) >= sizeof(me->buffer))) {
+    if (size == 0U) {
+        return false;
+    }
+    if ((me->length + size) >= sizeof(me->buffer)) {
+        SM_InputCmpsMngr_setLimitReached_(me, true);
+        InputComposer_projectAll(&me->composer, me->buffer,
+                                 me->length, me->editPos);
         return false;
     }
 
@@ -1099,6 +1117,7 @@ static void SM_InputCmpsMngr_removeRange_(
         ++kept;
     }
     me->tokenCount = kept;
+    SM_InputCmpsMngr_setLimitReached_(me, false);
     SM_InputCmpsMngr_validate_(me);
 
     if (project) {
@@ -1391,9 +1410,13 @@ static bool SM_InputCmpsMngr_acceptSuggestion_(
     size_t const tokenLen = strlen(tokenText);
     size_t const rawLen = me->suggestionEnd - me->suggestionStart;
 
-    if ((me->tokenCount >= SM_INPUT_CMPS_MNGR_MAX_TOKENS)
-        || ((me->length - rawLen + tokenLen) >= sizeof(me->buffer)))
-    {
+    if (me->tokenCount >= SM_INPUT_CMPS_MNGR_MAX_TOKENS) {
+        return false;
+    }
+    if ((me->length - rawLen + tokenLen) >= sizeof(me->buffer)) {
+        SM_InputCmpsMngr_setLimitReached_(me, true);
+        InputComposer_projectAll(&me->composer, me->buffer,
+                                 me->length, me->editPos);
         return false;
     }
 
@@ -1621,6 +1644,7 @@ static void SM_InputCmpsMngr_clear_(SM_InputCmpsMngr * const me) {
     me->selectedCandidate = 0U;
     me->suggestionStart = 0U;
     me->suggestionEnd = 0U;
+    SM_InputCmpsMngr_setLimitReached_(me, false);
     SM_InputCmpsMngr_validate_(me);
     InputComposer_projectAll(&me->composer, me->buffer,
                              me->length, me->editPos);
@@ -1642,6 +1666,7 @@ void SM_InputCmpsMngr_ctor(SM_InputCmpsMngr * const me) {
     me->selectedCandidate = 0U;
     me->suggestionStart = 0U;
     me->suggestionEnd = 0U;
+    me->limitReached = false;
     me->inputY = 0;
     me->cols = 0U;
     me->commandSink.submit = (void (*)(
@@ -1713,17 +1738,28 @@ void SM_InputCmpsMngr_destroy(SM_InputCmpsMngr * const me) {
 
 void SM_InputCmpsMngr_resize(SM_InputCmpsMngr * const me,
                              int const y,
+                             unsigned const rows,
                              unsigned const cols)
 {
     DBC_REQUIRE(420, me != (SM_InputCmpsMngr *)0);
     me->inputY = y;
     me->cols = cols;
-    InputComposer_resize(&me->composer, y, cols);
+    InputComposer_resize(&me->composer, y, rows, cols);
     InputComposer_projectAll(&me->composer, me->buffer,
                              me->length, me->editPos);
     if (me->super.curr == &SM_InputCmpsMngr_suggesting) {
         SM_InputCmpsMngr_showSuggestions_(me);
     }
+}
+
+unsigned SM_InputCmpsMngr_preferredRows(
+    SM_InputCmpsMngr const * const me,
+    unsigned const cols)
+{
+    DBC_REQUIRE(421, me != (SM_InputCmpsMngr const *)0);
+    return InputComposer_preferredRows(
+        &me->composer,
+        me->buffer, me->length, me->editPos, cols);
 }
 
 void SM_InputCmpsMngr_setActive(SM_InputCmpsMngr * const me,

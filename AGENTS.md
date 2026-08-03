@@ -70,7 +70,7 @@ have completed synchronous construction, queue setup, and initial transition.
 The terminal-input path is:
 
 ```text
-notcurses_get_nblock
+notcurses_getvec
   -> UI_Input
   -> UIInputRouter
   -> UIEventInbox
@@ -95,6 +95,10 @@ notcurses_get_nblock
   configuration, updates `ConnectionStatusBar` as a projection, and posts a
   complete snapshot event to `AO_SpMngr`.
 - `InputComposer` is a passive `ncplane` projection with a software cursor.
+  It soft-wraps against the current TUI panel width, grows upward to four
+  rows, and then keeps the editing cursor visible through a vertical viewport.
+  A rejected capacity insertion changes its prompt to `! ` and gives the
+  software cursor warning colors until Manager removes or clears input text.
   It does not consume UI events or own canonical input text.
 - `CommandSuggestion` is a passive sibling `ncplane`; Manager HSM state owns
   its candidates, selection, and visibility semantics.
@@ -154,6 +158,8 @@ UI_TIMER_SIG, UI_TEXT_SIG
   component-local content dirty state.
 - Title bar, connection status bar, text buffer, input composer, keybar, and
   menu are separate widgets with component-specific APIs.
+- `SM_UI` keeps the keybar anchored, shrinks `TextBufferView` while the input
+  composer grows, and recomputes wrapping whenever terminal width changes.
 - Quit is selected through the menu. `SM_UI_teardown()` destroys
   lifecycle-sensitive widgets before `notcurses_stop()` tears down the
   remaining plane graph.

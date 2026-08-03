@@ -18,9 +18,11 @@ struct ncplane;
 // Passive projection owned by SM_InputCmpsMngr. Cursor rendering stays local.
 struct InputComposer {
     struct ncplane *plane;
-    size_t           viewStart;
+    unsigned         viewRow;
+    unsigned         cursorRow;
     unsigned         cursorCol;
     bool             cursorVisible;
+    bool             limitReached;
 };
 
 typedef int (*InputComposer_ResizeCb)(struct ncplane *plane);
@@ -33,9 +35,17 @@ void InputComposer_create(struct InputComposer *composer,
                           unsigned cols,
                           InputComposer_ResizeCb resizeCb);
 void InputComposer_destroy(struct InputComposer *composer);
+void InputComposer_setLimitReached(struct InputComposer *composer,
+                                   bool reached);
 void InputComposer_resize(struct InputComposer *composer,
                           int y,
+                          unsigned rows,
                           unsigned cols);
+unsigned InputComposer_preferredRows(struct InputComposer const *composer,
+                                     char const *text,
+                                     size_t len,
+                                     size_t editPos,
+                                     unsigned cols);
 void InputComposer_showCursor(struct InputComposer *composer,
                               char const *text,
                               size_t len,

@@ -15,75 +15,32 @@
 DBC_MODULE_NAME("input_composer")
 
 #define INPUT_COMPOSER_PROMPT_COLS_ 2U
+#define INPUT_COMPOSER_MAX_ROWS_    4U
+
+#define INPUT_COMPOSER_WARNING_R_ 220U
+#define INPUT_COMPOSER_WARNING_G_  90U
+#define INPUT_COMPOSER_WARNING_B_ 100U
+
+typedef struct {
+    unsigned totalRows;
+    unsigned cursorRow;
+    unsigned cursorCol;
+} InputComposer_Layout_;
 
 //============================================================================
 //=== Projection internals
 
-static size_t InputComposer_utf8CodepointSize_(
+static size_t InputComposer_loadEgc_(
+    struct InputComposer const * const composer,
     char const * const text,
-    size_t const remaining)
+    unsigned * const cols)
 {
-    unsigned char const lead = (unsigned char)text[0];
-    size_t size = 0U;
-
-    if (lead < 0x80U) {
-        size = 1U;
-    } else if ((lead & 0xE0U) == 0xC0U) {
-        size = 2U;
-    } else if ((lead & 0xF0U) == 0xE0U) {
-        size = 3U;
-    } else if ((lead & 0xF8U) == 0xF0U) {
-        size = 4U;
-    }
-
-    if ((size == 0U) || (size > remaining)) {
-        return 0U;
-    }
-    for (size_t i = 1U; i < size; ++i) {
-        if (((unsigned char)text[i] & 0xC0U) != 0x80U) {
-            return 0U;
-        }
-    }
-    return size;
-}
-
-static size_t InputComposer_prevPos_(char const * const text,
-                                     size_t const pos)
-{
-    size_t prev = pos;
-    if (prev == 0U) {
-        return 0U;
-    }
-
-    --prev;
-    while ((prev > 0U)
-           && (((unsigned char)text[prev] & 0xC0U) == 0x80U))
-    {
-        --prev;
-    }
-    return prev;
-}
-
-static unsigned InputComposer_width_(char const * const text,
-                                     size_t const begin,
-                                     size_t const end)
-{
-    unsigned width = 0U;
-    size_t offset = begin;
-
-    while (offset < end) {
-        size_t const size = InputComposer_utf8CodepointSize_(
-            &text[offset], end - offset);
-        DBC_ASSERT(500, size > 0U);
-
-        char egc[5] = {0};
-        memcpy(egc, &text[offset], size);
-        int const columns = ncstrwidth(egc, (int *)0, (int *)0);
-        DBC_ASSERT(501, columns >= 0);
-        width += (unsigned)columns;
-        offset += size;
-    }
-    return width;
+    nccell cell = NCCELL_TRIVIAL_INITIALIZER;
+    int const loaded = nccell_load(composer->plane, &cell, text);
+    DBC_ASSERT(500, loaded > 0);
+    *cols = nccell_cols(&cell);
+    nccell_release(composer->plane, &cell);
+    return (size_t)loaded;
 }
 
 static unsigned InputComposer_contentCols_(
@@ -92,6 +49,92 @@ static unsigned InputComposer_contentCols_(
     unsigned const cols = ncplane_dim_x(composer->plane);
     DBC_ASSERT(510, cols > INPUT_COMPOSER_PROMPT_COLS_);
     return cols - INPUT_COMPOSER_PROMPT_COLS_;
+}
+
+static void InputComposer_advance_(unsigned * const row,
+                                   unsigned * const col,
+                                   unsigned const egcCols,
+                                   unsigned const contentCols)
+{
+    if ((*col > 0U) && ((*col + egcCols) > contentCols)) {
+        ++(*row);
+        *col = 0U;
+    }
+
+    if (egcCols >= contentCols) {
+        *col = contentCols;
+    } else {
+        *col += egcCols;
+    }
+}
+
+static unsigned InputComposer_prefixCols_(char const * const text,
+                                          size_t const bytes)
+{
+    if (bytes == 0U) {
+        return 0U;
+    }
+
+    char prefix[bytes + 1U];
+    memcpy(prefix, text, bytes);
+    prefix[bytes] = '\0';
+    int const columns = ncstrwidth(prefix, (int *)0, (int *)0);
+    DBC_ASSERT(503, columns >= 0);
+    return (unsigned)columns;
+}
+
+static InputComposer_Layout_ InputComposer_layout_(
+    struct InputComposer const * const composer,
+    char const * const text,
+    size_t const len,
+    size_t const editPos,
+    unsigned const contentCols)
+{
+    unsigned row = 0U;
+    unsigned col = 0U;
+    InputComposer_Layout_ layout = {0};
+    bool cursorLocated = false;
+
+    size_t offset = 0U;
+    while (offset < len) {
+        unsigned egcCols;
+        size_t const size = InputComposer_loadEgc_(
+            composer, &text[offset], &egcCols);
+        DBC_ASSERT(501, size <= (len - offset));
+
+        if ((col > 0U) && ((col + egcCols) > contentCols)) {
+            ++row;
+            col = 0U;
+        }
+        if ((editPos >= offset) && (editPos < (offset + size))) {
+            layout.cursorRow = row;
+            layout.cursorCol = col + InputComposer_prefixCols_(
+                &text[offset], editPos - offset);
+            if (layout.cursorCol >= contentCols) {
+                ++layout.cursorRow;
+                layout.cursorCol = 0U;
+            }
+            cursorLocated = true;
+        }
+
+        InputComposer_advance_(&row, &col, egcCols, contentCols);
+        offset += size;
+    }
+
+    if (editPos == len) {
+        InputComposer_advance_(&row, &col, 1U, contentCols);
+        layout.cursorRow = row;
+        layout.cursorCol = (col == 0U) ? 0U : (col - 1U);
+        cursorLocated = true;
+    }
+
+    DBC_ASSERT(502, cursorLocated);
+    (void)cursorLocated;
+    layout.totalRows = row + 1U;
+    if (layout.totalRows <= layout.cursorRow) {
+        layout.totalRows = layout.cursorRow + 1U;
+    }
+    return layout;
 }
 
 static void InputComposer_setBase_(struct ncplane * const plane) {
@@ -113,82 +156,53 @@ static void InputComposer_drawPrompt_(
     DBC_REQUIRE(111, composer->plane != (struct ncplane *)0);
 
     InputComposer_setBase_(composer->plane);
+    if ((composer->viewRow != 0U) && !composer->limitReached) {
+        return;
+    }
+
     ncplane_set_bg_rgb8(composer->plane, 38, 38, 42);
-    ncplane_set_fg_rgb8(composer->plane, 105, 185, 170);
+    if (composer->limitReached) {
+        ncplane_set_fg_rgb8(composer->plane,
+                            INPUT_COMPOSER_WARNING_R_,
+                            INPUT_COMPOSER_WARNING_G_,
+                            INPUT_COMPOSER_WARNING_B_);
+    } else {
+        ncplane_set_fg_rgb8(composer->plane, 105, 185, 170);
+    }
     ncplane_on_styles(composer->plane, NCSTYLE_BOLD);
-    (void)WidgetIO_putStrYx(composer->plane, 0, 0U, "> ");
+    (void)WidgetIO_putStrYx(composer->plane, 0, 0U,
+                            composer->limitReached ? "! " : "> ");
     ncplane_off_styles(composer->plane, NCSTYLE_BOLD);
     ncplane_set_fg_rgb8(composer->plane, 225, 230, 232);
 }
 
-static unsigned InputComposer_cursorWidth_(
+static void InputComposer_updateView_(
     struct InputComposer * const composer,
     char const * const text,
     size_t const len,
     size_t const editPos)
 {
-    if (editPos == len) {
-        return 1U;
-    }
-
-    nccell cell = NCCELL_TRIVIAL_INITIALIZER;
-    int const loaded = nccell_load(
-        composer->plane, &cell, &text[editPos]);
-    DBC_ASSERT(540, loaded > 0);
-    (void)loaded;
-    unsigned const width = nccell_cols(&cell);
-    nccell_release(composer->plane, &cell);
-    return width;
-}
-
-static bool InputComposer_updateView_(
-    struct InputComposer * const composer,
-    char const * const text,
-    size_t const len,
-    size_t const editPos)
-{
-    size_t const oldViewStart = composer->viewStart;
     unsigned const contentCols = InputComposer_contentCols_(composer);
-    unsigned const cursorWidth = InputComposer_cursorWidth_(
-        composer, text, len, editPos);
+    unsigned const visibleRows = ncplane_dim_y(composer->plane);
+    InputComposer_Layout_ const layout = InputComposer_layout_(
+        composer, text, len, editPos, contentCols);
+    unsigned const maxViewRow =
+        (layout.totalRows > visibleRows)
+        ? (layout.totalRows - visibleRows) : 0U;
 
-    if ((composer->viewStart > len)
-        || ((composer->viewStart < len)
-            && (((unsigned char)text[composer->viewStart] & 0xC0U)
-                == 0x80U)))
-    {
-        composer->viewStart = 0U;
+    if (composer->viewRow > maxViewRow) {
+        composer->viewRow = maxViewRow;
     }
-    if (editPos < composer->viewStart) {
-        composer->viewStart = editPos;
-    }
-
-    while ((composer->viewStart < editPos)
-           && ((InputComposer_width_(text, composer->viewStart,
-                                     editPos) + cursorWidth)
-               > contentCols))
-    {
-        size_t const size = InputComposer_utf8CodepointSize_(
-            &text[composer->viewStart], len - composer->viewStart);
-        DBC_ASSERT(520, size > 0U);
-        composer->viewStart += size;
+    if (layout.cursorRow < composer->viewRow) {
+        composer->viewRow = layout.cursorRow;
+    } else if (layout.cursorRow >= (composer->viewRow + visibleRows)) {
+        composer->viewRow = layout.cursorRow - visibleRows + 1U;
     }
 
-    while (composer->viewStart > 0U) {
-        size_t const prev = InputComposer_prevPos_(
-            text, composer->viewStart);
-        if ((InputComposer_width_(text, prev, editPos) + cursorWidth)
-            > contentCols)
-        {
-            break;
-        }
-        composer->viewStart = prev;
-    }
-
-    composer->cursorCol = InputComposer_width_(
-        text, composer->viewStart, editPos);
+    composer->cursorRow = layout.cursorRow - composer->viewRow;
+    composer->cursorCol = layout.cursorCol;
+    DBC_ASSERT(520, composer->cursorRow < visibleRows);
     DBC_ASSERT(521, composer->cursorCol < contentCols);
-    return composer->viewStart != oldViewStart;
 }
 
 static void InputComposer_drawCursor_(
@@ -205,7 +219,7 @@ static void InputComposer_drawCursor_(
     if (editPos < len) {
         int const loaded = ncplane_at_yx_cell(
             composer->plane,
-            0,
+            (int)composer->cursorRow,
             (int)(INPUT_COMPOSER_PROMPT_COLS_
                   + composer->cursorCol),
             &cursor);
@@ -228,10 +242,17 @@ static void InputComposer_drawCursor_(
         DBC_ASSERT(543, loaded > 0);
         (void)loaded;
     }
+    if (composer->limitReached) {
+        nccell_set_bg_rgb8(&cursor,
+                           INPUT_COMPOSER_WARNING_R_,
+                           INPUT_COMPOSER_WARNING_G_,
+                           INPUT_COMPOSER_WARNING_B_);
+        nccell_set_fg_rgb8(&cursor, 255U, 255U, 255U);
+    }
 
     int const columns = ncplane_putc_yx(
         composer->plane,
-        0,
+        (int)composer->cursorRow,
         (int)(INPUT_COMPOSER_PROMPT_COLS_ + composer->cursorCol),
         &cursor);
     DBC_ALLEGE(300, columns == (int)nccell_cols(&cursor));
@@ -239,58 +260,45 @@ static void InputComposer_drawCursor_(
     nccell_release(composer->plane, &cursor);
 }
 
-static void InputComposer_clearFrom_(
-    struct InputComposer * const composer,
-    unsigned const column)
-{
-    unsigned const contentCols = InputComposer_contentCols_(composer);
-    if (column >= contentCols) {
-        return;
-    }
-
-    DBC_ALLEGE(301, ncplane_erase_region(
-        composer->plane,
-        0,
-        (int)(INPUT_COMPOSER_PROMPT_COLS_ + column),
-        1,
-        (int)(contentCols - column)) == 0);
-}
-
-static void InputComposer_drawFrom_(
+static void InputComposer_drawContent_(
     struct InputComposer * const composer,
     char const * const text,
-    size_t const len,
-    size_t const offset,
-    unsigned const column)
+    size_t const len)
 {
-    InputComposer_clearFrom_(composer, column);
     unsigned const contentCols = InputComposer_contentCols_(composer);
-    size_t textOffset = offset;
-    unsigned textColumn = column;
+    unsigned const visibleRows = ncplane_dim_y(composer->plane);
+    size_t offset = 0U;
+    unsigned row = 0U;
+    unsigned col = 0U;
 
-    while ((textOffset < len) && (textColumn < contentCols)) {
-        nccell cell = NCCELL_TRIVIAL_INITIALIZER;
-        int const loaded = nccell_load(
-            composer->plane, &cell, &text[textOffset]);
-        DBC_ASSERT(530, loaded > 0);
-        unsigned const egcCols = nccell_cols(&cell);
-        nccell_release(composer->plane, &cell);
-        if ((textColumn + egcCols) > contentCols) {
-            break;
+    while (offset < len) {
+        unsigned egcCols;
+        size_t const size = InputComposer_loadEgc_(
+            composer, &text[offset], &egcCols);
+        DBC_ASSERT(530, size <= (len - offset));
+        if ((col > 0U) && ((col + egcCols) > contentCols)) {
+            ++row;
+            col = 0U;
         }
 
-        size_t bytes = 0U;
-        int const columns = ncplane_putegc_yx(
-            composer->plane,
-            0,
-            (int)(INPUT_COMPOSER_PROMPT_COLS_ + textColumn),
-            &text[textOffset],
-            &bytes);
-        DBC_ALLEGE(302, columns >= 0);
-        DBC_ASSERT(531, bytes == (size_t)loaded);
-        (void)loaded;
-        textOffset += bytes;
-        textColumn += (unsigned)columns;
+        if ((row >= composer->viewRow)
+            && ((row - composer->viewRow) < visibleRows)
+            && (egcCols <= contentCols))
+        {
+            size_t bytes = 0U;
+            int const columns = ncplane_putegc_yx(
+                composer->plane,
+                (int)(row - composer->viewRow),
+                (int)(INPUT_COMPOSER_PROMPT_COLS_ + col),
+                &text[offset],
+                &bytes);
+            DBC_ALLEGE(301, columns >= 0);
+            DBC_ASSERT(532, bytes == size);
+            (void)columns;
+        }
+
+        InputComposer_advance_(&row, &col, egcCols, contentCols);
+        offset += size;
     }
 }
 
@@ -300,8 +308,8 @@ static void InputComposer_drawAll_(
     size_t const len,
     size_t const editPos)
 {
-    InputComposer_drawFrom_(composer, text, len,
-                            composer->viewStart, 0U);
+    InputComposer_drawPrompt_(composer);
+    InputComposer_drawContent_(composer, text, len);
     InputComposer_drawCursor_(composer, len, editPos);
 }
 
@@ -327,9 +335,11 @@ void InputComposer_init(struct InputComposer * const composer) {
     DBC_REQUIRE(200, composer != (struct InputComposer *)0);
 
     composer->plane = (struct ncplane *)0;
-    composer->viewStart = 0U;
+    composer->viewRow = 0U;
+    composer->cursorRow = 0U;
     composer->cursorCol = 0U;
     composer->cursorVisible = false;
+    composer->limitReached = false;
 }
 
 void InputComposer_create(
@@ -360,23 +370,63 @@ void InputComposer_destroy(struct InputComposer * const composer) {
 
     DBC_ALLEGE(304, ncplane_destroy(composer->plane) == 0);
     composer->plane = (struct ncplane *)0;
-    composer->viewStart = 0U;
+    composer->viewRow = 0U;
+    composer->cursorRow = 0U;
     composer->cursorCol = 0U;
     composer->cursorVisible = false;
+    composer->limitReached = false;
+}
+
+void InputComposer_setLimitReached(
+    struct InputComposer * const composer,
+    bool const reached)
+{
+    DBC_REQUIRE(225, composer != (struct InputComposer *)0);
+    DBC_REQUIRE(226, composer->plane != (struct ncplane *)0);
+    composer->limitReached = reached;
 }
 
 void InputComposer_resize(struct InputComposer * const composer,
                           int const y,
+                          unsigned const rows,
                           unsigned const cols)
 {
     DBC_REQUIRE(230, composer != (struct InputComposer *)0);
     DBC_REQUIRE(231, composer->plane != (struct ncplane *)0);
     DBC_REQUIRE(232, cols > INPUT_COMPOSER_PROMPT_COLS_);
+    DBC_REQUIRE(233, (rows > 0U)
+                     && (rows <= INPUT_COMPOSER_MAX_ROWS_));
 
-    DBC_ALLEGE(305, ncplane_move_yx(composer->plane, y, 2) == 0);
-    DBC_ALLEGE(306, ncplane_resize_simple(
-        composer->plane, 1U, cols) == 0);
+    unsigned const oldRows = ncplane_dim_y(composer->plane);
+    if (rows > oldRows) {
+        DBC_ALLEGE(305, ncplane_move_yx(composer->plane, y, 2) == 0);
+        DBC_ALLEGE(306, ncplane_resize_simple(
+            composer->plane, rows, cols) == 0);
+    } else {
+        DBC_ALLEGE(307, ncplane_resize_simple(
+            composer->plane, rows, cols) == 0);
+        DBC_ALLEGE(308, ncplane_move_yx(composer->plane, y, 2) == 0);
+    }
     InputComposer_drawPrompt_(composer);
+}
+
+unsigned InputComposer_preferredRows(
+    struct InputComposer const * const composer,
+    char const * const text,
+    size_t const len,
+    size_t const editPos,
+    unsigned const cols)
+{
+    DBC_REQUIRE(234, composer != (struct InputComposer const *)0);
+    DBC_REQUIRE(235, composer->plane != (struct ncplane *)0);
+    InputComposer_validateProjection_(text, len, editPos);
+    DBC_REQUIRE(236, cols > INPUT_COMPOSER_PROMPT_COLS_);
+
+    InputComposer_Layout_ const layout = InputComposer_layout_(
+        composer, text, len, editPos,
+        cols - INPUT_COMPOSER_PROMPT_COLS_);
+    return (layout.totalRows < INPUT_COMPOSER_MAX_ROWS_)
+           ? layout.totalRows : INPUT_COMPOSER_MAX_ROWS_;
 }
 
 void InputComposer_showCursor(
@@ -390,7 +440,7 @@ void InputComposer_showCursor(
     InputComposer_validateProjection_(text, len, editPos);
 
     composer->cursorVisible = true;
-    (void)InputComposer_updateView_(composer, text, len, editPos);
+    InputComposer_updateView_(composer, text, len, editPos);
     InputComposer_drawAll_(composer, text, len, editPos);
 }
 
@@ -405,7 +455,7 @@ void InputComposer_hideCursor(
     InputComposer_validateProjection_(text, len, editPos);
 
     composer->cursorVisible = false;
-    (void)InputComposer_updateView_(composer, text, len, editPos);
+    InputComposer_updateView_(composer, text, len, editPos);
     InputComposer_drawAll_(composer, text, len, editPos);
 }
 
@@ -422,8 +472,8 @@ void InputComposer_projectAll(
     DBC_REQUIRE(251, composer->plane != (struct ncplane *)0);
     InputComposer_validateProjection_(text, len, editPos);
 
-    composer->viewStart = 0U;
-    (void)InputComposer_updateView_(composer, text, len, editPos);
+    composer->viewRow = 0U;
+    InputComposer_updateView_(composer, text, len, editPos);
     InputComposer_drawAll_(composer, text, len, editPos);
 }
 
@@ -442,23 +492,9 @@ void InputComposer_projectFrom(
     DBC_REQUIRE(264, (dirtyPos == len)
                      || (((unsigned char)text[dirtyPos] & 0xC0U) != 0x80U));
 
-    bool const invalidatesView = dirtyPos < composer->viewStart;
-    if (invalidatesView) {
-        composer->viewStart = 0U;
-    }
-    bool const viewChanged = InputComposer_updateView_(
-        composer, text, len, editPos);
-    if (invalidatesView || viewChanged
-        || (dirtyPos < composer->viewStart))
-    {
-        InputComposer_drawAll_(composer, text, len, editPos);
-        return;
-    }
-
-    unsigned const column = InputComposer_width_(
-        text, composer->viewStart, dirtyPos);
-    InputComposer_drawFrom_(composer, text, len, dirtyPos, column);
-    InputComposer_drawCursor_(composer, len, editPos);
+    (void)dirtyPos;
+    InputComposer_updateView_(composer, text, len, editPos);
+    InputComposer_drawAll_(composer, text, len, editPos);
 }
 
 void InputComposer_moveCursor(
@@ -471,6 +507,6 @@ void InputComposer_moveCursor(
     DBC_REQUIRE(271, composer->plane != (struct ncplane *)0);
     InputComposer_validateProjection_(text, len, editPos);
 
-    (void)InputComposer_updateView_(composer, text, len, editPos);
+    InputComposer_updateView_(composer, text, len, editPos);
     InputComposer_drawAll_(composer, text, len, editPos);
 }
