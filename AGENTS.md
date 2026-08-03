@@ -30,10 +30,11 @@ build.
 |-- ports/
 |   |-- sm/                    # sm_hsm desktop adaptation
 |   `-- sst/                   # SST pthread and event-pool adaptation
-|-- 3rd_party/                 # Git submodules
-|   |-- sm_sst/
-|   |-- sm_hsm/
-|   `-- common_c/
+|-- 3rd_party/                 # Third-party dependencies
+|   |-- libserialport/         # Vendored Linux/Windows serial library
+|   |-- sm_sst/                # Git submodule
+|   |-- sm_hsm/                # Git submodule
+|   `-- common_c/              # Git submodule
 |-- tests/                     # Contract and focused behavior tests
 |-- CMakeLists.txt
 |-- CMakePresets.json
@@ -45,7 +46,7 @@ build.
 | Thread category | Role | Entry |
 |-----------------|------|-------|
 | Main | Terminal input, UI event drain, frame scheduling, rendering | `UI_run()` |
-| Serial port | Current scaffold: HSM init and disconnected blocking loop | `SpThread_run_()` |
+| Serial port | Event inbox/wake, idle HSM dispatch, port enumeration | `SpThread_run_()` |
 | SST kernel | Starts AOs, ticks timers, runs idle callback | `SST_Task_run()` |
 | SST AO workers | One pthread and queue per started AO | `ao_thread()` |
 
@@ -204,6 +205,8 @@ instance.
 - The event-pool mechanism is compile-time optional through
   `SST_EVT_POOL_NUM`; this port currently fixes it to `3U`, while BSP currently
   initializes a small base-event pool and a larger `SpMngrConfigEvt` pool.
+- The mid-size pool is sized for `SpMngrConfigEvt`; smaller dynamic result
+  events such as `SpMngrPortsEvt` share it.
 - When enabled, `SST_Evt_new()` selects the first fitting initialized pool and
   initializes `poolId` and `refCtr`. For dynamic events, `SST_Evt_gc()`
   decrements `refCtr` when it exceeds one and otherwise returns the event to
@@ -253,6 +256,8 @@ CTest currently exercises:
 - `ui_input_router`
 - `ui_input_cmps_mngr`
 - `sp_mngr_command`
+- `sp_thread_event_flow`
+- `serial_port_runtime`
 - `ui_input_composer_lifecycle`
 - `ui_command_suggestion_lifecycle`
 - `scrollbar`

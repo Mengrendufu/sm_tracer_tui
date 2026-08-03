@@ -17,4 +17,7 @@
 // Returns zero on success and nonzero on an operating-system failure.
 int SpThread_start(void);
 
+// Post a serial-port-list refresh request to the thread event inbox.
+void SpThread_postRefreshPorts(void);
+
 #endif // SP_THREAD_H_

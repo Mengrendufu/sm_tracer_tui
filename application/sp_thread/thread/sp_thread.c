@@ -10,12 +10,13 @@
 //============================================================================
 //=== SpThread runtime: lifecycle and disconnected blocking loop
 #include <errno.h>
-#include <poll.h>
 #include <pthread.h>
 #include <stdbool.h>
 #include "dbc_assert.h"
 #include "sp_thread/sp_thread.h"
 #include "sp_thread/hsm/sm_sp_thread.h"
+#include "sp_thread_evt_priv.h"
+#include "sp_thread_wake_priv.h"
 DBC_MODULE_NAME("sp_thread")
 
 //============================================================================
@@ -38,13 +39,25 @@ static void *SpThread_run_(void * const arg) {
 
     SM_SpThread_ctor(&me->hsm);
     SM_SpThread_init(&me->hsm);
+    SpThreadWake_init(SpThread_evtWakeFd());
 
     for (;;) {
-        int const status = poll((struct pollfd *)0, 0U, -1);
-        if ((status < 0) && (errno == EINTR)) {
+        int const ready = SpThreadWake_wait();
+        if ((ready == SP_THREAD_WAKE_ERROR) && (errno == EINTR)) {
             continue;
         }
-        DBC_ERROR(201);
+        if (ready == SP_THREAD_WAKE_ERROR) {
+            DBC_ERROR(201);
+        }
+
+        int const consumeStatus = SpThread_evtConsumeWake();
+        DBC_ASSERT(202, consumeStatus == 0);
+        (void)consumeStatus;
+
+        SpThreadEvt e;
+        while (SpThread_evtDequeue(&e)) {
+            SM_SpThread_dispatchEvt(&me->hsm, &e);
+        }
     }
 
     return (void *)0;
@@ -57,11 +70,17 @@ int SpThread_start(void) {
     SpThread * const me = &SpThread_inst_;
     DBC_REQUIRE(100, !me->started);
 
-    int const status = pthread_create(&me->thread,
-                                      (pthread_attr_t const *)0,
-                                      &SpThread_run_,
-                                      me);
+    int status = SpThread_evtInit();
     if (status != 0) {
+        return status;
+    }
+
+    status = pthread_create(&me->thread,
+                            (pthread_attr_t const *)0,
+                            &SpThread_run_,
+                            me);
+    if (status != 0) {
+        SpThread_evtDeinit();
         return status;
     }
 

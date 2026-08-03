@@ -10,12 +10,14 @@
 //============================================================================
 //=== AO_SpMngr subsystem root: SST task + HSM
 #include <stdio.h>
+#include <stdlib.h>
 #include "sst.h"
 #include "sm_port.h"
 #include "sm_hsm.h"
 #include "dbc_assert.h"
 #include "app_sig.h"
 #include "ui_evt.h"
+#include "sp_thread/sp_thread.h"
 #include <bits/sockaddr.h>
 #include "sp_mngr.h"
 DBC_MODULE_NAME("sp_mngr")
@@ -81,7 +83,19 @@ static SM_RetState SpMngr_active_(SM_Hsm * const me, SST_Evt const * const e) SM
         }
 
         case SPMNGR_REFRESH_PORTS_SIG: {
-            UI_postText("SpMngr: port refresh requested.\n");
+            SpThread_postRefreshPorts();
+            return _SM_HANDLED();
+        }
+
+        case SPMNGR_REFRESHED_PORTS_SIG: {
+            SpMngrPortsEvt const * const result =
+                SST_EVT_DOWNCAST(SpMngrPortsEvt, e);
+            if (result->text != (char *)0) {
+                UI_postText(result->text);
+                free(result->text);
+            } else {
+                UI_postText("Serial port refresh failed.\n");
+            }
             return _SM_HANDLED();
         }
 

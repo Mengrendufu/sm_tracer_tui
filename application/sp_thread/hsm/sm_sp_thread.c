@@ -10,10 +10,14 @@
 //============================================================================
 //=== SM_SpThread: serial-port thread state owner
 #include <stddef.h>
+#include "sst.h"
 #include "sm_port.h"
 #include "sm_hsm.h"
 #include "dbc_assert.h"
+#include "app_sig.h"
+#include "sp_mngr/sp_mngr.h"
 #include "sm_sp_thread.h"
+#include "sp_thread/thread/serial_port_runtime_priv.h"
 #include "ui_evt.h"
 DBC_MODULE_NAME("sm_sp_thread")
 
@@ -44,6 +48,14 @@ static SM_RetState SM_SpThread_idle_(SM_Hsm * const me, SpThreadEvt const * cons
     (void)me;
 
     switch (e->sig) {
+        case SPTHRD_REFRESH_PORTS_SIG: {
+            SpMngrPortsEvt * const result = SST_NEW(SpMngrPortsEvt);
+            result->super.sig = SPMNGR_REFRESHED_PORTS_SIG;
+            result->text = SerialPortRuntime_listPortsText();
+            SST_Task_post(AO_SpMngr, &result->super);
+            return _SM_HANDLED();
+        }
+
         default: {
             return _SM_SUPER();
         }
@@ -65,4 +77,14 @@ void SM_SpThread_init(SM_SpThread * const me) {
 
     SM_Hsm_init_(&me->super,
                  (SM_InitHandler)SM_SpThread_TOP_initial_);
+}
+
+void SM_SpThread_dispatchEvt(SM_SpThread * const me,
+                             SpThreadEvt const * const e)
+{
+    DBC_REQUIRE(300, me != (SM_SpThread *)0);
+    DBC_REQUIRE(301, e != (SpThreadEvt const *)0);
+    DBC_REQUIRE(302, e->sig > SPTHRD_NULL_SIG);
+
+    SM_Hsm_dispatch_(&me->super, e);
 }

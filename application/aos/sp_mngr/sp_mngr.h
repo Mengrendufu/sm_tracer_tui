@@ -32,6 +32,12 @@ typedef struct {
     SpMngrConfig config;
 } SpMngrConfigEvt;
 
+// Serial-port-list result. Ownership of text transfers with the event.
+typedef struct {
+    SST_Evt super;
+    char *text;
+} SpMngrPortsEvt;
+
 //============================================================================
 //=== AO_SpMngr lifecycle
 

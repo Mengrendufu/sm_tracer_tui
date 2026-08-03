@@ -8,4 +8,5 @@ void ApplicationSubsystem_contract(void) {
 
     SpMngr_ctor();
     (void)SpThread_start();
+    SpThread_postRefreshPorts();
 }

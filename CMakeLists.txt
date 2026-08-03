@@ -39,6 +39,31 @@ if(NOT NOTCURSES_INCLUDE_DIR OR NOT NOTCURSES_LIBRARY)
 endif()
 
 #=============================================================================
+# ===Component libserialport.
+set(SERIALPORT_ROOT ${CMAKE_SOURCE_DIR}/3rd_party/libserialport)
+add_library(serialport SHARED IMPORTED GLOBAL)
+
+if(WIN32)
+    set(SERIALPORT_INCLUDE_DIR "${SERIALPORT_ROOT}/windows/include")
+    set_target_properties(serialport PROPERTIES
+        IMPORTED_LOCATION
+            "${SERIALPORT_ROOT}/windows/libserialport-0.dll"
+        IMPORTED_IMPLIB
+            "${SERIALPORT_ROOT}/windows/libserialport.dll.a"
+        INTERFACE_INCLUDE_DIRECTORIES
+            "${SERIALPORT_INCLUDE_DIR}"
+    )
+else()
+    set(SERIALPORT_INCLUDE_DIR "${SERIALPORT_ROOT}/linux/include")
+    set_target_properties(serialport PROPERTIES
+        IMPORTED_LOCATION
+            "${SERIALPORT_ROOT}/linux/libserialport.so"
+        INTERFACE_INCLUDE_DIRECTORIES
+            "${SERIALPORT_INCLUDE_DIR}"
+    )
+endif()
+
+#=============================================================================
 # ===Component SST core.
 set(SST_ROOT   ${CMAKE_SOURCE_DIR}/3rd_party/sm_sst)
 set(SST_SRC
@@ -113,7 +138,21 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
     ${NOTCURSES_LIBRARY}
+    serialport
 )
+
+if(WIN32)
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${SERIALPORT_ROOT}/windows/libserialport-0.dll"
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>
+    )
+else()
+    set_target_properties(${PROJECT_NAME} PROPERTIES
+        BUILD_RPATH "${SERIALPORT_ROOT}/linux"
+        INSTALL_RPATH_USE_LINK_PATH TRUE
+    )
+endif()
 
 #=============================================================================
 # ===Tests and compile-time interface contracts.
@@ -187,6 +226,36 @@ if(BUILD_TESTING)
     )
     add_test(NAME sp_mngr_command
              COMMAND sp_mngr_command_test)
+
+    add_executable(sp_thread_event_flow_test
+        tests/sp_thread_event_flow_test.c
+        application/sp_thread/thread/sp_thread.c
+        application/sp_thread/thread/sp_thread_evt.c
+        application/sp_thread/thread/sp_thread_wake.c
+        application/sp_thread/hsm/sm_sp_thread.c
+        ${SM_HSM_SRC}
+    )
+    target_include_directories(sp_thread_event_flow_test PRIVATE
+        ${INC_ALL}
+    )
+    target_compile_definitions(sp_thread_event_flow_test PRIVATE
+        DBC_DISABLE
+        SM_DBC_DISABLE
+        _POSIX_C_SOURCE=200809L
+    )
+    add_test(NAME sp_thread_event_flow
+             COMMAND sp_thread_event_flow_test)
+
+    add_executable(serial_port_runtime_test
+        tests/serial_port_runtime_test.c
+        application/sp_thread/thread/serial_port_runtime.c
+    )
+    target_include_directories(serial_port_runtime_test PRIVATE
+        ${INC_ALL}
+        ${SERIALPORT_INCLUDE_DIR}
+    )
+    add_test(NAME serial_port_runtime
+             COMMAND serial_port_runtime_test)
 
     add_executable(ui_input_composer_lifecycle_test
         tests/ui_input_composer_lifecycle.c

@@ -16,6 +16,11 @@
 //============================================================================
 //=== SM_SpThread component
 
+enum SpThreadSignals {
+    SPTHRD_NULL_SIG = 0U,
+    SPTHRD_REFRESH_PORTS_SIG
+};
+
 typedef struct {
     uint16_t sig;
 } SpThreadEvt;
@@ -26,5 +31,6 @@ typedef struct {
 
 void SM_SpThread_ctor(SM_SpThread *me);
 void SM_SpThread_init(SM_SpThread *me);
+void SM_SpThread_dispatchEvt(SM_SpThread *me, SpThreadEvt const *e);
 
 #endif // SM_SP_THREAD_H_

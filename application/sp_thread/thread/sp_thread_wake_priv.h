@@ -7,25 +7,15 @@
 // To Public License, Version 2, as published by Sam Hocevar.
 // See http://www.wtfpl.net/ for more details.
 //============================================================================
-#ifndef APP_SIG_H_
-#define APP_SIG_H_
+#ifndef SP_THREAD_WAKE_PRIV_H_
+#define SP_THREAD_WAKE_PRIV_H_
 
-enum AppSignals {
-    APP_SIG_DUMMY = 0U,
-
-    // published SST_Evt topics
-    MAX_PUB_SIG,
-
-    // global non-published SST_Evt signals
-    BLINKY_TIMEOUT_SIG,
-
-    SPMNGR_CONFIG_UPDATE_SIG,
-    SPMNGR_PORT_CONNECT_SIG,
-    SPMNGR_PORT_DISCONNECT_SIG,
-    SPMNGR_REFRESH_PORTS_SIG,
-    SPMNGR_REFRESHED_PORTS_SIG,
-
-    MAX_SIG
+enum SpThreadWakeResult {
+    SP_THREAD_WAKE_ERROR = -1,
+    SP_THREAD_WAKE_EVENT = 1
 };
 
-#endif // APP_SIG_H_
+void SpThreadWake_init(int eventFd);
+int SpThreadWake_wait(void);
+
+#endif // SP_THREAD_WAKE_PRIV_H_
