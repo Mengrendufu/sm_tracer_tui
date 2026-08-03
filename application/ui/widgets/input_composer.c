@@ -21,6 +21,10 @@ DBC_MODULE_NAME("input_composer")
 #define INPUT_COMPOSER_WARNING_G_  90U
 #define INPUT_COMPOSER_WARNING_B_ 100U
 
+#define INPUT_COMPOSER_TOKEN_R_  95U
+#define INPUT_COMPOSER_TOKEN_G_ 165U
+#define INPUT_COMPOSER_TOKEN_B_ 255U
+
 typedef struct {
     unsigned totalRows;
     unsigned cursorRow;
@@ -260,10 +264,12 @@ static void InputComposer_drawCursor_(
     nccell_release(composer->plane, &cursor);
 }
 
-static void InputComposer_drawContent_(
+static void InputComposer_drawRange_(
     struct InputComposer * const composer,
     char const * const text,
-    size_t const len)
+    size_t const len,
+    size_t const begin,
+    size_t const end)
 {
     unsigned const contentCols = InputComposer_contentCols_(composer);
     unsigned const visibleRows = ncplane_dim_y(composer->plane);
@@ -281,7 +287,9 @@ static void InputComposer_drawContent_(
             col = 0U;
         }
 
-        if ((row >= composer->viewRow)
+        if ((offset >= begin)
+            && (offset < end)
+            && (row >= composer->viewRow)
             && ((row - composer->viewRow) < visibleRows)
             && (egcCols <= contentCols))
         {
@@ -300,6 +308,15 @@ static void InputComposer_drawContent_(
         InputComposer_advance_(&row, &col, egcCols, contentCols);
         offset += size;
     }
+}
+
+static void InputComposer_drawContent_(
+    struct InputComposer * const composer,
+    char const * const text,
+    size_t const len)
+{
+    ncplane_set_fg_rgb8(composer->plane, 225, 230, 232);
+    InputComposer_drawRange_(composer, text, len, 0U, len);
 }
 
 static void InputComposer_drawAll_(
@@ -384,6 +401,34 @@ void InputComposer_setLimitReached(
     DBC_REQUIRE(225, composer != (struct InputComposer *)0);
     DBC_REQUIRE(226, composer->plane != (struct ncplane *)0);
     composer->limitReached = reached;
+}
+
+void InputComposer_highlightToken(
+    struct InputComposer * const composer,
+    char const * const text,
+    size_t const len,
+    size_t const editPos,
+    size_t const begin,
+    size_t const end)
+{
+    DBC_REQUIRE(280, composer != (struct InputComposer *)0);
+    DBC_REQUIRE(281, composer->plane != (struct ncplane *)0);
+    InputComposer_validateProjection_(text, len, editPos);
+    DBC_REQUIRE(282, begin < end);
+    DBC_REQUIRE(283, end <= len);
+    DBC_REQUIRE(284, ((unsigned char)text[begin] & 0xC0U) != 0x80U);
+    DBC_REQUIRE(285, (end == len)
+                     || (((unsigned char)text[end] & 0xC0U) != 0x80U));
+
+    ncplane_set_fg_rgb8(composer->plane,
+                        INPUT_COMPOSER_TOKEN_R_,
+                        INPUT_COMPOSER_TOKEN_G_,
+                        INPUT_COMPOSER_TOKEN_B_);
+    InputComposer_drawRange_(composer, text, len, begin, end);
+    ncplane_set_fg_rgb8(composer->plane, 225, 230, 232);
+    if ((editPos >= begin) && (editPos < end)) {
+        InputComposer_drawCursor_(composer, len, editPos);
+    }
 }
 
 void InputComposer_resize(struct InputComposer * const composer,

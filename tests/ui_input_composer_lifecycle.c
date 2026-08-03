@@ -61,6 +61,38 @@ static uint64_t cellChannelsYx_(struct ncplane * const plane,
     return channels;
 }
 
+static bool cellFgEqualsYx_(struct ncplane * const plane,
+                            int const y,
+                            int const x,
+                            unsigned const expectedR,
+                            unsigned const expectedG,
+                            unsigned const expectedB)
+{
+    uint64_t const channels = cellChannelsYx_(plane, y, x);
+    unsigned r;
+    unsigned g;
+    unsigned b;
+    (void)ncchannels_fg_rgb8(channels, &r, &g, &b);
+    return ncchannels_fg_rgb_p(channels)
+           && r == expectedR && g == expectedG && b == expectedB;
+}
+
+static bool cellBgEqualsYx_(struct ncplane * const plane,
+                            int const y,
+                            int const x,
+                            unsigned const expectedR,
+                            unsigned const expectedG,
+                            unsigned const expectedB)
+{
+    uint64_t const channels = cellChannelsYx_(plane, y, x);
+    unsigned r;
+    unsigned g;
+    unsigned b;
+    (void)ncchannels_bg_rgb8(channels, &r, &g, &b);
+    return ncchannels_bg_rgb_p(channels)
+           && r == expectedR && g == expectedG && b == expectedB;
+}
+
 static bool cellIsWideLeft_(struct ncplane * const plane, int const x) {
     nccell cell = NCCELL_TRIVIAL_INITIALIZER;
     int const loaded = ncplane_at_yx_cell(plane, 0, x, &cell);
@@ -426,9 +458,74 @@ int main(void) {
         return 26;
     }
 
+    char const tokenText[] = "$connect plain";
+    InputComposer_resize(&composer, 0, 2U, 16U);
+    InputComposer_projectAll(&composer, tokenText,
+                             sizeof(tokenText) - 1U,
+                             sizeof(tokenText) - 1U);
+    uint64_t const plainTokenChannels =
+        cellChannelsYx_(composer.plane, 0, 2);
+    uint64_t const plainTextChannels =
+        cellChannelsYx_(composer.plane, 0, 11);
+    uint64_t const separatorChannels =
+        cellChannelsYx_(composer.plane, 0, 10);
+    uint64_t const cursorChannels = cellChannelsYx_(
+        composer.plane, (int)composer.cursorRow,
+        (int)(2U + composer.cursorCol));
+    InputComposer_highlightToken(&composer, tokenText,
+                                 sizeof(tokenText) - 1U,
+                                 sizeof(tokenText) - 1U,
+                                 0U, 8U);
+    if (cellChannelsYx_(composer.plane, 0, 2) == plainTokenChannels
+        || !cellFgEqualsYx_(composer.plane, 0, 2,
+                            95U, 165U, 255U)
+        || cellChannelsYx_(composer.plane, 0, 10)
+               != separatorChannels
+        || cellChannelsYx_(composer.plane, 0, 11)
+               != plainTextChannels
+        || cellChannelsYx_(composer.plane, (int)composer.cursorRow,
+                           (int)(2U + composer.cursorCol))
+               != cursorChannels)
+    {
+        InputComposer_destroy(&composer);
+        notcurses_stop(nc);
+        fclose(output);
+        return 27;
+    }
+
+    InputComposer_projectAll(&composer, tokenText,
+                             sizeof(tokenText) - 1U, 9U);
+    uint64_t const embeddedCursorChannels =
+        cellChannelsYx_(composer.plane, 0, 11);
+    InputComposer_highlightToken(&composer, tokenText,
+                                 sizeof(tokenText) - 1U, 9U,
+                                 0U, 8U);
+    if (cellChannelsYx_(composer.plane, 0, 11)
+            != embeddedCursorChannels)
+    {
+        InputComposer_destroy(&composer);
+        notcurses_stop(nc);
+        fclose(output);
+        return 28;
+    }
+
+    InputComposer_projectAll(&composer, tokenText,
+                             sizeof(tokenText) - 1U, 0U);
+    InputComposer_highlightToken(&composer, tokenText,
+                                 sizeof(tokenText) - 1U, 0U,
+                                 0U, 8U);
+    if (!cellBgEqualsYx_(composer.plane, 0, 2,
+                         95U, 165U, 255U))
+    {
+        InputComposer_destroy(&composer);
+        notcurses_stop(nc);
+        fclose(output);
+        return 29;
+    }
+
     InputComposer_destroy(&composer);
 
     int const result = notcurses_stop(nc);
     fclose(output);
-    return result == 0 ? 0 : 27;
+    return result == 0 ? 0 : 30;
 }

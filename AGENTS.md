@@ -107,7 +107,9 @@ The manager supports incremental left/right movement, insertion, backspace,
 `Ctrl-U`, `Ctrl-W`, `Home`, and `End`. Its `editPos` is a UTF-8 byte offset,
 not a terminal column. A leading or space-delimited `/` opens sorted command
 suggestions. `Tab` or `Enter` accepts one as an atomic `$command` Token;
-multiple Tokens can coexist in the canonical buffer.
+multiple Tokens can coexist in the canonical buffer. Acceptance always inserts
+one ordinary trailing space and projects the Token span in blue. Typed or
+pasted `$command` text is not a Token because it has no accepted span.
 
 Submission accepts configuration-only updates or one `$connect` plus optional
 configuration Tokens. `$disconnect` and `$refresh` are standalone. Duplicate

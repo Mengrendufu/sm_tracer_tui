@@ -37,6 +37,12 @@ void InputComposer_create(struct InputComposer *composer,
 void InputComposer_destroy(struct InputComposer *composer);
 void InputComposer_setLimitReached(struct InputComposer *composer,
                                    bool reached);
+void InputComposer_highlightToken(struct InputComposer *composer,
+                                  char const *text,
+                                  size_t len,
+                                  size_t editPos,
+                                  size_t begin,
+                                  size_t end);
 void InputComposer_resize(struct InputComposer *composer,
                           int y,
                           unsigned rows,

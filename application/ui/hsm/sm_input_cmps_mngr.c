@@ -99,6 +99,8 @@ static bool      SM_InputCmpsMngr_tokenStartingAt_(
 static void      SM_InputCmpsMngr_validate_(SM_InputCmpsMngr const *me);
 static void      SM_InputCmpsMngr_setLimitReached_(
                         SM_InputCmpsMngr *me, bool reached);
+static void      SM_InputCmpsMngr_highlightTokens_(
+                        SM_InputCmpsMngr *me);
 static bool      SM_InputCmpsMngr_insertBytes_(
                         SM_InputCmpsMngr *me, char const *text,
                         size_t size, bool project);
@@ -255,6 +257,7 @@ static void SM_InputCmpsMngr_active_entry_(
         me, SM_InputCmpsMngr, super);
     InputComposer_showCursor(&manager->composer, manager->buffer,
                              manager->length, manager->editPos);
+    SM_InputCmpsMngr_highlightTokens_(manager);
 }
 
 static void SM_InputCmpsMngr_active_exit_(
@@ -264,6 +267,7 @@ static void SM_InputCmpsMngr_active_exit_(
         me, SM_InputCmpsMngr, super);
     InputComposer_hideCursor(&manager->composer, manager->buffer,
                              manager->length, manager->editPos);
+    SM_InputCmpsMngr_highlightTokens_(manager);
 }
 
 static SM_RetState SM_InputCmpsMngr_active_(
@@ -1026,6 +1030,16 @@ static void SM_InputCmpsMngr_setLimitReached_(
     }
 }
 
+static void SM_InputCmpsMngr_highlightTokens_(
+    SM_InputCmpsMngr * const me)
+{
+    for (size_t i = 0U; i < me->tokenCount; ++i) {
+        InputComposer_highlightToken(
+            &me->composer, me->buffer, me->length, me->editPos,
+            me->tokens[i].begin, me->tokens[i].end);
+    }
+}
+
 static bool SM_InputCmpsMngr_insertBytes_(
     SM_InputCmpsMngr * const me,
     char const * const text,
@@ -1039,6 +1053,7 @@ static bool SM_InputCmpsMngr_insertBytes_(
         SM_InputCmpsMngr_setLimitReached_(me, true);
         InputComposer_projectAll(&me->composer, me->buffer,
                                  me->length, me->editPos);
+        SM_InputCmpsMngr_highlightTokens_(me);
         return false;
     }
 
@@ -1063,6 +1078,7 @@ static bool SM_InputCmpsMngr_insertBytes_(
     if (project) {
         InputComposer_projectFrom(&me->composer, me->buffer,
                                   me->length, me->editPos, dirtyPos);
+        SM_InputCmpsMngr_highlightTokens_(me);
     }
     return true;
 }
@@ -1123,6 +1139,7 @@ static void SM_InputCmpsMngr_removeRange_(
     if (project) {
         InputComposer_projectFrom(&me->composer, me->buffer,
                                   me->length, me->editPos, begin);
+        SM_InputCmpsMngr_highlightTokens_(me);
     }
 }
 
@@ -1197,6 +1214,7 @@ static void SM_InputCmpsMngr_moveLeft_(SM_InputCmpsMngr * const me) {
     SM_InputCmpsMngr_validate_(me);
     InputComposer_moveCursor(&me->composer, me->buffer,
                              me->length, me->editPos);
+    SM_InputCmpsMngr_highlightTokens_(me);
 }
 
 static void SM_InputCmpsMngr_moveRight_(SM_InputCmpsMngr * const me) {
@@ -1215,6 +1233,7 @@ static void SM_InputCmpsMngr_moveRight_(SM_InputCmpsMngr * const me) {
     SM_InputCmpsMngr_validate_(me);
     InputComposer_moveCursor(&me->composer, me->buffer,
                              me->length, me->editPos);
+    SM_InputCmpsMngr_highlightTokens_(me);
 }
 
 static void SM_InputCmpsMngr_movePrevWord_(
@@ -1252,6 +1271,7 @@ static void SM_InputCmpsMngr_movePrevWord_(
     SM_InputCmpsMngr_validate_(me);
     InputComposer_moveCursor(&me->composer, me->buffer,
                              me->length, me->editPos);
+    SM_InputCmpsMngr_highlightTokens_(me);
 }
 
 static void SM_InputCmpsMngr_moveNextWord_(
@@ -1284,6 +1304,7 @@ static void SM_InputCmpsMngr_moveNextWord_(
     SM_InputCmpsMngr_validate_(me);
     InputComposer_moveCursor(&me->composer, me->buffer,
                              me->length, me->editPos);
+    SM_InputCmpsMngr_highlightTokens_(me);
 }
 
 static void SM_InputCmpsMngr_moveHome_(SM_InputCmpsMngr * const me) {
@@ -1295,6 +1316,7 @@ static void SM_InputCmpsMngr_moveHome_(SM_InputCmpsMngr * const me) {
     SM_InputCmpsMngr_validate_(me);
     InputComposer_moveCursor(&me->composer, me->buffer,
                              me->length, me->editPos);
+    SM_InputCmpsMngr_highlightTokens_(me);
 }
 
 static void SM_InputCmpsMngr_moveEnd_(SM_InputCmpsMngr * const me) {
@@ -1306,6 +1328,7 @@ static void SM_InputCmpsMngr_moveEnd_(SM_InputCmpsMngr * const me) {
     SM_InputCmpsMngr_validate_(me);
     InputComposer_moveCursor(&me->composer, me->buffer,
                              me->length, me->editPos);
+    SM_InputCmpsMngr_highlightTokens_(me);
 }
 
 //============================================================================
@@ -1409,14 +1432,16 @@ static bool SM_InputCmpsMngr_acceptSuggestion_(
     char const * const tokenText = l_commands_[command].token;
     size_t const tokenLen = strlen(tokenText);
     size_t const rawLen = me->suggestionEnd - me->suggestionStart;
+    size_t const replacementLen = tokenLen + 1U;
 
     if (me->tokenCount >= SM_INPUT_CMPS_MNGR_MAX_TOKENS) {
         return false;
     }
-    if ((me->length - rawLen + tokenLen) >= sizeof(me->buffer)) {
+    if ((me->length - rawLen + replacementLen) >= sizeof(me->buffer)) {
         SM_InputCmpsMngr_setLimitReached_(me, true);
         InputComposer_projectAll(&me->composer, me->buffer,
                                  me->length, me->editPos);
+        SM_InputCmpsMngr_highlightTokens_(me);
         return false;
     }
 
@@ -1438,10 +1463,16 @@ static bool SM_InputCmpsMngr_acceptSuggestion_(
     me->tokens[insertAt].end = tokenBegin + tokenLen;
     me->tokens[insertAt].command = command;
     ++me->tokenCount;
+
+    bool const spaceInserted = SM_InputCmpsMngr_insertBytes_(
+        me, " ", 1U, false);
+    DBC_ASSERT(584, spaceInserted);
+    (void)spaceInserted;
     SM_InputCmpsMngr_validate_(me);
 
     InputComposer_projectAll(&me->composer, me->buffer,
                              me->length, me->editPos);
+    SM_InputCmpsMngr_highlightTokens_(me);
     return true;
 }
 
@@ -1648,6 +1679,7 @@ static void SM_InputCmpsMngr_clear_(SM_InputCmpsMngr * const me) {
     SM_InputCmpsMngr_validate_(me);
     InputComposer_projectAll(&me->composer, me->buffer,
                              me->length, me->editPos);
+    SM_InputCmpsMngr_highlightTokens_(me);
 }
 
 //============================================================================
@@ -1728,6 +1760,7 @@ void SM_InputCmpsMngr_create(
     CommandSuggestion_create(&me->suggestion, parent);
     InputComposer_projectAll(&me->composer, me->buffer,
                              me->length, me->editPos);
+    SM_InputCmpsMngr_highlightTokens_(me);
 }
 
 void SM_InputCmpsMngr_destroy(SM_InputCmpsMngr * const me) {
@@ -1747,6 +1780,7 @@ void SM_InputCmpsMngr_resize(SM_InputCmpsMngr * const me,
     InputComposer_resize(&me->composer, y, rows, cols);
     InputComposer_projectAll(&me->composer, me->buffer,
                              me->length, me->editPos);
+    SM_InputCmpsMngr_highlightTokens_(me);
     if (me->super.curr == &SM_InputCmpsMngr_suggesting) {
         SM_InputCmpsMngr_showSuggestions_(me);
     }

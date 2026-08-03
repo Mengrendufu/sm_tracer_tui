@@ -14,6 +14,9 @@ static unsigned l_showCursorCount_;
 static unsigned l_hideCursorCount_;
 static unsigned l_limitReachedCount_;
 static bool l_limitReached_;
+static unsigned l_highlightTokenCount_;
+static size_t l_highlightBegin_;
+static size_t l_highlightEnd_;
 static unsigned l_suggestionShowCount_;
 static unsigned l_suggestionHideCount_;
 static size_t l_suggestionCount_;
@@ -70,6 +73,23 @@ void InputComposer_setLimitReached(
     (void)composer;
     ++l_limitReachedCount_;
     l_limitReached_ = reached;
+}
+
+void InputComposer_highlightToken(
+    struct InputComposer * const composer,
+    char const * const text,
+    size_t const len,
+    size_t const editPos,
+    size_t const begin,
+    size_t const end)
+{
+    (void)composer;
+    (void)text;
+    (void)len;
+    (void)editPos;
+    ++l_highlightTokenCount_;
+    l_highlightBegin_ = begin;
+    l_highlightEnd_ = end;
 }
 
 void InputComposer_resize(struct InputComposer * const composer,
@@ -214,6 +234,9 @@ static void resetProjection_(void) {
     l_hideCursorCount_ = 0U;
     l_limitReachedCount_ = 0U;
     l_limitReached_ = false;
+    l_highlightTokenCount_ = 0U;
+    l_highlightBegin_ = 0U;
+    l_highlightEnd_ = 0U;
     l_suggestionShowCount_ = 0U;
     l_suggestionHideCount_ = 0U;
     l_suggestionCount_ = 0U;
@@ -605,25 +628,27 @@ int main(void) {
     resetProjection_();
     dispatchInput_(&tokenManager, UI_INPUT_SIG, "c");
     dispatchInput_(&tokenManager, UI_KEY_ENTER_SIG, (char const *)0);
-    failed += strcmp(tokenManager.buffer, "$connect") == 0
-              && tokenManager.length == 8U
-              && tokenManager.editPos == 8U
+    failed += strcmp(tokenManager.buffer, "$connect ") == 0
+              && tokenManager.length == 9U
+              && tokenManager.editPos == 9U
               && tokenManager.tokenCount == 1U
               && tokenManager.tokens[0].begin == 0U
               && tokenManager.tokens[0].end == 8U
               && tokenManager.tokens[0].command
                  == SM_INPUT_COMMAND_CONNECT
               && l_projectAllCount_ == 1U
+              && l_highlightTokenCount_ == 1U
+              && l_highlightBegin_ == 0U
+              && l_highlightEnd_ == 8U
               && l_suggestionHideCount_ == 1U
               ? 0 : 1;
 
-    dispatchInput_(&tokenManager, UI_INPUT_SIG, " ");
     dispatchInput_(&tokenManager, UI_INPUT_SIG, "/");
     dispatchAsciiText_(&tokenManager, "dis");
     dispatchInput_(&tokenManager, UI_KEY_TAB_SIG, (char const *)0);
-    failed += strcmp(tokenManager.buffer, "$connect $disconnect") == 0
-              && tokenManager.length == 20U
-              && tokenManager.editPos == 20U
+    failed += strcmp(tokenManager.buffer, "$connect $disconnect ") == 0
+              && tokenManager.length == 21U
+              && tokenManager.editPos == 21U
               && tokenManager.tokenCount == 2U
               && tokenManager.tokens[0].begin == 0U
               && tokenManager.tokens[0].end == 8U
@@ -638,12 +663,20 @@ int main(void) {
     failed += tokenManager.editPos == 9U ? 0 : 1;
     dispatchInput_(&tokenManager, UI_KEY_CTRL_RIGHT_SIG,
                    (char const *)0);
-    failed += tokenManager.editPos == 20U ? 0 : 1;
+    failed += tokenManager.editPos == 21U ? 0 : 1;
 
     dispatchInput_(&tokenManager, UI_KEY_LEFT_SIG, (char const *)0);
-    failed += tokenManager.editPos == 9U ? 0 : 1;
-    dispatchInput_(&tokenManager, UI_KEY_RIGHT_SIG, (char const *)0);
     failed += tokenManager.editPos == 20U ? 0 : 1;
+    dispatchInput_(&tokenManager, UI_KEY_RIGHT_SIG, (char const *)0);
+    failed += tokenManager.editPos == 21U ? 0 : 1;
+
+    dispatchInput_(&tokenManager, UI_KEY_BACKSPACE_SIG,
+                   (char const *)0);
+    failed += strcmp(tokenManager.buffer, "$connect $disconnect") == 0
+              && tokenManager.length == 20U
+              && tokenManager.editPos == 20U
+              && tokenManager.tokenCount == 2U
+              ? 0 : 1;
 
     dispatchInput_(&tokenManager, UI_KEY_BACKSPACE_SIG,
                    (char const *)0);
@@ -660,6 +693,17 @@ int main(void) {
               && tokenManager.length == 1U
               && tokenManager.editPos == 0U
               && tokenManager.tokenCount == 0U
+              ? 0 : 1;
+
+    SM_InputCmpsMngr pastedTokenManager;
+    SM_InputCmpsMngr_ctor(&pastedTokenManager);
+    SM_InputCmpsMngr_init(&pastedTokenManager);
+    SM_InputCmpsMngr_setActive(&pastedTokenManager, true);
+    resetProjection_();
+    dispatchAsciiText_(&pastedTokenManager, "$connect");
+    failed += strcmp(pastedTokenManager.buffer, "$connect") == 0
+              && pastedTokenManager.tokenCount == 0U
+              && l_highlightTokenCount_ == 0U
               ? 0 : 1;
 
     SM_InputCmpsMngr matchManager;
@@ -813,8 +857,8 @@ int main(void) {
     resetProjection_();
     dispatchInput_(&spanManager, UI_KEY_ENTER_SIG,
                    (char const *)0);
-    failed += strcmp(spanManager.buffer, "$connect rest") == 0
-              && spanManager.editPos == 8U
+    failed += strcmp(spanManager.buffer, "$connect  rest") == 0
+              && spanManager.editPos == 9U
               && spanManager.tokenCount == 1U
               && spanManager.tokens[0].begin == 0U
               && spanManager.tokens[0].end == 8U
@@ -845,6 +889,31 @@ int main(void) {
               && l_limitReached_
               && l_projectAllCount_ == 1U
               && l_suggestionHideCount_ == 0U
+              ? 0 : 1;
+
+    SM_InputCmpsMngr tokenSpaceCapacityManager;
+    SM_InputCmpsMngr_ctor(&tokenSpaceCapacityManager);
+    SM_InputCmpsMngr_init(&tokenSpaceCapacityManager);
+    SM_InputCmpsMngr_setActive(&tokenSpaceCapacityManager, true);
+    memset(tokenSpaceCapacityManager.buffer, 'a', 246U);
+    tokenSpaceCapacityManager.buffer[246] = ' ';
+    tokenSpaceCapacityManager.buffer[247] = '\0';
+    tokenSpaceCapacityManager.length = 247U;
+    tokenSpaceCapacityManager.editPos = 247U;
+    dispatchInput_(&tokenSpaceCapacityManager, UI_INPUT_SIG, "/");
+    dispatchInput_(&tokenSpaceCapacityManager, UI_INPUT_SIG, "c");
+
+    resetProjection_();
+    dispatchInput_(&tokenSpaceCapacityManager, UI_KEY_ENTER_SIG,
+                   (char const *)0);
+    failed += tokenSpaceCapacityManager.length == 249U
+              && tokenSpaceCapacityManager.editPos == 249U
+              && tokenSpaceCapacityManager.buffer[247] == '/'
+              && tokenSpaceCapacityManager.buffer[248] == 'c'
+              && tokenSpaceCapacityManager.tokenCount == 0U
+              && tokenSpaceCapacityManager.limitReached
+              && l_limitReachedCount_ == 1U
+              && l_projectAllCount_ == 1U
               ? 0 : 1;
 
     SM_InputCmpsMngr capacityManager;
@@ -989,14 +1058,13 @@ int main(void) {
     SM_InputCmpsMngr_init(&mixedManager);
     SM_InputCmpsMngr_setActive(&mixedManager, true);
     acceptCommand_(&mixedManager, "connect");
-    dispatchAsciiText_(&mixedManager, " ");
     acceptCommand_(&mixedManager, "disconnect");
     resetSubmission_();
     dispatchInput_(&mixedManager, UI_KEY_ENTER_SIG,
                    (char const *)0);
     failed += l_submissionCount_ == 0U
               && strcmp(mixedManager.buffer,
-                        "$connect $disconnect") == 0
+                        "$connect $disconnect ") == 0
               && mixedManager.tokenCount == 2U
               ? 0 : 1;
 
@@ -1006,7 +1074,7 @@ int main(void) {
     SM_InputCmpsMngr_init(&invalidArgsManager);
     SM_InputCmpsMngr_setActive(&invalidArgsManager, true);
     acceptCommand_(&invalidArgsManager, "disconnect");
-    dispatchAsciiText_(&invalidArgsManager, " now");
+    dispatchAsciiText_(&invalidArgsManager, "now");
     resetSubmission_();
     dispatchInput_(&invalidArgsManager, UI_KEY_ENTER_SIG,
                    (char const *)0);
@@ -1039,7 +1107,6 @@ int main(void) {
     SM_InputCmpsMngr_init(&duplicateManager);
     SM_InputCmpsMngr_setActive(&duplicateManager, true);
     acceptCommand_(&duplicateManager, "connect");
-    dispatchAsciiText_(&duplicateManager, " ");
     acceptCommand_(&duplicateManager, "connect");
     resetSubmission_();
     dispatchInput_(&duplicateManager, UI_KEY_ENTER_SIG,
@@ -1067,7 +1134,6 @@ int main(void) {
     SM_InputCmpsMngr_init(&refreshConfigManager);
     SM_InputCmpsMngr_setActive(&refreshConfigManager, true);
     acceptCommand_(&refreshConfigManager, "refresh");
-    dispatchAsciiText_(&refreshConfigManager, " ");
     acceptCommand_(&refreshConfigManager, "parity");
     dispatchAsciiText_(&refreshConfigManager, " odd");
     resetSubmission_();
@@ -1083,9 +1149,12 @@ int main(void) {
     SM_InputCmpsMngr_init(&joinedTokenManager);
     SM_InputCmpsMngr_setActive(&joinedTokenManager, true);
     acceptCommand_(&joinedTokenManager, "connect");
-    dispatchAsciiText_(&joinedTokenManager, " ");
     acceptCommand_(&joinedTokenManager, "baudrate");
-    dispatchInput_(&joinedTokenManager, UI_KEY_CTRL_LEFT_SIG,
+    dispatchInput_(&joinedTokenManager, UI_KEY_HOME_SIG,
+                   (char const *)0);
+    dispatchInput_(&joinedTokenManager, UI_KEY_RIGHT_SIG,
+                   (char const *)0);
+    dispatchInput_(&joinedTokenManager, UI_KEY_RIGHT_SIG,
                    (char const *)0);
     dispatchInput_(&joinedTokenManager, UI_KEY_BACKSPACE_SIG,
                    (char const *)0);
@@ -1105,6 +1174,8 @@ int main(void) {
     SM_InputCmpsMngr_init(&joinedArgManager);
     SM_InputCmpsMngr_setActive(&joinedArgManager, true);
     acceptCommand_(&joinedArgManager, "connect");
+    dispatchInput_(&joinedArgManager, UI_KEY_BACKSPACE_SIG,
+                   (char const *)0);
     dispatchAsciiText_(&joinedArgManager, "com3");
     resetSubmission_();
     dispatchInput_(&joinedArgManager, UI_KEY_ENTER_SIG,
