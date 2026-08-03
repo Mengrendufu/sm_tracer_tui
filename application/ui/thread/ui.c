@@ -43,6 +43,7 @@ struct UI_HostState {
 static struct UI_HostState UI_hostState_;
 
 #define UI_FRAME_MS_   (1000U / 60U)
+#define UI_INPUT_BATCH_SIZE_ 64
 
 //============================================================================
 //=== BSP tick callback — posts UI_TIMER_SIG every Nth tick
@@ -70,6 +71,46 @@ static void UI_routeInput_(uint32_t r, ncinput const *ni) {
     };
     memcpy(input.utf8, ni->utf8, sizeof(input.utf8));
     UI_evtEnqueueInput(UI_InputRouter_route(&input), &input);
+}
+
+static void UI_dispatchPendingEvents_(void) {
+    UI_Evt *e;
+
+    while ((e = UI_evtDequeue()) != (UI_Evt *)0) {
+        SM_UI_dispatchEvt(e);
+        UI_evtFree(e);
+    }
+}
+
+enum UI_TerminalInputResult {
+    UI_TERMINAL_INPUT_OK,
+    UI_TERMINAL_INPUT_ERROR,
+    UI_TERMINAL_INPUT_CLOSED
+};
+
+static enum UI_TerminalInputResult UI_drainTerminalInput_(void) {
+    struct timespec const deadline = {0};
+    ncinput input[UI_INPUT_BATCH_SIZE_];
+
+    for (;;) {
+        int const count = notcurses_getvec(
+            UI_nc_, &deadline, input, UI_INPUT_BATCH_SIZE_);
+        if (count < 0) {
+            return UI_TERMINAL_INPUT_ERROR;
+        }
+        if (count == 0) {
+            return UI_TERMINAL_INPUT_OK;
+        }
+
+        for (int i = 0; i < count; ++i) {
+            if (input[i].id == NCKEY_EOF) {
+                UI_dispatchPendingEvents_();
+                return UI_TERMINAL_INPUT_CLOSED;
+            }
+            UI_routeInput_(input[i].id, &input[i]);
+        }
+        UI_dispatchPendingEvents_();
+    }
 }
 
 //============================================================================
@@ -240,22 +281,6 @@ int UI_run(void) {
             break;
         }
 
-        if ((waitReady & UI_THREAD_WAKE_TERMINAL) != 0) {
-            ncinput ni;
-            uint32_t const r = notcurses_get_nblock(UI_nc_, &ni);
-            if (r == (uint32_t)-1) {
-                errorMsg = "notcurses input failed";
-                result = 1;
-                break;
-            } else if (r == NCKEY_EOF) {
-                errorMsg = "terminal input closed";
-                result = 1;
-                break;
-            } else if (r != 0U) {
-                UI_routeInput_(r, &ni);
-            }
-        }
-
         if ((waitReady & UI_THREAD_WAKE_EVENT) != 0) {
             if (UI_evtConsumeWake() != 0) {
                 errorMsg = "eventfd read failed";
@@ -265,13 +290,24 @@ int UI_run(void) {
             }
         }
 
-        {
-            UI_Evt *e;
-            while ((e = UI_evtDequeue()) != (UI_Evt *)0) {
-                SM_UI_dispatchEvt(e);
-                UI_evtFree(e);
+        UI_dispatchPendingEvents_();
+
+        if ((waitReady & UI_THREAD_WAKE_TERMINAL) != 0) {
+            enum UI_TerminalInputResult const inputResult =
+                UI_drainTerminalInput_();
+            if (inputResult == UI_TERMINAL_INPUT_ERROR) {
+                errorMsg = "notcurses input failed";
+                result = 1;
+                break;
+            } else if (inputResult == UI_TERMINAL_INPUT_CLOSED) {
+                errorMsg = "terminal input closed";
+                result = 1;
+                break;
             }
         }
+
+        // Catch cross-thread events posted while terminal input was drained.
+        UI_dispatchPendingEvents_();
 
         if (frameClock.canRender) {
             UI_hostState_.framePending = false;

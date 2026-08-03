@@ -21,13 +21,13 @@
 #include "ui_evt_priv.h"
 DBC_MODULE_NAME("ui_evt")
 
-#define UI_QLEN_ 128U
+#define UI_QLEN_ 512U
 
 struct UI_EvtQueue {
     UI_Evt *buf[UI_QLEN_];
-    uint8_t head;
-    uint8_t tail;
-    uint8_t used;
+    uint16_t head;
+    uint16_t tail;
+    uint16_t used;
     pthread_mutex_t mtx;
 };
 

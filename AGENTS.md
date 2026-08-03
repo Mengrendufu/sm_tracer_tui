@@ -112,7 +112,7 @@ text reject the whole submission without posting or clearing the input.
 
 ## UI event system
 
-- The inbox is a mutex-guarded 128-entry ring buffer.
+- The inbox is a mutex-guarded 512-entry ring buffer.
 - Queue `head` and `tail` both decrement and wrap from zero to the last slot.
 - `UI_NULL_SIG` is reserved and invalid for posting.
 - `UI_AppEvt` stores text inline after the event object; the descriptor points
@@ -120,7 +120,9 @@ text reject the whole submission without posting or clearing the input.
 - `UI_InputEvt` copies the complete normalized `UI_Input` payload.
 - `UI_evtFree()` uses `free()`; UI events are not reference counted.
 - Terminal-originated events are already on the UI thread, so enqueueing them
-  does not write the eventfd. Cross-thread posts enqueue and wake the loop.
+  does not write the eventfd. Once terminal readiness is reported, the runtime
+  drains notcurses input in bounded batches and dispatches each batch before
+  reading the next one. Cross-thread posts enqueue and wake the loop.
 - The public application ingress is `UI_postText()`; allocation, queue, wake,
   dequeue, and signal-specific helpers remain private to the UI thread/HSM.
 
