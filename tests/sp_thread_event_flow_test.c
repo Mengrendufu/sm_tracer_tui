@@ -34,20 +34,15 @@ static char l_portNames_[128];
 static size_t l_portNamesSize_;
 static int l_serialPipe_[2];
 static int l_runtimeFd_ = -1;
-static bool l_rxPrinted_;
-static char l_rxText_[128];
+static bool l_rxDispatched_;
+static uint8_t l_rxData_[128];
+static size_t l_rxDataSize_;
 
 static SST_Task l_spMngr_;
 SST_Task * const AO_SpMngr = &l_spMngr_;
 
 void UI_postText(char const * const text) {
-    if (strncmp(text, "SpThread RX", sizeof("SpThread RX") - 1U) == 0) {
-        pthread_mutex_lock(&l_mutex_);
-        (void)snprintf(l_rxText_, sizeof(l_rxText_), "%s", text);
-        l_rxPrinted_ = true;
-        pthread_cond_signal(&l_cond_);
-        pthread_mutex_unlock(&l_mutex_);
-    }
+    (void)text;
 }
 
 char *SerialPortRuntime_listPorts(size_t * const size) {
@@ -121,6 +116,20 @@ void SST_Task_post(SST_Task * const me, SST_Evt const * const e) {
         ++l_closeDispatchCount_;
         pthread_cond_signal(&l_cond_);
         pthread_mutex_unlock(&l_mutex_);
+    } else if ((me == AO_SpMngr)
+               && (e->sig == SPMNGR_RX_PACKET_SIG))
+    {
+        SpMngrRxPacketEvt const * const packet =
+            SST_EVT_DOWNCAST(SpMngrRxPacketEvt, e);
+        pthread_mutex_lock(&l_mutex_);
+        l_rxDataSize_ = packet->size;
+        memcpy(l_rxData_, packet->data, packet->size);
+        l_rxDispatched_ = true;
+        pthread_cond_signal(&l_cond_);
+        pthread_mutex_unlock(&l_mutex_);
+
+        free(packet->data);
+        free((void *)e);
     }
 }
 
@@ -191,7 +200,7 @@ int main(void) {
     ++deadline.tv_sec;
 
     pthread_mutex_lock(&l_mutex_);
-    while (!l_rxPrinted_) {
+    while (!l_rxDispatched_) {
         int const status = pthread_cond_timedwait(
             &l_cond_, &l_mutex_, &deadline);
         if (status != 0) {
@@ -201,8 +210,8 @@ int main(void) {
     }
     pthread_mutex_unlock(&l_mutex_);
 
-    failed += strcmp(l_rxText_,
-                     "SpThread RX [3 bytes]: 11 22 33\n") == 0
+    failed += (l_rxDataSize_ == sizeof(rxData))
+              && (memcmp(l_rxData_, rxData, sizeof(rxData)) == 0)
               ? 0 : 1;
 
     l_runtimeCloseResult_ = false;

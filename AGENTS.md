@@ -70,6 +70,13 @@ The serial-thread HSM has an `active` parent with `disconnected` and
 successes transition between the leaves, while operation failures retain the
 current state. `SerialPortRuntime` owns the opened `sp_port` handle.
 
+The serial receive path is `SerialPortRuntime -> RxPacketAssembler ->
+SpMngrRxPacketEvt -> SpMngr HSM -> HdlcParser -> UI_postText`. The transport
+packet owns a heap payload until SpMngr synchronously feeds every byte to its
+embedded parser and releases the payload. Parser state survives transport
+packet boundaries. Complete checksum-valid frames are currently rendered as
+hexadecimal debug text; protocol-file and RecID mapping are not connected yet.
+
 ## UI boundaries
 
 The terminal-input path is:
@@ -302,6 +309,7 @@ CTest currently exercises:
 - `ui_input_router`
 - `ui_input_cmps_mngr`
 - `sp_mngr_command`
+- `hdlc_parser`
 - `sp_thread_event_flow`
 - `sp_thread_wake`
 - `serial_port_runtime`

@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include "app_sig.h"
@@ -177,6 +178,34 @@ int main(void) {
     failed += l_portNamesSize_ == sizeof(portNames)
               && memcmp(l_portNames_, portNames,
                         sizeof(portNames)) == 0
+              ? 0 : 1;
+
+    uint8_t const framePart1[] = {0x7EU, 0x01U};
+    SpMngrRxPacketEvt packet = {
+        .super.sig = SPMNGR_RX_PACKET_SIG,
+        .data = (uint8_t *)malloc(sizeof(framePart1)),
+        .size = sizeof(framePart1),
+    };
+    if (packet.data == (uint8_t *)0) {
+        return 1;
+    }
+    memcpy(packet.data, framePart1, sizeof(framePart1));
+    (void)snprintf(l_text_, sizeof(l_text_), "%s", "unchanged");
+    (*AO_SpMngr->dispatch)(AO_SpMngr, &packet.super);
+    failed += strcmp(l_text_, "unchanged") == 0 ? 0 : 1;
+
+    uint8_t const framePart2[] = {
+        0x02U, 0x02U, 0x10U, 0x20U, 0xCAU,
+    };
+    packet.data = (uint8_t *)malloc(sizeof(framePart2));
+    packet.size = sizeof(framePart2);
+    if (packet.data == (uint8_t *)0) {
+        return 1;
+    }
+    memcpy(packet.data, framePart2, sizeof(framePart2));
+    (*AO_SpMngr->dispatch)(AO_SpMngr, &packet.super);
+    failed += strcmp(l_text_,
+                     "SpMngr HDLC [5 bytes]: 01 02 02 10 20\n") == 0
               ? 0 : 1;
 
     return failed == 0 ? 0 : 1;

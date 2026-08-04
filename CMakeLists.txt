@@ -215,6 +215,7 @@ if(BUILD_TESTING)
     add_executable(sp_mngr_command_test
         tests/sp_mngr_command_test.c
         application/aos/sp_mngr/sp_mngr.c
+        application/aos/sp_mngr/hdlc_parser.c
         ${SM_HSM_SRC}
     )
     target_include_directories(sp_mngr_command_test PRIVATE
@@ -226,6 +227,21 @@ if(BUILD_TESTING)
     )
     add_test(NAME sp_mngr_command
              COMMAND sp_mngr_command_test)
+
+    add_executable(hdlc_parser_test
+        tests/hdlc_parser_test.c
+        application/aos/sp_mngr/hdlc_parser.c
+        ${SM_HSM_SRC}
+    )
+    target_include_directories(hdlc_parser_test PRIVATE
+        ${INC_ALL}
+    )
+    target_compile_definitions(hdlc_parser_test PRIVATE
+        DBC_DISABLE
+        SM_DBC_DISABLE
+    )
+    add_test(NAME hdlc_parser
+             COMMAND hdlc_parser_test)
 
     add_executable(sp_thread_event_flow_test
         tests/sp_thread_event_flow_test.c

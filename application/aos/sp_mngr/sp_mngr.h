@@ -11,6 +11,7 @@
 #define SP_MNGR_H_
 
 #include <stddef.h>
+#include <stdint.h>
 #include "sst.h"
 
 enum {
@@ -40,6 +41,14 @@ typedef struct {
     char *portNames;
     size_t portNamesSize;
 } SpMngrPortsEvt;
+
+// Raw serial receive packet. Ownership of data transfers to SpMngr with the
+// event; SpMngr releases it after synchronously feeding the protocol parser.
+typedef struct {
+    SST_Evt super;
+    uint8_t *data;
+    size_t size;
+} SpMngrRxPacketEvt;
 
 //============================================================================
 //=== AO_SpMngr lifecycle

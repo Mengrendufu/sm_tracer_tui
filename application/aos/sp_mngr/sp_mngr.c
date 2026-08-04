@@ -23,6 +23,7 @@
 #include "ui_evt.h"
 #include "sp_thread/sp_thread.h"
 #include <bits/sockaddr.h>
+#include "hdlc_parser_priv.h"
 #include "sp_mngr.h"
 DBC_MODULE_NAME("sp_mngr")
 
@@ -32,6 +33,7 @@ DBC_MODULE_NAME("sp_mngr")
 typedef struct {
     SST_Task super;
     SM_Hsm hsm;
+    HdlcParser hdlcParser;
 } SpMngr;
 
 static SpMngr SpMngr_inst_;
@@ -42,6 +44,9 @@ static void SpMngr_reportConfig_(char const *action,
 static bool SpMngr_makeSerialConfig_(
     SpMngrConfig const *source,
     SerialConfig *target);
+static void SpMngr_onHdlcFrame_(void *ctx,
+                                uint8_t const *frame,
+                                size_t size);
 
 //============================================================================
 //=== HSM states
@@ -140,10 +145,54 @@ static SM_RetState SpMngr_active_(SM_Hsm * const me, SST_Evt const * const e) SM
             return _SM_HANDLED();
         }
 
+        case SPMNGR_RX_PACKET_SIG: {
+            SpMngr * const manager = containerof(me, SpMngr, hsm);
+            SpMngrRxPacketEvt const * const packet =
+                SST_EVT_DOWNCAST(SpMngrRxPacketEvt, e);
+            DBC_ASSERT(600, packet->data != (uint8_t *)0);
+            DBC_ASSERT(601, packet->size > 0U);
+
+            for (size_t i = 0U; i < packet->size; ++i) {
+                HdlcParser_input(&manager->hdlcParser,
+                                 packet->data[i]);
+            }
+            free(packet->data);
+            return _SM_HANDLED();
+        }
+
         default: {
             return _SM_SUPER();
         }
     }
+}
+
+static void SpMngr_onHdlcFrame_(void * const ctx,
+                                uint8_t const * const frame,
+                                size_t const size)
+{
+    SpMngr * const me = (SpMngr *)ctx;
+    DBC_REQUIRE(500, me != (SpMngr *)0);
+    DBC_REQUIRE(501, frame != (uint8_t const *)0);
+    DBC_REQUIRE(502, (size > 0U)
+                     && (size <= HDLC_PARSER_FRAME_MAX_SIZE));
+    (void)me;
+
+    char text[(HDLC_PARSER_FRAME_MAX_SIZE * 3U) + 48U];
+    int written = snprintf(text, sizeof(text),
+                           "SpMngr HDLC [%zu bytes]:", size);
+    DBC_ASSERT(503, (written > 0) && ((size_t)written < sizeof(text)));
+
+    size_t offset = (size_t)written;
+    for (size_t i = 0U; i < size; ++i) {
+        written = snprintf(&text[offset], sizeof(text) - offset,
+                           " %02X", (unsigned)frame[i]);
+        DBC_ASSERT(504, (written > 0)
+                        && ((size_t)written < (sizeof(text) - offset)));
+        offset += (size_t)written;
+    }
+    text[offset++] = '\n';
+    text[offset] = '\0';
+    UI_postText(text);
 }
 
 static void SpMngr_reportConfig_(
@@ -292,6 +341,7 @@ static void SpMngr_init_(SpMngr * const me,
     DBC_REQUIRE(100, me != (SpMngr *)0);
     (void)e;
 
+    HdlcParser_init(&me->hdlcParser);
     SM_Hsm_init_(&me->hsm, (SM_InitHandler)SpMngr_TOP_initial_);
 
     UI_postText("SpMngr: requesting initial serial port refresh.\n");
@@ -316,6 +366,8 @@ static void SpMngr_dispatch_(SpMngr * const me,
 void SpMngr_ctor(void) {
     SpMngr * const me = &SpMngr_inst_;
 
+    HdlcParser_ctor(&me->hdlcParser,
+                    &SpMngr_onHdlcFrame_, me);
     SST_Task_ctor(&me->super,
                   (SST_Handler)&SpMngr_init_,
                   (SST_Handler)&SpMngr_dispatch_);

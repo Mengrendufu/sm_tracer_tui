@@ -13,9 +13,13 @@
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <time.h>
+#include "sst.h"
 #include "dbc_assert.h"
+#include "app_sig.h"
+#include "sp_mngr/sp_mngr.h"
 #include "sp_thread/sp_thread.h"
 #include "sp_thread/hsm/sm_sp_thread.h"
 #include "rx_packet_assembler_priv.h"
@@ -50,31 +54,24 @@ static uint64_t SpThread_monotonicMs_(void) {
            + ((uint64_t)now.tv_nsec / 1000000U);
 }
 
-static void SpThread_printPacket_(void * const ctx,
-                                  uint8_t const * const data,
-                                  size_t const size)
+static void SpThread_postPacket_(void * const ctx,
+                                 uint8_t const * const data,
+                                 size_t const size)
 {
     (void)ctx;
     DBC_REQUIRE(210, data != (uint8_t const *)0);
     DBC_REQUIRE(211, (size > 0U)
                      && (size <= RX_PACKET_ASSEMBLER_PACKET_SIZE));
 
-    char text[(RX_PACKET_ASSEMBLER_PACKET_SIZE * 3U) + 48U];
-    int written = snprintf(text, sizeof(text),
-                           "SpThread RX [%zu bytes]:", size);
-    DBC_ASSERT(212, (written > 0) && ((size_t)written < sizeof(text)));
+    uint8_t * const dataCopy = (uint8_t *)malloc(size);
+    DBC_ENSURE(212, dataCopy != (uint8_t *)0);
+    memcpy(dataCopy, data, size);
 
-    size_t offset = (size_t)written;
-    for (size_t i = 0U; i < size; ++i) {
-        written = snprintf(&text[offset], sizeof(text) - offset,
-                           " %02X", (unsigned)data[i]);
-        DBC_ASSERT(213, (written > 0)
-                        && ((size_t)written < (sizeof(text) - offset)));
-        offset += (size_t)written;
-    }
-    text[offset++] = '\n';
-    text[offset] = '\0';
-    UI_postText(text);
+    SpMngrRxPacketEvt * const packet = SST_NEW(SpMngrRxPacketEvt);
+    packet->super.sig = SPMNGR_RX_PACKET_SIG;
+    packet->data = dataCopy;
+    packet->size = size;
+    SST_Task_post(AO_SpMngr, &packet->super);
 }
 
 static void *SpThread_run_(void * const arg) {
@@ -84,7 +81,7 @@ static void *SpThread_run_(void * const arg) {
     SM_SpThread_ctor(&me->hsm);
     SM_SpThread_init(&me->hsm);
     RxPacketAssembler_init(&me->rxAssembler,
-                           &SpThread_printPacket_, me);
+                           &SpThread_postPacket_, me);
     SpThreadWake_init(SpThread_evtWakeFd());
 
     int serialFd = -1;
