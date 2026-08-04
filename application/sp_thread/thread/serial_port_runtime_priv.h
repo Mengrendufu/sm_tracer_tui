@@ -10,7 +10,17 @@
 #ifndef SERIAL_PORT_RUNTIME_PRIV_H_
 #define SERIAL_PORT_RUNTIME_PRIV_H_
 
+#include <stdbool.h>
 #include <stddef.h>
+#include "sp_thread/sp_thread.h"
+
+// Open and configure one serial port. The runtime retains the port handle
+// after success and releases every acquired resource after failure.
+bool SerialPortRuntime_open(SerialConfig const *config);
+
+// Close and release the retained serial-port handle. A close failure leaves
+// the handle retained so the caller can retry.
+bool SerialPortRuntime_close(void);
 
 // Return an owned, double-NUL-terminated sequence of NUL-terminated names.
 // The caller must free the result. Return NULL and size zero on failure.

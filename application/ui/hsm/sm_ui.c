@@ -207,6 +207,16 @@ static SM_RetState SM_UI_active_(
             return _SM_HANDLED();
         }
 
+        case UI_CONNECTION_STATUS_SIG: {
+            UI_ConnectionEvt const * const connection =
+                (UI_ConnectionEvt const *)e;
+            ConnectionStatusBar_setConnection(
+                &ao->status,
+                connection->status == UI_CONNECTION_CONNECTED);
+            SM_UI_requestFrame_();
+            return _SM_HANDLED();
+        }
+
         default: {
             return _SM_SUPER();
         }

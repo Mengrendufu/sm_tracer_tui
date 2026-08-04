@@ -12,17 +12,21 @@
 
 #include <stdint.h>
 #include "sm_hsm.h"
+#include "sp_thread/sp_thread.h"
 
 //============================================================================
 //=== SM_SpThread component
 
 enum SpThreadSignals {
     SPTHRD_NULL_SIG = 0U,
-    SPTHRD_REFRESH_PORTS_SIG
+    SPTHRD_REFRESH_PORTS_SIG,
+    SPTHRD_OPEN_PORT_SIG,
+    SPTHRD_CLOSE_PORT_SIG
 };
 
 typedef struct {
     uint16_t sig;
+    SerialConfig config;
 } SpThreadEvt;
 
 typedef struct {

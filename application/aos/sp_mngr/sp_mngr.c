@@ -9,8 +9,12 @@
 //============================================================================
 //============================================================================
 //=== AO_SpMngr subsystem root: SST task + HSM
+#include <errno.h>
+#include <limits.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "sst.h"
 #include "sm_port.h"
 #include "sm_hsm.h"
@@ -35,6 +39,9 @@ SST_Task * const AO_SpMngr = &SpMngr_inst_.super;
 
 static void SpMngr_reportConfig_(char const *action,
                                  SpMngrConfigEvt const *e);
+static bool SpMngr_makeSerialConfig_(
+    SpMngrConfig const *source,
+    SerialConfig *target);
 
 //============================================================================
 //=== HSM states
@@ -74,14 +81,44 @@ static SM_RetState SpMngr_active_(SM_Hsm * const me, SST_Evt const * const e) SM
         }
 
         case SPMNGR_PORT_CONNECT_SIG: {
-            SpMngr_reportConfig_(
-                "connect requested",
-                SST_EVT_DOWNCAST(SpMngrConfigEvt, e));
+            SpMngrConfigEvt const * const command =
+                SST_EVT_DOWNCAST(SpMngrConfigEvt, e);
+            SerialConfig config;
+            if (SpMngr_makeSerialConfig_(&command->config, &config)) {
+                SpMngr_reportConfig_("connect requested", command);
+                SpThread_postOpenPort(&config);
+            } else {
+                UI_postText(
+                    "SpMngr: invalid serial configuration.\n");
+            }
+            return _SM_HANDLED();
+        }
+
+        case SPMNGR_PORT_OPENED_SIG: {
+            UI_postText("SpMngr: serial port opened.\n");
+            UI_postConnectionStatus(UI_CONNECTION_CONNECTED);
+            return _SM_HANDLED();
+        }
+
+        case SPMNGR_PORT_OPEN_FAILED_SIG: {
+            UI_postText("SpMngr: serial port open failed.\n");
             return _SM_HANDLED();
         }
 
         case SPMNGR_PORT_DISCONNECT_SIG: {
             UI_postText("SpMngr: disconnect requested.\n");
+            SpThread_postClosePort();
+            return _SM_HANDLED();
+        }
+
+        case SPMNGR_PORT_CLOSED_SIG: {
+            UI_postText("SpMngr: serial port closed.\n");
+            UI_postConnectionStatus(UI_CONNECTION_DISCONNECTED);
+            return _SM_HANDLED();
+        }
+
+        case SPMNGR_PORT_CLOSE_FAILED_SIG: {
+            UI_postText("SpMngr: serial port close failed.\n");
             return _SM_HANDLED();
         }
 
@@ -128,6 +165,118 @@ static void SpMngr_reportConfig_(
     DBC_ASSERT(302, (len > 0) && ((size_t)len < sizeof(text)));
     (void)len;
     UI_postText(text);
+}
+
+static bool SpMngr_parseInt_(char const * const text,
+                             int const min,
+                             int const max,
+                             int * const value)
+{
+    if (memchr(text, '\0', SPMNGR_VALUE_LEN) == (void *)0) {
+        return false;
+    }
+
+    errno = 0;
+    char *end;
+    long const parsed = strtol(text, &end, 10);
+    if ((errno == ERANGE) || (end == text) || (*end != '\0')
+        || (parsed < min) || (parsed > max))
+    {
+        return false;
+    }
+    *value = (int)parsed;
+    return true;
+}
+
+static bool SpMngr_parseStopBits_(char const * const text,
+                                  SerialStopBits * const value)
+{
+    if (strcmp(text, "1") == 0) {
+        *value = SERIAL_STOP_BITS_1;
+        return true;
+    } else if (strcmp(text, "2") == 0) {
+        *value = SERIAL_STOP_BITS_2;
+        return true;
+    } else {
+        return false;
+    }
+}
+
+static bool SpMngr_parseParity_(char const * const text,
+                                SerialParity * const value)
+{
+    static char const * const names[] = {
+        "none", "odd", "even", "mark", "space",
+    };
+    for (unsigned i = 0U; i < (sizeof(names) / sizeof(names[0])); ++i) {
+        if (strcmp(text, names[i]) == 0) {
+            *value = (SerialParity)i;
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool SpMngr_parseFlowControl_(
+    char const * const text,
+    SerialFlowControl * const value)
+{
+    static char const * const names[] = {
+        "none", "xon/xoff", "rts/cts", "dtr/dsr",
+    };
+    for (unsigned i = 0U; i < (sizeof(names) / sizeof(names[0])); ++i) {
+        if (strcmp(text, names[i]) == 0) {
+            *value = (SerialFlowControl)i;
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool SpMngr_makeSerialConfig_(
+    SpMngrConfig const * const source,
+    SerialConfig * const target)
+{
+    DBC_REQUIRE(400, source != (SpMngrConfig const *)0);
+    DBC_REQUIRE(401, target != (SerialConfig *)0);
+
+    char const * const terminator = (char const *)memchr(
+        source->port, '\0', sizeof(source->port));
+    if (terminator == (char const *)0) {
+        return false;
+    }
+    size_t const portNameLen = (size_t)(terminator - source->port);
+    if ((portNameLen == 0U) || (portNameLen >= sizeof(target->portName))
+        || (strcmp(source->port, "none") == 0))
+    {
+        return false;
+    }
+    if ((memchr(source->stopBits, '\0', sizeof(source->stopBits))
+         == (void *)0)
+        || (memchr(source->parity, '\0', sizeof(source->parity))
+            == (void *)0)
+        || (memchr(source->flowControl, '\0',
+                   sizeof(source->flowControl)) == (void *)0))
+    {
+        return false;
+    }
+
+    int dataBits;
+    if (!SpMngr_parseInt_(source->baudrate, 1, INT_MAX,
+                          &target->baudRate)
+        || !SpMngr_parseInt_(source->dataBits, 5, 8, &dataBits)
+        || !SpMngr_parseStopBits_(source->stopBits,
+                                  &target->stopBits)
+        || !SpMngr_parseParity_(source->parity, &target->parity)
+        || !SpMngr_parseFlowControl_(source->flowControl,
+                                     &target->flowControl))
+    {
+        return false;
+    }
+
+    memcpy(target->portName, source->port, portNameLen + 1U);
+    target->dataBits = (uint8_t)dataBits;
+    return true;
 }
 
 //============================================================================

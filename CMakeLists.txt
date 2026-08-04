@@ -246,6 +246,20 @@ if(BUILD_TESTING)
     add_test(NAME sp_thread_event_flow
              COMMAND sp_thread_event_flow_test)
 
+    add_executable(sp_thread_event_contract_test
+        tests/sp_thread_event_contract_test.c
+        application/sp_thread/thread/sp_thread_evt.c
+    )
+    target_include_directories(sp_thread_event_contract_test PRIVATE
+        ${INC_ALL}
+    )
+    target_compile_definitions(sp_thread_event_contract_test PRIVATE
+        DBC_DISABLE
+        _POSIX_C_SOURCE=200809L
+    )
+    add_test(NAME sp_thread_event_contract
+             COMMAND sp_thread_event_contract_test)
+
     add_executable(serial_port_runtime_test
         tests/serial_port_runtime_test.c
         application/sp_thread/thread/serial_port_runtime.c

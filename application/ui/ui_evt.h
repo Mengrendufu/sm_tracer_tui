@@ -15,8 +15,14 @@
 //============================================================================
 //=== UI event ingress — thread-safe, callable from application components
 
+typedef enum {
+    UI_CONNECTION_DISCONNECTED,
+    UI_CONNECTION_CONNECTED
+} UI_ConnectionStatus;
+
 void UI_postText(char const *text);
 // Copy a NUL-separated, double-NUL-terminated sequence into the UI inbox.
 void UI_postPortList(char const *portNames, size_t portNamesSize);
+void UI_postConnectionStatus(UI_ConnectionStatus status);
 
 #endif // UI_EVT_H_

@@ -20,6 +20,12 @@
 static pthread_mutex_t l_mutex_ = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t l_cond_ = PTHREAD_COND_INITIALIZER;
 static bool l_refreshDispatched_;
+static bool l_openDispatched_;
+static bool l_runtimeCloseResult_;
+static unsigned l_runtimeCloseCalls_;
+static unsigned l_closeDispatchCount_;
+static SST_Signal l_openResultSig_;
+static SerialConfig l_openConfig_;
 static char l_portNames_[128];
 static size_t l_portNamesSize_;
 
@@ -38,6 +44,16 @@ char *SerialPortRuntime_listPorts(size_t * const size) {
         *size = sizeof(portNames);
     }
     return copy;
+}
+
+bool SerialPortRuntime_open(SerialConfig const * const config) {
+    l_openConfig_ = *config;
+    return true;
+}
+
+bool SerialPortRuntime_close(void) {
+    ++l_runtimeCloseCalls_;
+    return l_runtimeCloseResult_;
 }
 
 void *SST_Evt_new(PoolCtr const blockSize) {
@@ -59,6 +75,23 @@ void SST_Task_post(SST_Task * const me, SST_Evt const * const e) {
 
         free(result->portNames);
         free((void *)e);
+    } else if ((me == AO_SpMngr)
+               && (e->sig == SPMNGR_PORT_OPENED_SIG))
+    {
+        pthread_mutex_lock(&l_mutex_);
+        l_openResultSig_ = e->sig;
+        l_openDispatched_ = true;
+        pthread_cond_signal(&l_cond_);
+        pthread_mutex_unlock(&l_mutex_);
+    } else if ((me == AO_SpMngr)
+               && ((e->sig == SPMNGR_PORT_CLOSED_SIG)
+                   || (e->sig == SPMNGR_PORT_CLOSE_FAILED_SIG)))
+    {
+        pthread_mutex_lock(&l_mutex_);
+        l_openResultSig_ = e->sig;
+        ++l_closeDispatchCount_;
+        pthread_cond_signal(&l_cond_);
+        pthread_mutex_unlock(&l_mutex_);
     }
 }
 
@@ -89,6 +122,73 @@ int main(void) {
               && memcmp(l_portNames_, expected,
                         sizeof(expected)) == 0
               ? 0 : 1;
+
+    SerialConfig const config = {
+        .portName = "/dev/ttyTEST0",
+        .baudRate = 115200,
+        .dataBits = 8U,
+        .stopBits = SERIAL_STOP_BITS_1,
+        .parity = SERIAL_PARITY_NONE,
+        .flowControl = SERIAL_FLOW_NONE,
+    };
+    SpThread_postOpenPort(&config);
+
+    struct timespec deadline;
+    (void)clock_gettime(CLOCK_REALTIME, &deadline);
+    ++deadline.tv_sec;
+
+    pthread_mutex_lock(&l_mutex_);
+    while (!l_openDispatched_) {
+        int const status = pthread_cond_timedwait(
+            &l_cond_, &l_mutex_, &deadline);
+        if (status != 0) {
+            failed = 1;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&l_mutex_);
+
+    failed += l_openResultSig_ == SPMNGR_PORT_OPENED_SIG ? 0 : 1;
+    failed += strcmp(l_openConfig_.portName, config.portName) == 0
+              ? 0 : 1;
+
+    l_runtimeCloseResult_ = false;
+    SpThread_postClosePort();
+    (void)clock_gettime(CLOCK_REALTIME, &deadline);
+    ++deadline.tv_sec;
+
+    pthread_mutex_lock(&l_mutex_);
+    while (l_closeDispatchCount_ < 1U) {
+        int const status = pthread_cond_timedwait(
+            &l_cond_, &l_mutex_, &deadline);
+        if (status != 0) {
+            failed = 1;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&l_mutex_);
+
+    failed += l_openResultSig_ == SPMNGR_PORT_CLOSE_FAILED_SIG
+              ? 0 : 1;
+
+    l_runtimeCloseResult_ = true;
+    SpThread_postClosePort();
+    (void)clock_gettime(CLOCK_REALTIME, &deadline);
+    ++deadline.tv_sec;
+
+    pthread_mutex_lock(&l_mutex_);
+    while (l_closeDispatchCount_ < 2U) {
+        int const status = pthread_cond_timedwait(
+            &l_cond_, &l_mutex_, &deadline);
+        if (status != 0) {
+            failed = 1;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&l_mutex_);
+
+    failed += l_openResultSig_ == SPMNGR_PORT_CLOSED_SIG ? 0 : 1;
+    failed += l_runtimeCloseCalls_ == 2U ? 0 : 1;
 
     return failed;
 }

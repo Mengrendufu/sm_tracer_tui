@@ -46,7 +46,7 @@ build.
 | Thread category | Role | Entry |
 |-----------------|------|-------|
 | Main | Terminal input, UI event drain, frame scheduling, rendering | `UI_run()` |
-| Serial port | Event inbox/wake, idle HSM dispatch, port enumeration | `SpThread_run_()` |
+| Serial port | Event inbox/wake, connection HSM, port IO/enumeration | `SpThread_run_()` |
 | SST kernel | Starts AOs, ticks timers, runs idle callback | `SST_Task_run()` |
 | SST AO workers | One pthread and queue per started AO | `ao_thread()` |
 
@@ -64,6 +64,11 @@ because their initial transitions can call `UI_postText()`.
 `SpThread_start()` and the SST launch create threads asynchronously. Before
 entering `UI_run()`, main waits until `SST_onStart()` confirms that all AOs
 have completed synchronous construction, queue setup, and initial transition.
+
+The serial-thread HSM has an `active` parent with `disconnected` and
+`connected` leaf states. Port refresh is handled by `active`; open and close
+successes transition between the leaves, while operation failures retain the
+current state. `SerialPortRuntime` owns the opened `sp_port` handle.
 
 ## UI boundaries
 

@@ -35,7 +35,8 @@ static void ConnectionStatusBar_drawCell_(
     struct ConnectionStatusBar * const bar,
     unsigned * const x,
     char const * const label,
-    char const * const value)
+    char const * const value,
+    bool const connectionValue)
 {
     DBC_REQUIRE(110, bar != (struct ConnectionStatusBar *)0);
     DBC_REQUIRE(111, bar->plane != (struct ncplane *)0);
@@ -73,7 +74,15 @@ static void ConnectionStatusBar_drawCell_(
     ncplane_set_fg_rgb8(bar->plane, 105, 185, 170);
     (void)WidgetIO_putStrYx(bar->plane, 0, *x, labelPart);
     ncplane_off_styles(bar->plane, NCSTYLE_BOLD);
-    ncplane_set_fg_rgb8(bar->plane, 225, 230, 232);
+    if (connectionValue) {
+        if (bar->connected) {
+            ncplane_set_fg_rgb8(bar->plane, 105, 220, 150);
+        } else {
+            ncplane_set_fg_rgb8(bar->plane, 235, 100, 110);
+        }
+    } else {
+        ncplane_set_fg_rgb8(bar->plane, 225, 230, 232);
+    }
     (void)WidgetIO_putStr(bar->plane, valuePart);
     unsigned const cellWidth = (unsigned)(labelWidth + valueWidth);
     unsigned const remaining = cols - *x - cellWidth;
@@ -105,14 +114,19 @@ static void ConnectionStatusBar_draw_(
     ncplane_set_fg_rgb8(bar->plane, 205, 210, 212);
 
     unsigned x = 0U;
-    ConnectionStatusBar_drawCell_(bar, &x, "status", bar->connection);
-    ConnectionStatusBar_drawCell_(bar, &x, "port", bar->port);
-    ConnectionStatusBar_drawCell_(bar, &x, "baud", bar->baud);
-    ConnectionStatusBar_drawCell_(bar, &x, "data", bar->dataBits);
-    ConnectionStatusBar_drawCell_(bar, &x, "stop", bar->stopBits);
-    ConnectionStatusBar_drawCell_(bar, &x, "parity", bar->parity);
-    ConnectionStatusBar_drawCell_(bar, &x, "flow", bar->flow);
-    ConnectionStatusBar_drawCell_(bar, &x, "proto", bar->protocol);
+    ConnectionStatusBar_drawCell_(
+        bar, &x, "status", bar->connection, true);
+    ConnectionStatusBar_drawCell_(bar, &x, "port", bar->port, false);
+    ConnectionStatusBar_drawCell_(bar, &x, "baud", bar->baud, false);
+    ConnectionStatusBar_drawCell_(
+        bar, &x, "data", bar->dataBits, false);
+    ConnectionStatusBar_drawCell_(
+        bar, &x, "stop", bar->stopBits, false);
+    ConnectionStatusBar_drawCell_(
+        bar, &x, "parity", bar->parity, false);
+    ConnectionStatusBar_drawCell_(bar, &x, "flow", bar->flow, false);
+    ConnectionStatusBar_drawCell_(
+        bar, &x, "proto", bar->protocol, false);
 }
 
 //============================================================================
@@ -160,6 +174,7 @@ void ConnectionStatusBar_setConnection(
     bool const connected)
 {
     DBC_REQUIRE(230, bar != (struct ConnectionStatusBar *)0);
+    bar->connected = connected;
     ConnectionStatusBar_setText_(
         bar->connection, sizeof(bar->connection),
         connected ? "connected" : "disconnected", "disconnected");

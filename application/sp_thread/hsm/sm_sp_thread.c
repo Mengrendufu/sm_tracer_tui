@@ -27,15 +27,35 @@ DBC_MODULE_NAME("sm_sp_thread")
 // TOP-INIT
 static SM_StatePtr SM_SpThread_TOP_initial_(SM_Hsm * const me) SM_HSM_RETT;
 
-// idle
-static SM_RetState SM_SpThread_idle_(SM_Hsm * const me, SpThreadEvt const * const e) SM_HSM_RETT;
-
-static SM_HsmState SM_HSM_ROM SM_SpThread_idle = {
+// active
+static SM_StatePtr SM_SpThread_active_init_(SM_Hsm * const me) SM_HSM_RETT;
+static SM_RetState SM_SpThread_active_(SM_Hsm * const me, SpThreadEvt const * const e) SM_HSM_RETT;
+static SM_HsmState SM_HSM_ROM SM_SpThread_active = {
     SM_HSM_TOP,                              // super
-    (SM_InitHandler)0,                       // init_
+    (SM_InitHandler)&SM_SpThread_active_init_, // init_
     (SM_ActionHandler)0,                     // entry_
     (SM_ActionHandler)0,                     // exit_
-    (SM_StateHandler)&SM_SpThread_idle_      // handler
+    (SM_StateHandler)&SM_SpThread_active_    // handler
+};
+
+// disconnected
+static SM_RetState SM_SpThread_disconnected_(SM_Hsm * const me, SpThreadEvt const * const e) SM_HSM_RETT;
+static SM_HsmState SM_HSM_ROM SM_SpThread_disconnected = {
+    (SM_StatePtr)&SM_SpThread_active,             // super
+    (SM_InitHandler)0,                            // init_
+    (SM_ActionHandler)0,                          // entry_
+    (SM_ActionHandler)0,                          // exit_
+    (SM_StateHandler)&SM_SpThread_disconnected_   // handler
+};
+
+// connected
+static SM_RetState SM_SpThread_connected_(SM_Hsm * const me, SpThreadEvt const * const e) SM_HSM_RETT;
+static SM_HsmState SM_HSM_ROM SM_SpThread_connected = {
+    (SM_StatePtr)&SM_SpThread_active,          // super
+    (SM_InitHandler)0,                         // init_
+    (SM_ActionHandler)0,                       // entry_
+    (SM_ActionHandler)0,                       // exit_
+    (SM_StateHandler)&SM_SpThread_connected_   // handler
 };
 
 //============================================================================
@@ -44,10 +64,15 @@ static SM_HsmState SM_HSM_ROM SM_SpThread_idle = {
 static SM_StatePtr SM_SpThread_TOP_initial_(SM_Hsm * const me) SM_HSM_RETT {
     (void)me;
     UI_postText("SerialPortThread initialized.\n");
-    return _SM_INIT(&SM_SpThread_idle);
+    return _SM_INIT(&SM_SpThread_active);
 }
 
-static SM_RetState SM_SpThread_idle_(SM_Hsm * const me, SpThreadEvt const * const e) SM_HSM_RETT {
+static SM_StatePtr SM_SpThread_active_init_(SM_Hsm * const me) SM_HSM_RETT {
+    (void)me;
+    return _SM_INIT(&SM_SpThread_disconnected);
+}
+
+static SM_RetState SM_SpThread_active_(SM_Hsm * const me, SpThreadEvt const * const e) SM_HSM_RETT {
     (void)me;
 
     switch (e->sig) {
@@ -58,6 +83,74 @@ static SM_RetState SM_SpThread_idle_(SM_Hsm * const me, SpThreadEvt const * cons
                 &result->portNamesSize);
             SST_Task_post(AO_SpMngr, &result->super);
             return _SM_HANDLED();
+        }
+
+        default: {
+            return _SM_SUPER();
+        }
+    }
+}
+
+static SM_RetState SM_SpThread_disconnected_(SM_Hsm * const me, SpThreadEvt const * const e) SM_HSM_RETT {
+    (void)me;
+
+    switch (e->sig) {
+        case SPTHRD_OPEN_PORT_SIG: {
+            static SST_Evt const openedEvt = {
+                .sig = SPMNGR_PORT_OPENED_SIG,
+            };
+            static SST_Evt const failedEvt = {
+                .sig = SPMNGR_PORT_OPEN_FAILED_SIG,
+            };
+            if (SerialPortRuntime_open(&e->config)) {
+                SST_Task_post(AO_SpMngr, &openedEvt);
+                return _SM_TRAN(&SM_SpThread_connected);
+            } else {
+                SST_Task_post(AO_SpMngr, &failedEvt);
+                return _SM_HANDLED();
+            }
+        }
+
+        case SPTHRD_CLOSE_PORT_SIG: {
+            static SST_Evt const closedEvt = {
+                .sig = SPMNGR_PORT_CLOSED_SIG,
+            };
+            SST_Task_post(AO_SpMngr, &closedEvt);
+            return _SM_HANDLED();
+        }
+
+        default: {
+            return _SM_SUPER();
+        }
+    }
+}
+
+static SM_RetState SM_SpThread_connected_(SM_Hsm * const me, SpThreadEvt const * const e) SM_HSM_RETT {
+    (void)me;
+
+    switch (e->sig) {
+        case SPTHRD_OPEN_PORT_SIG: {
+            static SST_Evt const failedEvt = {
+                .sig = SPMNGR_PORT_OPEN_FAILED_SIG,
+            };
+            SST_Task_post(AO_SpMngr, &failedEvt);
+            return _SM_HANDLED();
+        }
+
+        case SPTHRD_CLOSE_PORT_SIG: {
+            static SST_Evt const closedEvt = {
+                .sig = SPMNGR_PORT_CLOSED_SIG,
+            };
+            static SST_Evt const failedEvt = {
+                .sig = SPMNGR_PORT_CLOSE_FAILED_SIG,
+            };
+            if (SerialPortRuntime_close()) {
+                SST_Task_post(AO_SpMngr, &closedEvt);
+                return _SM_TRAN(&SM_SpThread_disconnected);
+            } else {
+                SST_Task_post(AO_SpMngr, &failedEvt);
+                return _SM_HANDLED();
+            }
         }
 
         default: {

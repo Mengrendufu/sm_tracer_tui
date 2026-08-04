@@ -180,6 +180,20 @@ void UI_postPortList(char const * const portNames,
     UI_wake_();
 }
 
+void UI_postConnectionStatus(UI_ConnectionStatus const status) {
+    DBC_REQUIRE(340, (status == UI_CONNECTION_DISCONNECTED)
+                     || (status == UI_CONNECTION_CONNECTED));
+    DBC_REQUIRE(341, UI_eventInbox_.wakeFd >= 0);
+
+    UI_ConnectionEvt * const connection =
+        (UI_ConnectionEvt *)UI_Alloc_(sizeof(UI_ConnectionEvt));
+    connection->super.sig = UI_CONNECTION_STATUS_SIG;
+    connection->status = status;
+
+    UI_enqueue_((UI_Evt *)connection);
+    UI_wake_();
+}
+
 //============================================================================
 //=== Init / Wake fd / Dequeue / Free
 

@@ -4,9 +4,12 @@
 
 void ApplicationSubsystem_contract(void) {
     SST_Task * const task = AO_SpMngr;
+    SerialConfig const config = {0};
     (void)task;
 
     SpMngr_ctor();
     (void)SpThread_start();
+    SpThread_postOpenPort(&config);
+    SpThread_postClosePort();
     SpThread_postRefreshPorts();
 }

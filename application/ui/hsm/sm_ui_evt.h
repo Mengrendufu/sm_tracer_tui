@@ -12,6 +12,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include "ui_evt.h"
 #include "ui_input.h"
 
 //============================================================================
@@ -43,6 +44,11 @@ typedef struct {
     size_t portNamesSize;
     char *portNames;
 } UI_PortListEvt;
+
+typedef struct {
+    UI_Evt super;
+    UI_ConnectionStatus status;
+} UI_ConnectionEvt;
 
 enum UIEventSignals {
     UI_NULL_SIG = 0,
@@ -77,6 +83,7 @@ enum UIEventSignals {
     UI_TIMER_SIG,
     UI_TEXT_SIG,
     UI_REFRESHED_PORTS_SIG,
+    UI_CONNECTION_STATUS_SIG,
 };
 
 #endif // SM_UI_EVT_H_

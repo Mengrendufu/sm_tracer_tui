@@ -3,11 +3,17 @@
 #include <string.h>
 #include "app_sig.h"
 #include "sp_mngr/sp_mngr.h"
+#include "sp_thread/sp_thread.h"
+#include "ui_evt.h"
 
 static char l_text_[2048];
 static unsigned l_refreshPosts_;
 static unsigned l_aoPosts_;
 static SST_Signal l_lastAoSig_;
+static unsigned l_openPosts_;
+static unsigned l_closePosts_;
+static SerialConfig l_openConfig_;
+static UI_ConnectionStatus l_connectionStatus_;
 static char l_portNames_[128];
 static size_t l_portNamesSize_;
 
@@ -22,8 +28,21 @@ void UI_postPortList(char const * const portNames,
     memcpy(l_portNames_, portNames, portNamesSize);
 }
 
+void UI_postConnectionStatus(UI_ConnectionStatus const status) {
+    l_connectionStatus_ = status;
+}
+
 void SpThread_postRefreshPorts(void) {
     ++l_refreshPosts_;
+}
+
+void SpThread_postOpenPort(SerialConfig const * const config) {
+    ++l_openPosts_;
+    l_openConfig_ = *config;
+}
+
+void SpThread_postClosePort(void) {
+    ++l_closePosts_;
 }
 
 void SST_Task_ctor(SST_Task * const me,
@@ -80,6 +99,32 @@ int main(void) {
     (*AO_SpMngr->dispatch)(AO_SpMngr, &config.super);
     failed += expectContains_("connect requested");
     failed += expectContains_("port=com3");
+    failed += l_openPosts_ == 1U ? 0 : 1;
+    failed += strcmp(l_openConfig_.portName, "com3") == 0 ? 0 : 1;
+    failed += l_openConfig_.baudRate == 9600 ? 0 : 1;
+    failed += l_openConfig_.dataBits == 7U ? 0 : 1;
+    failed += l_openConfig_.stopBits == SERIAL_STOP_BITS_2 ? 0 : 1;
+    failed += l_openConfig_.parity == SERIAL_PARITY_EVEN ? 0 : 1;
+    failed += l_openConfig_.flowControl == SERIAL_FLOW_NONE ? 0 : 1;
+
+    (void)snprintf(config.config.baudrate,
+                   sizeof(config.config.baudrate), "%s", "invalid");
+    (*AO_SpMngr->dispatch)(AO_SpMngr, &config.super);
+    failed += l_openPosts_ == 1U ? 0 : 1;
+    failed += strcmp(l_text_, "SpMngr: invalid serial configuration.\n")
+              == 0 ? 0 : 1;
+
+    SST_Evt const opened = {
+        .sig = SPMNGR_PORT_OPENED_SIG,
+    };
+    (*AO_SpMngr->dispatch)(AO_SpMngr, &opened);
+    failed += l_connectionStatus_ == UI_CONNECTION_CONNECTED ? 0 : 1;
+
+    SST_Evt const openFailed = {
+        .sig = SPMNGR_PORT_OPEN_FAILED_SIG,
+    };
+    (*AO_SpMngr->dispatch)(AO_SpMngr, &openFailed);
+    failed += l_connectionStatus_ == UI_CONNECTION_CONNECTED ? 0 : 1;
 
     SST_Evt const disconnect = {
         .sig = SPMNGR_PORT_DISCONNECT_SIG,
@@ -87,6 +132,20 @@ int main(void) {
     (*AO_SpMngr->dispatch)(AO_SpMngr, &disconnect);
     failed += strcmp(l_text_, "SpMngr: disconnect requested.\n") == 0
               ? 0 : 1;
+    failed += l_closePosts_ == 1U ? 0 : 1;
+
+    SST_Evt const closed = {
+        .sig = SPMNGR_PORT_CLOSED_SIG,
+    };
+    (*AO_SpMngr->dispatch)(AO_SpMngr, &closed);
+    failed += l_connectionStatus_ == UI_CONNECTION_DISCONNECTED ? 0 : 1;
+
+    (*AO_SpMngr->dispatch)(AO_SpMngr, &opened);
+    SST_Evt const closeFailed = {
+        .sig = SPMNGR_PORT_CLOSE_FAILED_SIG,
+    };
+    (*AO_SpMngr->dispatch)(AO_SpMngr, &closeFailed);
+    failed += l_connectionStatus_ == UI_CONNECTION_CONNECTED ? 0 : 1;
 
     SST_Evt const refresh = {
         .sig = SPMNGR_REFRESH_PORTS_SIG,

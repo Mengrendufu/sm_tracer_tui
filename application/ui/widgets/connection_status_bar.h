@@ -22,6 +22,7 @@ enum {
 
 struct ConnectionStatusBar {
     struct ncplane *plane;
+    bool connected;
     char connection[CONNECTION_STATUS_SHORT_LEN_];
     char port[CONNECTION_STATUS_PORT_LEN_];
     char baud[CONNECTION_STATUS_SHORT_LEN_];

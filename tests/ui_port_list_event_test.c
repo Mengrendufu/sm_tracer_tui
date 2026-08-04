@@ -34,5 +34,19 @@ int main(void) {
         UI_evtFree(e);
     }
 
+    UI_postConnectionStatus(UI_CONNECTION_CONNECTED);
+    failed += UI_evtConsumeWake() == 0 ? 0 : 1;
+    UI_Evt * const connectionEvt = UI_evtDequeue();
+    failed += connectionEvt != (UI_Evt *)0 ? 0 : 1;
+    if (connectionEvt != (UI_Evt *)0) {
+        UI_ConnectionEvt const * const connection =
+            (UI_ConnectionEvt const *)connectionEvt;
+        failed += connection->super.sig == UI_CONNECTION_STATUS_SIG
+                  ? 0 : 1;
+        failed += connection->status == UI_CONNECTION_CONNECTED
+                  ? 0 : 1;
+        UI_evtFree(connectionEvt);
+    }
+
     return failed == 0 ? 0 : 1;
 }
