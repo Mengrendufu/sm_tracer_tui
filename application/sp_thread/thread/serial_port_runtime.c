@@ -17,6 +17,7 @@
 #include "serial_port_runtime_priv.h"
 
 static struct sp_port *SerialPortRuntime_port_;
+static int SerialPortRuntime_fd_ = -1;
 
 static bool SerialPortRuntime_mapStopBits_(
     SerialStopBits const stopBits,
@@ -110,7 +111,15 @@ bool SerialPortRuntime_open(SerialConfig const * const config) {
         return false;
     }
 
+    int fd = -1;
+    if (sp_get_port_handle(port, &fd) != SP_OK) {
+        (void)sp_close(port);
+        sp_free_port(port);
+        return false;
+    }
+
     SerialPortRuntime_port_ = port;
+    SerialPortRuntime_fd_ = fd;
     return true;
 }
 
@@ -124,7 +133,25 @@ bool SerialPortRuntime_close(void) {
 
     sp_free_port(SerialPortRuntime_port_);
     SerialPortRuntime_port_ = (struct sp_port *)0;
+    SerialPortRuntime_fd_ = -1;
     return true;
+}
+
+int SerialPortRuntime_fd(void) {
+    return SerialPortRuntime_fd_;
+}
+
+int SerialPortRuntime_read(uint8_t * const data,
+                           size_t const capacity)
+{
+    if ((SerialPortRuntime_port_ == (struct sp_port *)0)
+        || (data == (uint8_t *)0)
+        || (capacity == 0U))
+    {
+        return SP_ERR_ARG;
+    }
+
+    return sp_nonblocking_read(SerialPortRuntime_port_, data, capacity);
 }
 
 char *SerialPortRuntime_listPorts(size_t * const portNamesSize) {

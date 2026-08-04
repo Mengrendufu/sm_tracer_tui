@@ -12,6 +12,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 #include "sp_thread/sp_thread.h"
 
 // Open and configure one serial port. The runtime retains the port handle
@@ -21,6 +22,14 @@ bool SerialPortRuntime_open(SerialConfig const *config);
 // Close and release the retained serial-port handle. A close failure leaves
 // the handle retained so the caller can retry.
 bool SerialPortRuntime_close(void);
+
+// Return the native descriptor borrowed from the retained open port, or -1
+// while no port is open. The runtime retains descriptor ownership.
+int SerialPortRuntime_fd(void);
+
+// Read at most capacity bytes without blocking. Return a byte count, zero
+// when no bytes are available, or a negative libserialport error.
+int SerialPortRuntime_read(uint8_t *data, size_t capacity);
 
 // Return an owned, double-NUL-terminated sequence of NUL-terminated names.
 // The caller must free the result. Return NULL and size zero on failure.

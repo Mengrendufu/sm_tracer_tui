@@ -46,7 +46,7 @@ build.
 | Thread category | Role | Entry |
 |-----------------|------|-------|
 | Main | Terminal input, UI event drain, frame scheduling, rendering | `UI_run()` |
-| Serial port | Event inbox/wake, connection HSM, port IO/enumeration | `SpThread_run_()` |
+| Serial port | Event/serial wake, HSM dispatch, RX packet assembly | `SpThread_run_()` |
 | SST kernel | Starts AOs, ticks timers, runs idle callback | `SST_Task_run()` |
 | SST AO workers | One pthread and queue per started AO | `ao_thread()` |
 
@@ -303,7 +303,9 @@ CTest currently exercises:
 - `ui_input_cmps_mngr`
 - `sp_mngr_command`
 - `sp_thread_event_flow`
+- `sp_thread_wake`
 - `serial_port_runtime`
+- `rx_packet_assembler`
 - `ui_input_composer_lifecycle`
 - `ui_command_suggestion_lifecycle`
 - `scrollbar`

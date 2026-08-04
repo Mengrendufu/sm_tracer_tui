@@ -8,6 +8,7 @@
 // See http://www.wtfpl.net/ for more details.
 //============================================================================
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include "libserialport.h"
 #include "sp_thread/sp_thread.h"
@@ -41,6 +42,8 @@ static int l_dataBits_;
 static int l_stopBits_;
 static enum sp_parity l_parity_;
 static enum sp_flowcontrol l_flowControl_;
+static int l_portFd_ = 42;
+static uint8_t l_readData_[] = {0x11U, 0x22U, 0x33U};
 
 enum sp_return sp_list_ports(struct sp_port *** const list) {
     if (l_mode_ == LIST_MODE_ERROR_) {
@@ -137,8 +140,29 @@ enum sp_return sp_flush(struct sp_port * const port,
     return l_configResult_;
 }
 
+enum sp_return sp_get_port_handle(struct sp_port const * const port,
+                                  void * const resultPtr)
+{
+    (void)port;
+    *((int *)resultPtr) = l_portFd_;
+    return SP_OK;
+}
+
+enum sp_return sp_nonblocking_read(struct sp_port * const port,
+                                   void * const data,
+                                   size_t const capacity)
+{
+    (void)port;
+    size_t const size = capacity < sizeof(l_readData_)
+                        ? capacity : sizeof(l_readData_);
+    memcpy(data, l_readData_, size);
+    return (enum sp_return)size;
+}
+
 int main(void) {
     int failed = 0;
+
+    failed += SerialPortRuntime_fd() == -1 ? 0 : 1;
 
     l_mode_ = LIST_MODE_PORTS_;
     size_t portNamesSize = 0U;
@@ -196,6 +220,14 @@ int main(void) {
     failed += l_stopBits_ == 1 ? 0 : 1;
     failed += l_parity_ == SP_PARITY_EVEN ? 0 : 1;
     failed += l_flowControl_ == SP_FLOWCONTROL_RTSCTS ? 0 : 1;
+    failed += SerialPortRuntime_fd() == l_portFd_ ? 0 : 1;
+
+    uint8_t readData[sizeof(l_readData_)] = {0};
+    int const readSize = SerialPortRuntime_read(readData,
+                                                sizeof(readData));
+    failed += readSize == (int)sizeof(l_readData_)
+              && memcmp(readData, l_readData_, sizeof(readData)) == 0
+              ? 0 : 1;
 
     l_closeResult_ = SP_ERR_FAIL;
     failed += !SerialPortRuntime_close() ? 0 : 1;
@@ -206,6 +238,7 @@ int main(void) {
     failed += SerialPortRuntime_close() ? 0 : 1;
     failed += (l_closeCalls_ == 3) && (l_freeCalls_ == 3)
               ? 0 : 1;
+    failed += SerialPortRuntime_fd() == -1 ? 0 : 1;
 
     return failed == 0 ? 0 : 1;
 }

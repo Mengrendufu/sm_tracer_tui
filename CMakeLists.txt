@@ -232,6 +232,7 @@ if(BUILD_TESTING)
         application/sp_thread/thread/sp_thread.c
         application/sp_thread/thread/sp_thread_evt.c
         application/sp_thread/thread/sp_thread_wake.c
+        application/sp_thread/thread/rx_packet_assembler.c
         application/sp_thread/hsm/sm_sp_thread.c
         ${SM_HSM_SRC}
     )
@@ -260,6 +261,19 @@ if(BUILD_TESTING)
     add_test(NAME sp_thread_event_contract
              COMMAND sp_thread_event_contract_test)
 
+    add_executable(sp_thread_wake_test
+        tests/sp_thread_wake_test.c
+        application/sp_thread/thread/sp_thread_wake.c
+    )
+    target_include_directories(sp_thread_wake_test PRIVATE
+        ${INC_ALL}
+    )
+    target_compile_definitions(sp_thread_wake_test PRIVATE
+        DBC_DISABLE
+    )
+    add_test(NAME sp_thread_wake
+             COMMAND sp_thread_wake_test)
+
     add_executable(serial_port_runtime_test
         tests/serial_port_runtime_test.c
         application/sp_thread/thread/serial_port_runtime.c
@@ -270,6 +284,19 @@ if(BUILD_TESTING)
     )
     add_test(NAME serial_port_runtime
              COMMAND serial_port_runtime_test)
+
+    add_executable(rx_packet_assembler_test
+        tests/rx_packet_assembler_test.c
+        application/sp_thread/thread/rx_packet_assembler.c
+    )
+    target_include_directories(rx_packet_assembler_test PRIVATE
+        ${INC_ALL}
+    )
+    target_compile_definitions(rx_packet_assembler_test PRIVATE
+        DBC_DISABLE
+    )
+    add_test(NAME rx_packet_assembler
+             COMMAND rx_packet_assembler_test)
 
     add_executable(ui_port_list_event_test
         tests/ui_port_list_event_test.c

@@ -40,23 +40,21 @@ SST_Task * const AO_Blinky = &Blinky_inst.super;
 static SM_StatePtr Blinky_TOP_initial(SM_Hsm * const me) SM_HSM_RETT;
 
 // off
-static void        Blinky_off_entry_(SM_Hsm * const me) SM_HSM_RETT;
 static SM_RetState Blinky_off_(SM_Hsm * const me, SST_Evt const * const e) SM_HSM_RETT;
 SM_HsmState SM_HSM_ROM Blinky_off = {
     SM_HSM_TOP,                           // super
     (SM_InitHandler)0,                    // init_
-    (SM_ActionHandler)&Blinky_off_entry_, // entry_
+    (SM_ActionHandler)0,                  // entry_
     (SM_ActionHandler)0,                  // exit_
     (SM_StateHandler)&Blinky_off_         // handler
 };
 
 // on
-static void        Blinky_on_entry_(SM_Hsm * const me) SM_HSM_RETT;
 static SM_RetState Blinky_on_(SM_Hsm * const me, SST_Evt const * const e) SM_HSM_RETT;
 SM_HsmState SM_HSM_ROM Blinky_on = {
     SM_HSM_TOP,                          // super
     (SM_InitHandler)0,                   // init_
-    (SM_ActionHandler)&Blinky_on_entry_, // entry_
+    (SM_ActionHandler)0,                 // entry_
     (SM_ActionHandler)0,                 // exit_
     (SM_StateHandler)&Blinky_on_         // handler
 };
@@ -73,10 +71,6 @@ static SM_StatePtr Blinky_TOP_initial(SM_Hsm * const me) SM_HSM_RETT {
 }
 
 // off
-static void Blinky_off_entry_(SM_Hsm * const me) SM_HSM_RETT {
-    (void)me;
-    UI_postText("blink off!\n");
-}
 static SM_RetState Blinky_off_(
     SM_Hsm * const me, SST_Evt const * const e) SM_HSM_RETT
 {
@@ -92,10 +86,6 @@ static SM_RetState Blinky_off_(
 }
 
 // on
-static void Blinky_on_entry_(SM_Hsm * const me) SM_HSM_RETT {
-    (void)me;
-    UI_postText("blink on!\n");
-}
 static SM_RetState Blinky_on_(
     SM_Hsm * const me, SST_Evt const * const e) SM_HSM_RETT
 {

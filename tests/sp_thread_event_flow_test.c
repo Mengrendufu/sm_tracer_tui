@@ -7,12 +7,16 @@
 // To Public License, Version 2, as published by Sam Hocevar.
 // See http://www.wtfpl.net/ for more details.
 //============================================================================
+#include <errno.h>
+#include <fcntl.h>
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 #include "app_sig.h"
 #include "sp_mngr/sp_mngr.h"
 #include "sp_thread/sp_thread.h"
@@ -28,12 +32,22 @@ static SST_Signal l_openResultSig_;
 static SerialConfig l_openConfig_;
 static char l_portNames_[128];
 static size_t l_portNamesSize_;
+static int l_serialPipe_[2];
+static int l_runtimeFd_ = -1;
+static bool l_rxPrinted_;
+static char l_rxText_[128];
 
 static SST_Task l_spMngr_;
 SST_Task * const AO_SpMngr = &l_spMngr_;
 
 void UI_postText(char const * const text) {
-    (void)text;
+    if (strncmp(text, "SpThread RX", sizeof("SpThread RX") - 1U) == 0) {
+        pthread_mutex_lock(&l_mutex_);
+        (void)snprintf(l_rxText_, sizeof(l_rxText_), "%s", text);
+        l_rxPrinted_ = true;
+        pthread_cond_signal(&l_cond_);
+        pthread_mutex_unlock(&l_mutex_);
+    }
 }
 
 char *SerialPortRuntime_listPorts(size_t * const size) {
@@ -48,12 +62,27 @@ char *SerialPortRuntime_listPorts(size_t * const size) {
 
 bool SerialPortRuntime_open(SerialConfig const * const config) {
     l_openConfig_ = *config;
+    l_runtimeFd_ = l_serialPipe_[0];
     return true;
 }
 
 bool SerialPortRuntime_close(void) {
     ++l_runtimeCloseCalls_;
+    if (l_runtimeCloseResult_) {
+        l_runtimeFd_ = -1;
+    }
     return l_runtimeCloseResult_;
+}
+
+int SerialPortRuntime_fd(void) {
+    return l_runtimeFd_;
+}
+
+int SerialPortRuntime_read(uint8_t * const data,
+                           size_t const capacity)
+{
+    int const size = (int)read(l_serialPipe_[0], data, capacity);
+    return (size < 0) && (errno == EAGAIN) ? 0 : size;
 }
 
 void *SST_Evt_new(PoolCtr const blockSize) {
@@ -96,7 +125,10 @@ void SST_Task_post(SST_Task * const me, SST_Evt const * const e) {
 }
 
 int main(void) {
-    int failed = SpThread_start() == 0 ? 0 : 1;
+    int failed = pipe(l_serialPipe_) == 0 ? 0 : 1;
+    failed += fcntl(l_serialPipe_[0], F_SETFL, O_NONBLOCK) == 0
+              ? 0 : 1;
+    failed += SpThread_start() == 0 ? 0 : 1;
 
     if (failed == 0) {
         SpThread_postRefreshPorts();
@@ -152,6 +184,27 @@ int main(void) {
     failed += strcmp(l_openConfig_.portName, config.portName) == 0
               ? 0 : 1;
 
+    uint8_t const rxData[] = {0x11U, 0x22U, 0x33U};
+    failed += write(l_serialPipe_[1], rxData, sizeof(rxData))
+              == sizeof(rxData) ? 0 : 1;
+    (void)clock_gettime(CLOCK_REALTIME, &deadline);
+    ++deadline.tv_sec;
+
+    pthread_mutex_lock(&l_mutex_);
+    while (!l_rxPrinted_) {
+        int const status = pthread_cond_timedwait(
+            &l_cond_, &l_mutex_, &deadline);
+        if (status != 0) {
+            failed = 1;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&l_mutex_);
+
+    failed += strcmp(l_rxText_,
+                     "SpThread RX [3 bytes]: 11 22 33\n") == 0
+              ? 0 : 1;
+
     l_runtimeCloseResult_ = false;
     SpThread_postClosePort();
     (void)clock_gettime(CLOCK_REALTIME, &deadline);
@@ -189,6 +242,9 @@ int main(void) {
 
     failed += l_openResultSig_ == SPMNGR_PORT_CLOSED_SIG ? 0 : 1;
     failed += l_runtimeCloseCalls_ == 2U ? 0 : 1;
+
+    (void)close(l_serialPipe_[0]);
+    (void)close(l_serialPipe_[1]);
 
     return failed;
 }
