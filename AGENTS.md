@@ -257,9 +257,10 @@ instance.
 - `SST_Task_lock()` and `SST_Task_unlock()` are no-ops in this port.
 - The event-pool mechanism is compile-time optional through
   `SST_EVT_POOL_NUM`; this port currently fixes it to `3U`, while BSP currently
-  initializes a small base-event pool and a larger `SpMngrConfigEvt` pool.
-- The mid-size pool is sized for `SpMngrConfigEvt`; smaller dynamic result
-  events such as `SpMngrPortsEvt` share it.
+  initializes small, mid-size, and big event pools.
+- The mid-size pool is sized for lightweight `SpMngrRxPacketEvt` and
+  `SpMngrPortsEvt` traffic. The big pool independently holds the much larger
+  `SpMngrConfigEvt` snapshots.
 - When enabled, `SST_Evt_new()` selects the first fitting initialized pool and
   initializes `poolId` and `refCtr`. For dynamic events, `SST_Evt_gc()`
   decrements `refCtr` when it exceeds one and otherwise returns the event to

@@ -75,8 +75,12 @@ void SST_init(void) {
     SST_EvtPool_init(smallPoolSto, sizeof(smallPoolSto),
                      sizeof(SST_Evt));
 
-    static STATIC_POOL_ELEM_TYPE(SpMngrConfigEvt) midPoolSto[17U];
+    static STATIC_POOL_ELEM_TYPE(SpMngrRxPacketEvt) midPoolSto[129U];
     SST_EvtPool_init(midPoolSto, sizeof(midPoolSto),
+                     sizeof(SpMngrRxPacketEvt));
+
+    static STATIC_POOL_ELEM_TYPE(SpMngrConfigEvt) bigPoolSto[17U];
+    SST_EvtPool_init(bigPoolSto, sizeof(bigPoolSto),
                      sizeof(SpMngrConfigEvt));
 #endif
 }

@@ -30,7 +30,7 @@ void SST_start(void) {
                    (SST_Evt const *)0);  // init event
 
     SpMngr_ctor();
-    static SST_Evt const * SpMngr_qSto[16];
+    static SST_Evt const * SpMngr_qSto[128];
     SST_Task_start(AO_SpMngr,
                    2U,                    // priority
                    SpMngr_qSto, ARRAY_NELEM(SpMngr_qSto),
