@@ -47,6 +47,12 @@ typedef struct {
 
 typedef struct {
     UI_Evt super;
+    size_t protocolPathsSize;
+    char *protocolPaths;
+} UI_ProtocolListEvt;
+
+typedef struct {
+    UI_Evt super;
     UI_ConnectionStatus status;
 } UI_ConnectionEvt;
 
@@ -83,6 +89,8 @@ enum UIEventSignals {
     UI_TIMER_SIG,
     UI_TEXT_SIG,
     UI_REFRESHED_PORTS_SIG,
+    UI_REFRESHED_PROTOCOLS_SIG,
+    UI_PROTOCOL_LOADED_SIG,
     UI_CONNECTION_STATUS_SIG,
 };
 

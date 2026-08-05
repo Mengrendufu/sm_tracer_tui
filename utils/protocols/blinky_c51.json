@@ -1,0 +1,50 @@
+// !NOTE: Never leave a trailing comma!!! ====================================
+
+//============================================================================
+// SM_Trace parser.
+{
+  // META...
+  "meta": {
+    "version": "0.0.0.1",
+    "device": "SM_Tracer"
+  },
+
+  // @brief Receive parser.
+  //
+  // @enum Dec: UINT8 UINT16 UINT32 UINT64
+  //            INT8  INT16  INT32  INT64
+  //                         F32    F64
+  //
+  //       Hex: HEX8 HEX16 HEX32 HEX64
+  //
+  //       Bin: BIN8 BIN16 BIN32 BIN64
+  //
+  //       String: STRING (Must be the last one arg.)
+  "RX_tokens": [
+    //========================================================================
+    // RESERVED.
+    // Assertion infomation...
+    {
+      "RecID": 0,
+      "format": "==[ASSERTION]==[Label][%s]==[Module][%s]==\n",
+      "args": ["INT32", "STRING"]
+    },
+    //========================================================================
+    // Normal...
+    {
+      "RecID": 1,
+      "format": "==onStartup==\n",
+      "args": []
+    },
+    {
+      "RecID": 10,
+      "format": "==ledOff==\n",
+      "args": []
+    },
+    {
+      "RecID": 11,
+      "format": "==ledOn ==\n",
+      "args": []
+    }
+  ]
+}

@@ -37,12 +37,14 @@ static InputCommandDef const l_commands_[SM_INPUT_COMMAND_NUM] = {
      "disconnect", "/disconnect", "$disconnect"},
     {SM_INPUT_COMMAND_FLOW_CONTROL,
      "flowControl", "/flowControl", "$flowControl"},
+    {SM_INPUT_COMMAND_LOAD_PROTOCOL,
+     "loadProtocol", "/loadProtocol", "$loadProtocol"},
     {SM_INPUT_COMMAND_PARITY,
      "parity", "/parity", "$parity"},
-    {SM_INPUT_COMMAND_PROTOCOL,
-     "protocol", "/protocol", "$protocol"},
     {SM_INPUT_COMMAND_REFRESH,
      "refresh", "/refresh", "$refresh"},
+    {SM_INPUT_COMMAND_REFRESH_PROTOCOLS,
+     "refreshProtocols", "/refreshProtocols", "$refreshProtocols"},
     {SM_INPUT_COMMAND_STOP_BITS,
      "stopBits", "/stopBits", "$stopBits"},
 };
@@ -83,7 +85,7 @@ enum InputCmpsMngrSignals {
     INPUT_CMPS_MNGR_MOVE_END_SIG,
     INPUT_CMPS_MNGR_COMPLETE_SIG,
     INPUT_CMPS_MNGR_CONFIRM_SIG,
-    INPUT_CMPS_MNGR_PORT_CATALOG_UPDATED_SIG,
+    INPUT_CMPS_MNGR_ARGUMENT_CATALOG_UPDATED_SIG,
 };
 
 typedef struct {
@@ -355,7 +357,7 @@ static SM_RetState SM_InputCmpsMngr_active_(
             }
         }
 
-        case INPUT_CMPS_MNGR_PORT_CATALOG_UPDATED_SIG: {
+        case INPUT_CMPS_MNGR_ARGUMENT_CATALOG_UPDATED_SIG: {
             InputSuggestionContext const context =
                 SM_InputCmpsMngr_suggestionContext_(manager);
 
@@ -1637,20 +1639,28 @@ static void SM_InputCmpsMngr_filterArgumentCandidates_(
     char const * const prefix = &me->buffer[prefixBegin];
     size_t const prefixLen = prefixEnd - prefixBegin;
 
-    if (command == SM_INPUT_COMMAND_CONNECT) {
+    if ((command == SM_INPUT_COMMAND_CONNECT)
+        || (command == SM_INPUT_COMMAND_LOAD_PROTOCOL))
+    {
+        char const * const catalog =
+            command == SM_INPUT_COMMAND_CONNECT
+            ? me->portCatalog : me->protocolCatalog;
+        size_t const catalogSize =
+            command == SM_INPUT_COMMAND_CONNECT
+            ? me->portCatalogSize : me->protocolCatalogSize;
         size_t offset = 0U;
-        while ((me->portCatalog != (char const *)0)
-               && (offset + 1U < me->portCatalogSize)
-               && (me->portCatalog[offset] != '\0'))
+        while ((catalog != (char const *)0)
+               && (offset + 1U < catalogSize)
+               && (catalog[offset] != '\0'))
         {
-            char const * const port = &me->portCatalog[offset];
-            size_t const remaining = me->portCatalogSize - offset;
+            char const * const value = &catalog[offset];
+            size_t const remaining = catalogSize - offset;
             char const * const end =
-                (char const *)memchr(port, '\0', remaining);
+                (char const *)memchr(value, '\0', remaining);
             DBC_ASSERT(564, end != (char const *)0);
             SM_InputCmpsMngr_addArgumentCandidate_(
-                me, port, prefix, prefixLen);
-            offset += (size_t)(end - port) + 1U;
+                me, value, prefix, prefixLen);
+            offset += (size_t)(end - value) + 1U;
         }
         return;
     }
@@ -1989,6 +1999,8 @@ static bool SM_InputCmpsMngr_buildSubmission_(
     bool hasConnect = false;
     bool hasDisconnect = false;
     bool hasRefresh = false;
+    bool hasRefreshProtocols = false;
+    bool hasLoadProtocol = false;
 
     memset(submission, 0, sizeof(*submission));
     if ((me->tokenCount == 0U)
@@ -2056,6 +2068,14 @@ static bool SM_InputCmpsMngr_buildSubmission_(
                 hasConfig = true;
                 break;
             }
+            case SM_INPUT_COMMAND_LOAD_PROTOCOL: {
+                if (!arg.present) {
+                    return false;
+                }
+                submission->protocolPath = arg;
+                hasLoadProtocol = true;
+                break;
+            }
             case SM_INPUT_COMMAND_PARITY: {
                 if (!arg.present) {
                     return false;
@@ -2064,19 +2084,18 @@ static bool SM_InputCmpsMngr_buildSubmission_(
                 hasConfig = true;
                 break;
             }
-            case SM_INPUT_COMMAND_PROTOCOL: {
-                if (!arg.present) {
-                    return false;
-                }
-                submission->protocol = arg;
-                hasConfig = true;
-                break;
-            }
             case SM_INPUT_COMMAND_REFRESH: {
                 if (arg.present) {
                     return false;
                 }
                 hasRefresh = true;
+                break;
+            }
+            case SM_INPUT_COMMAND_REFRESH_PROTOCOLS: {
+                if (arg.present) {
+                    return false;
+                }
+                hasRefreshProtocols = true;
                 break;
             }
             case SM_INPUT_COMMAND_STOP_BITS: {
@@ -2095,9 +2114,12 @@ static bool SM_InputCmpsMngr_buildSubmission_(
 
     unsigned const actionCount = (hasConnect ? 1U : 0U)
                                + (hasDisconnect ? 1U : 0U)
-                               + (hasRefresh ? 1U : 0U);
+                               + (hasRefresh ? 1U : 0U)
+                               + (hasRefreshProtocols ? 1U : 0U)
+                               + (hasLoadProtocol ? 1U : 0U);
     if ((actionCount > 1U)
-        || ((hasDisconnect || hasRefresh) && hasConfig))
+        || ((hasDisconnect || hasRefresh || hasRefreshProtocols
+             || hasLoadProtocol) && hasConfig))
     {
         return false;
     }
@@ -2108,6 +2130,10 @@ static bool SM_InputCmpsMngr_buildSubmission_(
         submission->action = SM_INPUT_ACTION_DISCONNECT;
     } else if (hasRefresh) {
         submission->action = SM_INPUT_ACTION_REFRESH;
+    } else if (hasRefreshProtocols) {
+        submission->action = SM_INPUT_ACTION_REFRESH_PROTOCOLS;
+    } else if (hasLoadProtocol) {
+        submission->action = SM_INPUT_ACTION_LOAD_PROTOCOL;
     } else if (hasConfig) {
         submission->action = SM_INPUT_ACTION_CONFIG;
     } else {
@@ -2200,7 +2226,34 @@ void SM_InputCmpsMngr_setPortCatalog(
     me->portCatalogSize = portCatalogSize;
     if (me->super.curr != (SM_StatePtr)0) {
         UI_Evt const event = {
-            .sig = INPUT_CMPS_MNGR_PORT_CATALOG_UPDATED_SIG,
+            .sig = INPUT_CMPS_MNGR_ARGUMENT_CATALOG_UPDATED_SIG,
+        };
+        SM_Hsm_dispatch_(&me->super, &event);
+    }
+}
+
+void SM_InputCmpsMngr_setProtocolCatalog(
+    SM_InputCmpsMngr * const me,
+    char const * const protocolCatalog,
+    size_t const protocolCatalogSize)
+{
+    DBC_REQUIRE(447, me != (SM_InputCmpsMngr *)0);
+    DBC_REQUIRE(448, ((protocolCatalog == (char const *)0)
+                      && (protocolCatalogSize == 0U))
+                     || ((protocolCatalog != (char const *)0)
+                         && (protocolCatalogSize >= 2U)));
+    if (protocolCatalog != (char const *)0) {
+        DBC_REQUIRE(449,
+            protocolCatalog[protocolCatalogSize - 1U] == '\0');
+        DBC_REQUIRE(450,
+            protocolCatalog[protocolCatalogSize - 2U] == '\0');
+    }
+
+    me->protocolCatalog = protocolCatalog;
+    me->protocolCatalogSize = protocolCatalogSize;
+    if (me->super.curr != (SM_StatePtr)0) {
+        UI_Evt const event = {
+            .sig = INPUT_CMPS_MNGR_ARGUMENT_CATALOG_UPDATED_SIG,
         };
         SM_Hsm_dispatch_(&me->super, &event);
     }

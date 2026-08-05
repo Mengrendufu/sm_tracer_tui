@@ -278,7 +278,7 @@ static void recordSubmission_(
              sizeof(l_submissionParity_));
     copyArg_(&submission->flowControl, l_submissionFlowControl_,
              sizeof(l_submissionFlowControl_));
-    copyArg_(&submission->protocol, l_submissionProtocol_,
+    copyArg_(&submission->protocolPath, l_submissionProtocol_,
              sizeof(l_submissionProtocol_));
 }
 
@@ -825,11 +825,13 @@ int main(void) {
     resetProjection_();
     dispatchInput_(&matchManager, UI_INPUT_SIG, "r");
     failed += strcmp(matchManager.buffer, "/r") == 0
-              && matchManager.candidateCount == 1U
+              && matchManager.candidateCount == 2U
               && matchManager.candidates[0]
                  == SM_INPUT_COMMAND_REFRESH
+              && matchManager.candidates[1]
+                 == SM_INPUT_COMMAND_REFRESH_PROTOCOLS
               && l_suggestionShowCount_ == 1U
-              && l_suggestionCount_ == 1U
+              && l_suggestionCount_ == 2U
               ? 0 : 1;
 
     resetProjection_();
@@ -875,11 +877,13 @@ int main(void) {
                    (char const *)0);
     dispatchInput_(&recoveryManager, UI_INPUT_SIG, "r");
     failed += strcmp(recoveryManager.buffer, "/r") == 0
-              && recoveryManager.candidateCount == 1U
+              && recoveryManager.candidateCount == 2U
               && recoveryManager.candidates[0]
                  == SM_INPUT_COMMAND_REFRESH
+              && recoveryManager.candidates[1]
+                 == SM_INPUT_COMMAND_REFRESH_PROTOCOLS
               && l_suggestionShowCount_ == 2U
-              && l_suggestionCount_ == 1U
+              && l_suggestionCount_ == 2U
               ? 0 : 1;
 
     SM_InputCmpsMngr cursorManager;
@@ -1125,8 +1129,6 @@ int main(void) {
     dispatchAsciiText_(&overrideManager, " 7 ");
     acceptCommand_(&overrideManager, "stopBits");
     dispatchAsciiText_(&overrideManager, " 2 ");
-    acceptCommand_(&overrideManager, "protocol");
-    dispatchAsciiText_(&overrideManager, " hdlc");
     resetSubmission_();
     dispatchInput_(&overrideManager, UI_KEY_ENTER_SIG,
                    (char const *)0);
@@ -1136,9 +1138,15 @@ int main(void) {
               && strcmp(l_submissionBaudrate_, "9600") == 0
               && strcmp(l_submissionDataBits_, "7") == 0
               && strcmp(l_submissionStopBits_, "2") == 0
-              && strcmp(l_submissionProtocol_, "hdlc") == 0
               && overrideManager.length == 0U
               ? 0 : 1;
+
+    SM_InputCmpsMngr removedProtocolManager;
+    SM_InputCmpsMngr_ctor(&removedProtocolManager);
+    SM_InputCmpsMngr_init(&removedProtocolManager);
+    SM_InputCmpsMngr_setActive(&removedProtocolManager, true);
+    dispatchAsciiText_(&removedProtocolManager, "/protocol");
+    failed += removedProtocolManager.candidateCount == 0U ? 0 : 1;
 
     SM_InputCmpsMngr configManager;
     SM_InputCmpsMngr_ctor(&configManager);
@@ -1188,6 +1196,58 @@ int main(void) {
     failed += l_submissionCount_ == 1U
               && l_submission_.action == SM_INPUT_ACTION_REFRESH
               && refreshManager.length == 0U
+              ? 0 : 1;
+
+    SM_InputCmpsMngr refreshProtocolsManager;
+    SM_InputCmpsMngr_ctor(&refreshProtocolsManager);
+    SM_InputCmpsMngr_setCommandSink(
+        &refreshProtocolsManager, &commandSink);
+    SM_InputCmpsMngr_init(&refreshProtocolsManager);
+    SM_InputCmpsMngr_setActive(&refreshProtocolsManager, true);
+    acceptCommand_(&refreshProtocolsManager, "refreshProtocols");
+    resetSubmission_();
+    dispatchInput_(&refreshProtocolsManager, UI_KEY_ENTER_SIG,
+                   (char const *)0);
+    failed += l_submissionCount_ == 1U
+              && l_submission_.action
+                 == SM_INPUT_ACTION_REFRESH_PROTOCOLS
+              && refreshProtocolsManager.length == 0U
+              ? 0 : 1;
+
+    SM_InputCmpsMngr loadProtocolManager;
+    SM_InputCmpsMngr_ctor(&loadProtocolManager);
+    SM_InputCmpsMngr_setCommandSink(
+        &loadProtocolManager, &commandSink);
+    SM_InputCmpsMngr_init(&loadProtocolManager);
+    SM_InputCmpsMngr_setActive(&loadProtocolManager, true);
+    char const loadProtocolCatalog[] = "blinky_c51.json\0";
+    SM_InputCmpsMngr_setProtocolCatalog(
+        &loadProtocolManager, loadProtocolCatalog,
+        sizeof(loadProtocolCatalog));
+    acceptCommand_(&loadProtocolManager, "loadProtocol");
+    failed += loadProtocolManager.candidateCount == 1U ? 0 : 1;
+    dispatchAsciiText_(&loadProtocolManager, " blinky_c51.json");
+    resetSubmission_();
+    dispatchInput_(&loadProtocolManager, UI_KEY_ENTER_SIG,
+                   (char const *)0);
+    failed += l_submissionCount_ == 1U
+              && l_submission_.action == SM_INPUT_ACTION_LOAD_PROTOCOL
+              && strcmp(l_submissionProtocol_, "blinky_c51.json") == 0
+              && loadProtocolManager.length == 0U
+              ? 0 : 1;
+
+    SM_InputCmpsMngr missingProtocolManager;
+    SM_InputCmpsMngr_ctor(&missingProtocolManager);
+    SM_InputCmpsMngr_setCommandSink(
+        &missingProtocolManager, &commandSink);
+    SM_InputCmpsMngr_init(&missingProtocolManager);
+    SM_InputCmpsMngr_setActive(&missingProtocolManager, true);
+    acceptCommand_(&missingProtocolManager, "loadProtocol");
+    resetSubmission_();
+    dispatchInput_(&missingProtocolManager, UI_KEY_ENTER_SIG,
+                   (char const *)0);
+    failed += l_submissionCount_ == 0U
+              && missingProtocolManager.tokenCount == 1U
               ? 0 : 1;
 
     SM_InputCmpsMngr mixedManager;

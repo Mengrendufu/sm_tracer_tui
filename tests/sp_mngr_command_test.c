@@ -10,13 +10,17 @@
 static char l_text_[2048];
 static unsigned l_refreshPosts_;
 static unsigned l_aoPosts_;
-static SST_Signal l_lastAoSig_;
+static SST_Signal l_aoSignals_[4];
 static unsigned l_openPosts_;
 static unsigned l_closePosts_;
 static SerialConfig l_openConfig_;
 static UI_ConnectionStatus l_connectionStatus_;
 static char l_portNames_[128];
 static size_t l_portNamesSize_;
+static char l_protocolPaths_[512];
+static size_t l_protocolPathsSize_;
+static char l_loadedProtocol_[SPMNGR_VALUE_LEN];
+static unsigned l_protocolLoadedPosts_;
 
 void UI_postText(char const * const text) {
     (void)snprintf(l_text_, sizeof(l_text_), "%s", text);
@@ -27,6 +31,19 @@ void UI_postPortList(char const * const portNames,
 {
     l_portNamesSize_ = portNamesSize;
     memcpy(l_portNames_, portNames, portNamesSize);
+}
+
+void UI_postProtocolList(char const * const protocolPaths,
+                         size_t const protocolPathsSize)
+{
+    l_protocolPathsSize_ = protocolPathsSize;
+    memcpy(l_protocolPaths_, protocolPaths, protocolPathsSize);
+}
+
+void UI_postProtocolLoaded(char const * const relativePath) {
+    ++l_protocolLoadedPosts_;
+    (void)snprintf(l_loadedProtocol_, sizeof(l_loadedProtocol_),
+                   "%s", relativePath);
 }
 
 void UI_postConnectionStatus(UI_ConnectionStatus const status) {
@@ -56,8 +73,10 @@ void SST_Task_ctor(SST_Task * const me,
 
 void SST_Task_post(SST_Task * const me, SST_Evt const * const e) {
     (void)me;
+    if (l_aoPosts_ < (sizeof(l_aoSignals_) / sizeof(l_aoSignals_[0]))) {
+        l_aoSignals_[l_aoPosts_] = e->sig;
+    }
     ++l_aoPosts_;
-    l_lastAoSig_ = e->sig;
 }
 
 static int expectContains_(char const * const needle) {
@@ -72,9 +91,35 @@ int main(void) {
         l_text_,
         "SpMngr: requesting initial serial port refresh.\n") == 0
         ? 0 : 1;
-    failed += (l_aoPosts_ == 1U)
-              && (l_lastAoSig_ == SPMNGR_REFRESH_PORTS_SIG)
+    failed += (l_aoPosts_ == 2U)
+              && (l_aoSignals_[0] == SPMNGR_REFRESH_PROTOCOLS_SIG)
+              && (l_aoSignals_[1] == SPMNGR_REFRESH_PORTS_SIG)
               ? 0 : 1;
+
+    SST_Evt const refreshProtocols = {
+        .sig = SPMNGR_REFRESH_PROTOCOLS_SIG,
+    };
+    (*AO_SpMngr->dispatch)(AO_SpMngr, &refreshProtocols);
+    failed += expectContains_("discovered 1 protocol file(s)");
+    failed += l_protocolPathsSize_ > 2U
+              && strcmp(l_protocolPaths_, "blinky_c51.json") == 0
+              ? 0 : 1;
+
+    SpMngrProtocolEvt loadProtocol = {
+        .super.sig = SPMNGR_LOAD_PROTOCOL_SIG,
+        .relativePath = "blinky_c51.json",
+    };
+    (*AO_SpMngr->dispatch)(AO_SpMngr, &loadProtocol.super);
+    failed += l_protocolLoadedPosts_ == 1U
+              && strcmp(l_loadedProtocol_, "blinky_c51.json") == 0
+              ? 0 : 1;
+
+    (void)snprintf(loadProtocol.relativePath,
+                   sizeof(loadProtocol.relativePath),
+                   "%s", "missing.json");
+    (*AO_SpMngr->dispatch)(AO_SpMngr, &loadProtocol.super);
+    failed += l_protocolLoadedPosts_ == 1U ? 0 : 1;
+    failed += expectContains_("protocol load failed");
 
     SpMngrConfigEvt config = {
         .super.sig = SPMNGR_CONFIG_UPDATE_SIG,
@@ -85,14 +130,12 @@ int main(void) {
             .stopBits = "2",
             .parity = "even",
             .flowControl = "none",
-            .protocol = "hdlc",
         },
     };
     (*AO_SpMngr->dispatch)(AO_SpMngr, &config.super);
     failed += expectContains_("configuration updated");
     failed += expectContains_("port=none");
     failed += expectContains_("baud=9600");
-    failed += expectContains_("proto=hdlc");
 
     config.super.sig = SPMNGR_PORT_CONNECT_SIG;
     (void)snprintf(config.config.port, sizeof(config.config.port),
@@ -190,7 +233,7 @@ int main(void) {
                         sizeof(portNames)) == 0
               ? 0 : 1;
 
-    uint8_t const framePart1[] = {0x7EU, 0x01U};
+    uint8_t const framePart1[] = {0x7EU, 0x07U};
     SpMngrRxPacketEvt packet = {
         .super.sig = SPMNGR_RX_PACKET_SIG,
         .data = (uint8_t *)malloc(sizeof(framePart1)),
@@ -205,7 +248,7 @@ int main(void) {
     failed += strcmp(l_text_, "unchanged") == 0 ? 0 : 1;
 
     uint8_t const framePart2[] = {
-        0x02U, 0x02U, 0x10U, 0x20U, 0xCAU,
+        0x0BU, 0x00U, 0xEDU,
     };
     packet.data = (uint8_t *)malloc(sizeof(framePart2));
     packet.size = sizeof(framePart2);
@@ -214,8 +257,7 @@ int main(void) {
     }
     memcpy(packet.data, framePart2, sizeof(framePart2));
     (*AO_SpMngr->dispatch)(AO_SpMngr, &packet.super);
-    failed += strcmp(l_text_,
-                     "SpMngr HDLC [5 bytes]: 01 02 02 10 20\n") == 0
+    failed += strcmp(l_text_, "[007]==ledOn ==\n") == 0
               ? 0 : 1;
 
     return failed == 0 ? 0 : 1;

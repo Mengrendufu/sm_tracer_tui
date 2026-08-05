@@ -34,6 +34,41 @@ int main(void) {
         UI_evtFree(e);
     }
 
+    char protocolPaths[] = "base/hdlc.json\0custom/raw.json\0";
+    UI_postProtocolList(protocolPaths, sizeof(protocolPaths));
+    protocolPaths[0] = 'X';
+
+    failed += UI_evtConsumeWake() == 0 ? 0 : 1;
+    UI_Evt * const protocolsEvt = UI_evtDequeue();
+    failed += protocolsEvt != (UI_Evt *)0 ? 0 : 1;
+    if (protocolsEvt != (UI_Evt *)0) {
+        UI_ProtocolListEvt const * const protocols =
+            (UI_ProtocolListEvt const *)protocolsEvt;
+        char const expected[] =
+            "base/hdlc.json\0custom/raw.json\0";
+        failed += protocols->super.sig == UI_REFRESHED_PROTOCOLS_SIG
+                  ? 0 : 1;
+        failed += protocols->protocolPathsSize == sizeof(expected)
+                  ? 0 : 1;
+        failed += memcmp(protocols->protocolPaths, expected,
+                         sizeof(expected)) == 0
+                  ? 0 : 1;
+        UI_evtFree(protocolsEvt);
+    }
+
+    UI_postProtocolLoaded("base/hdlc.json");
+    failed += UI_evtConsumeWake() == 0 ? 0 : 1;
+    UI_Evt * const loadedEvt = UI_evtDequeue();
+    failed += loadedEvt != (UI_Evt *)0 ? 0 : 1;
+    if (loadedEvt != (UI_Evt *)0) {
+        UI_AppEvt const * const loaded =
+            (UI_AppEvt const *)loadedEvt;
+        failed += loaded->super.sig == UI_PROTOCOL_LOADED_SIG ? 0 : 1;
+        failed += strcmp(loaded->pld.msg.text, "base/hdlc.json") == 0
+                  ? 0 : 1;
+        UI_evtFree(loadedEvt);
+    }
+
     UI_postConnectionStatus(UI_CONNECTION_CONNECTED);
     failed += UI_evtConsumeWake() == 0 ? 0 : 1;
     UI_Evt * const connectionEvt = UI_evtDequeue();

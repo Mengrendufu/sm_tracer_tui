@@ -25,7 +25,6 @@ typedef struct {
     char stopBits[SPMNGR_VALUE_LEN];
     char parity[SPMNGR_VALUE_LEN];
     char flowControl[SPMNGR_VALUE_LEN];
-    char protocol[SPMNGR_VALUE_LEN];
 } SpMngrConfig;
 
 // Complete serial configuration snapshot carried across the AO boundary.
@@ -33,6 +32,12 @@ typedef struct {
     SST_Evt super;
     SpMngrConfig config;
 } SpMngrConfigEvt;
+
+// Catalog-relative protocol path carried from UI to SpMngr for loading.
+typedef struct {
+    SST_Evt super;
+    char relativePath[SPMNGR_VALUE_LEN];
+} SpMngrProtocolEvt;
 
 // Serial-port-list result. Ownership of the packed names transfers with the
 // event. Names are NUL-separated and the sequence is double-NUL-terminated.

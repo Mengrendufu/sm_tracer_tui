@@ -64,6 +64,12 @@ else()
 endif()
 
 #=============================================================================
+# ===Component yyjson.
+set(YYJSON_ROOT ${CMAKE_SOURCE_DIR}/3rd_party/yyjson)
+set(YYJSON_SRC ${YYJSON_ROOT}/src/yyjson.c)
+set(YYJSON_INC ${YYJSON_ROOT}/src)
+
+#=============================================================================
 # ===Component SST core.
 set(SST_ROOT   ${CMAKE_SOURCE_DIR}/3rd_party/sm_sst)
 set(SST_SRC
@@ -107,6 +113,7 @@ set(SRC_ALL
     ${PORT_SRC}
     ${SM_HSM_SRC}
     ${STATIC_POOL_SRC}
+    ${YYJSON_SRC}
     ${BSP_SRC}
 )
 
@@ -118,6 +125,7 @@ set(INC_ALL
     ${PORT_INC}
     ${SM_HSM_INC}
     ${COMMON_C_INC}
+    ${YYJSON_INC}
 )
 
 #=============================================================================
@@ -139,6 +147,14 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
 target_link_libraries(${PROJECT_NAME} PRIVATE
     ${NOTCURSES_LIBRARY}
     serialport
+)
+
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        $<TARGET_FILE_DIR:${PROJECT_NAME}>/protocols
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_SOURCE_DIR}/utils/protocols
+        $<TARGET_FILE_DIR:${PROJECT_NAME}>/protocols
 )
 
 if(WIN32)
@@ -216,6 +232,10 @@ if(BUILD_TESTING)
         tests/sp_mngr_command_test.c
         application/aos/sp_mngr/sp_mngr.c
         application/aos/sp_mngr/hdlc_parser.c
+        application/aos/sp_mngr/protocol_catalog.c
+        application/aos/sp_mngr/protocol_decoder.c
+        application/aos/sp_mngr/protocol_frame_formatter.c
+        ${YYJSON_SRC}
         ${SM_HSM_SRC}
     )
     target_include_directories(sp_mngr_command_test PRIVATE
@@ -224,6 +244,14 @@ if(BUILD_TESTING)
     target_compile_definitions(sp_mngr_command_test PRIVATE
         DBC_DISABLE
         SM_DBC_DISABLE
+        _POSIX_C_SOURCE=200809L
+    )
+    add_custom_command(TARGET sp_mngr_command_test POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            $<TARGET_FILE_DIR:sp_mngr_command_test>/protocols
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_SOURCE_DIR}/utils/protocols
+            $<TARGET_FILE_DIR:sp_mngr_command_test>/protocols
     )
     add_test(NAME sp_mngr_command
              COMMAND sp_mngr_command_test)
@@ -242,6 +270,73 @@ if(BUILD_TESTING)
     )
     add_test(NAME hdlc_parser
              COMMAND hdlc_parser_test)
+
+    add_executable(protocol_decoder_test
+        tests/protocol_decoder_test.c
+        application/aos/sp_mngr/protocol_decoder.c
+        ${YYJSON_SRC}
+    )
+    target_include_directories(protocol_decoder_test PRIVATE
+        ${INC_ALL}
+    )
+    target_compile_definitions(protocol_decoder_test PRIVATE
+        DBC_DISABLE
+    )
+    add_test(NAME protocol_decoder
+             COMMAND protocol_decoder_test
+                     ${CMAKE_SOURCE_DIR}/utils/protocols/blinky_c51.json)
+
+    add_executable(protocol_frame_formatter_test
+        tests/protocol_frame_formatter_test.c
+        application/aos/sp_mngr/protocol_frame_formatter.c
+        application/aos/sp_mngr/protocol_decoder.c
+        ${YYJSON_SRC}
+    )
+    target_include_directories(protocol_frame_formatter_test PRIVATE
+        ${INC_ALL}
+    )
+    target_compile_definitions(protocol_frame_formatter_test PRIVATE
+        DBC_DISABLE
+    )
+    add_test(NAME protocol_frame_formatter
+             COMMAND protocol_frame_formatter_test)
+
+    add_executable(protocol_catalog_test
+        tests/protocol_catalog_test.c
+        application/aos/sp_mngr/protocol_catalog.c
+    )
+    target_include_directories(protocol_catalog_test PRIVATE
+        ${INC_ALL}
+    )
+    target_compile_definitions(protocol_catalog_test PRIVATE
+        DBC_DISABLE
+        _POSIX_C_SOURCE=200809L
+    )
+    add_custom_command(TARGET protocol_catalog_test POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            $<TARGET_FILE_DIR:protocol_catalog_test>/protocols
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_SOURCE_DIR}/utils/protocols
+            $<TARGET_FILE_DIR:protocol_catalog_test>/protocols
+    )
+    if(WIN32)
+        add_test(NAME protocol_catalog
+            COMMAND $<TARGET_FILE:protocol_catalog_test>
+                    $<TARGET_FILE_DIR:protocol_catalog_test>/protocols)
+    else()
+        set(PROTOCOL_CATALOG_TEST_LINK
+            ${CMAKE_CURRENT_BINARY_DIR}/catalog_shortcut/protocol_catalog_test)
+        add_custom_command(TARGET protocol_catalog_test POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory
+                ${CMAKE_CURRENT_BINARY_DIR}/catalog_shortcut
+            COMMAND ${CMAKE_COMMAND} -E create_symlink
+                $<TARGET_FILE:protocol_catalog_test>
+                ${PROTOCOL_CATALOG_TEST_LINK}
+        )
+        add_test(NAME protocol_catalog
+            COMMAND ${PROTOCOL_CATALOG_TEST_LINK}
+                    $<TARGET_FILE_DIR:protocol_catalog_test>/protocols)
+    endif()
 
     add_executable(sp_thread_event_flow_test
         tests/sp_thread_event_flow_test.c

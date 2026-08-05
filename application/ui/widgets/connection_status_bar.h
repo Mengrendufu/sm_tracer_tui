@@ -15,9 +15,10 @@
 struct ncplane;
 
 enum {
+    CONNECTION_STATUS_ROWS_      = 4U,
     CONNECTION_STATUS_SHORT_LEN_ = 16U,
     CONNECTION_STATUS_PORT_LEN_  = 128U,
-    CONNECTION_STATUS_PROTO_LEN_ = 32U
+    CONNECTION_STATUS_PROTO_LEN_ = 256U
 };
 
 struct ConnectionStatusBar {

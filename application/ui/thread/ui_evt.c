@@ -180,10 +180,37 @@ void UI_postPortList(char const * const portNames,
     UI_wake_();
 }
 
+void UI_postProtocolList(char const * const protocolPaths,
+                         size_t const protocolPathsSize)
+{
+    DBC_REQUIRE(336, protocolPaths != (char const *)0);
+    DBC_REQUIRE(337, protocolPathsSize >= 2U);
+    DBC_REQUIRE(338, protocolPaths[protocolPathsSize - 1U] == '\0');
+    DBC_REQUIRE(339, protocolPaths[protocolPathsSize - 2U] == '\0');
+    DBC_REQUIRE(340, UI_eventInbox_.wakeFd >= 0);
+    DBC_REQUIRE(341,
+        protocolPathsSize <= (SIZE_MAX - sizeof(UI_ProtocolListEvt)));
+
+    size_t const size = sizeof(UI_ProtocolListEvt) + protocolPathsSize;
+    UI_ProtocolListEvt * const protocols =
+        (UI_ProtocolListEvt *)UI_Alloc_(size);
+    protocols->super.sig = UI_REFRESHED_PROTOCOLS_SIG;
+    protocols->protocolPathsSize = protocolPathsSize;
+    protocols->protocolPaths = (char *)(protocols + 1);
+    memcpy(protocols->protocolPaths, protocolPaths, protocolPathsSize);
+
+    UI_enqueue_((UI_Evt *)protocols);
+    UI_wake_();
+}
+
+void UI_postProtocolLoaded(char const * const relativePath) {
+    UI_evtPostText(UI_PROTOCOL_LOADED_SIG, relativePath);
+}
+
 void UI_postConnectionStatus(UI_ConnectionStatus const status) {
-    DBC_REQUIRE(340, (status == UI_CONNECTION_DISCONNECTED)
+    DBC_REQUIRE(350, (status == UI_CONNECTION_DISCONNECTED)
                      || (status == UI_CONNECTION_CONNECTED));
-    DBC_REQUIRE(341, UI_eventInbox_.wakeFd >= 0);
+    DBC_REQUIRE(351, UI_eventInbox_.wakeFd >= 0);
 
     UI_ConnectionEvt * const connection =
         (UI_ConnectionEvt *)UI_Alloc_(sizeof(UI_ConnectionEvt));

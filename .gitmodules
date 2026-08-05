@@ -7,3 +7,6 @@
 [submodule "3rd_party/common_c"]
 	path = 3rd_party/common_c
 	url = https://github.com/Mengrendufu/common_c.git
+[submodule "3rd_party/yyjson"]
+	path = 3rd_party/yyjson
+	url = https://github.com/ibireme/yyjson.git

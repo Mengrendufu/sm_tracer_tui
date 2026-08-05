@@ -33,6 +33,7 @@ static void ConnectionStatusBar_setText_(char * const dst,
 
 static void ConnectionStatusBar_drawCell_(
     struct ConnectionStatusBar * const bar,
+    int const y,
     unsigned * const x,
     char const * const label,
     char const * const value,
@@ -45,7 +46,7 @@ static void ConnectionStatusBar_drawCell_(
     DBC_REQUIRE(114, value != (char const *)0);
 
     char labelPart[16];
-    char valuePart[24];
+    char valuePart[CONNECTION_STATUS_PROTO_LEN_ + 2U];
     int const labelN = snprintf(labelPart, sizeof(labelPart),
                                 " %s: ", label);
     int const valueN = snprintf(valuePart, sizeof(valuePart),
@@ -72,7 +73,7 @@ static void ConnectionStatusBar_drawCell_(
 
     ncplane_on_styles(bar->plane, NCSTYLE_BOLD);
     ncplane_set_fg_rgb8(bar->plane, 105, 185, 170);
-    (void)WidgetIO_putStrYx(bar->plane, 0, *x, labelPart);
+    (void)WidgetIO_putStrYx(bar->plane, y, *x, labelPart);
     ncplane_off_styles(bar->plane, NCSTYLE_BOLD);
     if (connectionValue) {
         if (bar->connected) {
@@ -115,18 +116,22 @@ static void ConnectionStatusBar_draw_(
 
     unsigned x = 0U;
     ConnectionStatusBar_drawCell_(
-        bar, &x, "status", bar->connection, true);
-    ConnectionStatusBar_drawCell_(bar, &x, "port", bar->port, false);
-    ConnectionStatusBar_drawCell_(bar, &x, "baud", bar->baud, false);
+        bar, 0, &x, "status", bar->connection, true);
+    ConnectionStatusBar_drawCell_(bar, 0, &x, "port", bar->port, false);
+    ConnectionStatusBar_drawCell_(bar, 0, &x, "baud", bar->baud, false);
     ConnectionStatusBar_drawCell_(
-        bar, &x, "data", bar->dataBits, false);
+        bar, 0, &x, "data", bar->dataBits, false);
     ConnectionStatusBar_drawCell_(
-        bar, &x, "stop", bar->stopBits, false);
+        bar, 0, &x, "stop", bar->stopBits, false);
     ConnectionStatusBar_drawCell_(
-        bar, &x, "parity", bar->parity, false);
-    ConnectionStatusBar_drawCell_(bar, &x, "flow", bar->flow, false);
+        bar, 0, &x, "parity", bar->parity, false);
     ConnectionStatusBar_drawCell_(
-        bar, &x, "proto", bar->protocol, false);
+        bar, 0, &x, "flow", bar->flow, false);
+
+    ncplane_set_bg_rgb8(bar->plane, 36, 36, 38);
+    x = 0U;
+    ConnectionStatusBar_drawCell_(
+        bar, 2, &x, "protocol", bar->protocol, false);
 }
 
 //============================================================================
@@ -152,7 +157,8 @@ void ConnectionStatusBar_create(
     DBC_REQUIRE(211, parent != (struct ncplane *)0);
 
     ncplane_options nopts = {
-        .y = 3, .x = 2, .rows = 1, .cols = cols, .name = "status",
+        .y = 3, .x = 2, .rows = CONNECTION_STATUS_ROWS_,
+        .cols = cols, .name = "status",
         .userptr = owner, .resizecb = resizeCb,
     };
     bar->plane = ncplane_create(parent, &nopts);
@@ -166,7 +172,7 @@ void ConnectionStatusBar_resize(
 {
     DBC_REQUIRE(220, bar != (struct ConnectionStatusBar *)0);
     DBC_REQUIRE(221, bar->plane != (struct ncplane *)0);
-    ncplane_resize_simple(bar->plane, 1, cols);
+    ncplane_resize_simple(bar->plane, CONNECTION_STATUS_ROWS_, cols);
 }
 
 void ConnectionStatusBar_setConnection(

@@ -64,6 +64,9 @@ because their initial transitions can call `UI_postText()`.
 `SpThread_start()` and the SST launch create threads asynchronously. Before
 entering `UI_run()`, main waits until `SST_onStart()` confirms that all AOs
 have completed synchronous construction, queue setup, and initial transition.
+After its HSM reaches a stable leaf state, SpMngr queues protocol-catalog and
+serial-port refresh events. Startup and future UI-triggered refreshes therefore
+share the same HSM event paths.
 
 The serial-thread HSM has an `active` parent with `disconnected` and
 `connected` leaf states. Port refresh is handled by `active`; open and close
@@ -75,8 +78,10 @@ The serial receive path is `SerialPortRuntime -> RxPacketAssembler ->
 SpMngrRxPacketEvt -> SpMngr HSM -> HdlcParser -> UI_postText`. The transport
 packet owns a heap payload until SpMngr synchronously feeds every byte to its
 embedded parser and releases the payload. Parser state survives transport
-packet boundaries. Complete checksum-valid frames are currently rendered as
-hexadecimal debug text; protocol-file and RecID mapping are not connected yet.
+packet boundaries. `ProtocolFrameFormatter` maps complete checksum-valid
+frames through the active RecID table using legacy-compatible big-endian
+numeric formatting, then SpMngr posts the resulting text to UI. Protocol
+catalog discovery and selected-file loading are connected.
 
 ## UI boundaries
 
@@ -99,8 +104,8 @@ notcurses_getvec
   terminal, event, or render-timeout readiness without consuming input.
 - `SM_UI` owns page state and the top-level widget graph. Its embedded manager
   directly owns the `InputComposer` and `CommandSuggestion` lifecycles.
-- `SM_UI` also owns the latest successful packed serial-port list. The serial
-  thread and SpMngr only transfer transient copies and retain no list state.
+- `SM_UI` also owns the latest successful packed serial-port and protocol-path
+  lists. Producers only transfer transient copies and retain no UI list state.
 - `SM_UI_HostOps` is a required contract owned by `SM_UI`; the UI runtime
   injects `requestQuit`, `requestFrame`, and a host-owned context.
 - `SM_InputCmpsMngr` owns canonical UTF-8 text, byte length, edit position,
@@ -129,22 +134,25 @@ pasted `$command` text is not a Token because it has no accepted span.
 Command arguments remain ordinary editable text. Moving into or editing an
 argument recomputes its suggestions against the whole word. `$connect` borrows
 the current packed port catalog from `SM_UI`; baudrate, data bits, stop bits,
-parity, and flow control use built-in candidate lists. Baudrate and protocol
-still accept free text. `Tab` accepts an argument candidate, while `Enter`
-submits the command and therefore preserves parameterless `$connect`.
+parity, and flow control use built-in candidate lists. `$loadProtocol` borrows
+the packed protocol catalog and still accepts a free-text relative path. `Tab`
+accepts an argument candidate, while `Enter` submits the command and therefore
+preserves parameterless `$connect`.
 
 Submission accepts configuration-only updates or one `$connect` plus optional
-configuration Tokens. `$disconnect` and `$refresh` are standalone. Duplicate
-commands, mixed lifecycle actions, missing configuration values, and stray
-text reject the whole submission without posting or clearing the input.
+configuration Tokens. `$disconnect`, `$refresh`, `$refreshProtocols`, and
+`$loadProtocol` are standalone. Duplicate commands, mixed lifecycle actions,
+missing configuration values, and stray text reject the whole submission
+without posting or clearing the input.
 
 ## UI event system
 
 - The inbox is a mutex-guarded 512-entry ring buffer.
 - Queue `head` and `tail` both decrement and wrap from zero to the last slot.
 - `UI_NULL_SIG` is reserved and invalid for posting.
-- `UI_AppEvt` stores text inline after the event object; `UI_PortListEvt` does
-  the same for NUL-separated, double-NUL-terminated port names.
+- `UI_AppEvt` stores text inline after the event object. `UI_PortListEvt` and
+  `UI_ProtocolListEvt` do the same for NUL-separated, double-NUL-terminated
+  lists.
 - `UI_InputEvt` copies the complete normalized `UI_Input` payload.
 - `UI_evtFree()` uses `free()`; UI events are not reference counted.
 - Terminal-originated events are already on the UI thread, so enqueueing them
@@ -169,7 +177,9 @@ UI_KEY_HOME_SIG, UI_KEY_END_SIG, UI_KEY_TAB_SIG, UI_KEY_ENTER_SIG,
 UI_KEY_J_SIG, UI_KEY_K_SIG,
 UI_KEY_CTRL_N_SIG, UI_KEY_CTRL_P_SIG,
 UI_KEY_PGUP_SIG, UI_KEY_PGDN_SIG, UI_RESIZE_SIG,
-UI_TIMER_SIG, UI_TEXT_SIG, UI_REFRESHED_PORTS_SIG
+UI_TIMER_SIG, UI_TEXT_SIG,
+UI_REFRESHED_PORTS_SIG, UI_REFRESHED_PROTOCOLS_SIG,
+UI_PROTOCOL_LOADED_SIG, UI_CONNECTION_STATUS_SIG
 ```
 
 ## Rendering and widgets
@@ -183,6 +193,10 @@ UI_TIMER_SIG, UI_TEXT_SIG, UI_REFRESHED_PORTS_SIG
   component-local content dirty state.
 - Title bar, connection status bar, text buffer, input composer, keybar, and
   menu are separate widgets with component-specific APIs.
+- The connection status widget renders serial state and settings on its first
+  row. After one blank separator row, its darker third row independently
+  projects the loaded protocol path. Another blank row separates it from the
+  text buffer; serial configuration updates do not change the protocol path.
 - `SM_UI` keeps the keybar anchored, shrinks `TextBufferView` while the input
   composer grows, and recomputes wrapping whenever terminal width changes.
 - Quit is selected through the menu. `SM_UI_teardown()` destroys
@@ -312,10 +326,15 @@ CTest currently exercises:
 - `ui_input_cmps_mngr`
 - `sp_mngr_command`
 - `hdlc_parser`
+- `protocol_decoder`
+- `protocol_frame_formatter`
+- `protocol_catalog`
 - `sp_thread_event_flow`
+- `sp_thread_event_contract`
 - `sp_thread_wake`
 - `serial_port_runtime`
 - `rx_packet_assembler`
+- `ui_port_list_event`
 - `ui_input_composer_lifecycle`
 - `ui_command_suggestion_lifecycle`
 - `scrollbar`

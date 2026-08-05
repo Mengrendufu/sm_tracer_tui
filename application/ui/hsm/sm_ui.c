@@ -39,8 +39,11 @@ typedef struct {
     struct TitleBar title;
     struct ConnectionStatusBar status;
     SpMngrConfig serialConfig;
+    char activeProtocolPath[SPMNGR_VALUE_LEN];
     char *availablePortNames;
     size_t availablePortNamesSize;
+    char *availableProtocolPaths;
+    size_t availableProtocolPathsSize;
     struct TextBufferView mainBuffer;
     struct Keybar keybar;
     struct Menu menu;
@@ -82,6 +85,12 @@ static void        SM_UI_mainBuffer_pushText_(SM_UI *me,
 static void        SM_UI_updateAvailablePorts_(
                         SM_UI *me,
                         UI_PortListEvt const *ports);
+static void        SM_UI_updateAvailableProtocols_(
+                        SM_UI *me,
+                        UI_ProtocolListEvt const *protocols);
+static void        SM_UI_protocolLoaded_(
+                        SM_UI *me,
+                        UI_AppEvt const *loaded);
 static void        SM_UI_mainBuffer_clear_(SM_UI *me);
 static void        SM_UI_mainBuffer_scrollPageUp_(SM_UI *me);
 static void        SM_UI_mainBuffer_scrollPageDown_(SM_UI *me);
@@ -107,7 +116,7 @@ static int         SM_UI_keybar_cb_(struct ncplane *n);
 static int         SM_UI_menu_cb_(struct ncplane *n);
 
 //--- shared layout constants ---
-#define SM_UI_MAIN_Y_  5U
+#define SM_UI_MAIN_Y_  7U
 #define SM_UI_MAIN_MIN_ROWS_ 3U
 #define SM_UI_MAIN_MIN_COLS_ 4U
 #define SM_UI_SIDE_MARGIN_COLS_ 4U
@@ -204,6 +213,17 @@ static SM_RetState SM_UI_active_(
         case UI_REFRESHED_PORTS_SIG: {
             SM_UI_updateAvailablePorts_(
                 ao, (UI_PortListEvt const *)e);
+            return _SM_HANDLED();
+        }
+
+        case UI_REFRESHED_PROTOCOLS_SIG: {
+            SM_UI_updateAvailableProtocols_(
+                ao, (UI_ProtocolListEvt const *)e);
+            return _SM_HANDLED();
+        }
+
+        case UI_PROTOCOL_LOADED_SIG: {
+            SM_UI_protocolLoaded_(ao, (UI_AppEvt const *)e);
             return _SM_HANDLED();
         }
 
@@ -386,11 +406,14 @@ static void SM_UI_ctor_(SM_UI * const me) {
         .stopBits = "1",
         .parity = "none",
         .flowControl = "none",
-        .protocol = "none",
     };
     me->serialConfig = defaultConfig;
+    (void)snprintf(me->activeProtocolPath,
+                   sizeof(me->activeProtocolPath), "%s", "none");
     me->availablePortNames = (char *)0;
     me->availablePortNamesSize = 0U;
+    me->availableProtocolPaths = (char *)0;
+    me->availableProtocolPathsSize = 0U;
     TextBufferView_init(&me->mainBuffer);
     SM_InputCmpsMngr_ctor(&me->inputManager);
     SM_InputCmpsMngr_CommandSink const commandSink = {
@@ -430,6 +453,9 @@ void SM_UI_teardown(void) {
     free(SM_UI_inst_.availablePortNames);
     SM_UI_inst_.availablePortNames = (char *)0;
     SM_UI_inst_.availablePortNamesSize = 0U;
+    free(SM_UI_inst_.availableProtocolPaths);
+    SM_UI_inst_.availableProtocolPaths = (char *)0;
+    SM_UI_inst_.availableProtocolPathsSize = 0U;
     SM_UI_inst_.nc = (struct notcurses *)0;
 }
 
@@ -537,7 +563,7 @@ static void SM_UI_widgets_create_(SM_UI * const me) {
     TitleBar_create(&me->title, std, me, panelCols, SM_UI_title_cb_);
     ConnectionStatusBar_create(&me->status, std, me, panelCols,
                                SM_UI_status_cb_);
-    TextBufferView_create(&me->mainBuffer, std, me,
+    TextBufferView_create(&me->mainBuffer, std, me, SM_UI_MAIN_Y_,
                           main.rows, main.cols, borderCh,
                           SM_UI_main_cb_, SM_UI_content_cb_);
     SM_InputCmpsMngr_create(&me->inputManager, std, me,
@@ -625,6 +651,67 @@ static void SM_UI_updateAvailablePorts_(
         SM_UI_mainBuffer_pushText_(me, "\n", 1U);
         offset += nameSize + 1U;
     }
+}
+
+static void SM_UI_updateAvailableProtocols_(
+    SM_UI * const me,
+    UI_ProtocolListEvt const * const protocols)
+{
+    DBC_REQUIRE(625, me != (SM_UI *)0);
+    DBC_REQUIRE(626, protocols != (UI_ProtocolListEvt const *)0);
+    DBC_REQUIRE(627, protocols->protocolPaths != (char *)0);
+    DBC_REQUIRE(628, protocols->protocolPathsSize >= 2U);
+
+    char * const copy = (char *)malloc(protocols->protocolPathsSize);
+    DBC_ASSERT(629, copy != (char *)0);
+    memcpy(copy, protocols->protocolPaths,
+           protocols->protocolPathsSize);
+
+    char * const oldPaths = me->availableProtocolPaths;
+    me->availableProtocolPaths = copy;
+    me->availableProtocolPathsSize = protocols->protocolPathsSize;
+    SM_InputCmpsMngr_setProtocolCatalog(
+        &me->inputManager, copy, protocols->protocolPathsSize);
+    free(oldPaths);
+
+    if (copy[0] == '\0') {
+        char const empty[] = "Protocol files: none\n";
+        SM_UI_mainBuffer_pushText_(me, empty, sizeof(empty) - 1U);
+        return;
+    }
+
+    char const heading[] = "Protocol files:\n";
+    SM_UI_mainBuffer_pushText_(me, heading, sizeof(heading) - 1U);
+
+    size_t offset = 0U;
+    while (copy[offset] != '\0') {
+        size_t const remaining =
+            me->availableProtocolPathsSize - offset;
+        char const * const end =
+            (char const *)memchr(&copy[offset], '\0', remaining);
+        DBC_ASSERT(634, end != (char const *)0);
+        size_t const pathSize = (size_t)(end - &copy[offset]);
+        SM_UI_mainBuffer_pushText_(me, &copy[offset], pathSize);
+        SM_UI_mainBuffer_pushText_(me, "\n", 1U);
+        offset += pathSize + 1U;
+    }
+}
+
+static void SM_UI_protocolLoaded_(
+    SM_UI * const me,
+    UI_AppEvt const * const loaded)
+{
+    DBC_REQUIRE(635, me != (SM_UI *)0);
+    DBC_REQUIRE(636, loaded != (UI_AppEvt const *)0);
+    DBC_REQUIRE(637, loaded->pld.msg.text != (char *)0);
+    DBC_REQUIRE(638, loaded->pld.msg.len < SPMNGR_VALUE_LEN);
+
+    memcpy(me->activeProtocolPath, loaded->pld.msg.text,
+           loaded->pld.msg.len);
+    me->activeProtocolPath[loaded->pld.msg.len] = '\0';
+    ConnectionStatusBar_setProtocol(
+        &me->status, me->activeProtocolPath);
+    SM_UI_requestFrame_();
 }
 
 static void SM_UI_mainBuffer_clear_(SM_UI * const me) {
@@ -726,17 +813,11 @@ static void SM_UI_submitCommand_(
                                     &submission->parity);
         SM_UI_applyCommandOverride_(me->serialConfig.flowControl,
                                     &submission->flowControl);
-        SM_UI_applyCommandOverride_(me->serialConfig.protocol,
-                                    &submission->protocol);
-
         ConnectionStatusBar_setSerial(
             &me->status, me->serialConfig.port,
             me->serialConfig.baudrate, me->serialConfig.dataBits,
             me->serialConfig.stopBits, me->serialConfig.parity,
             me->serialConfig.flowControl);
-        ConnectionStatusBar_setProtocol(&me->status,
-                                        me->serialConfig.protocol);
-
         SpMngrConfigEvt * const command = SST_NEW(SpMngrConfigEvt);
         command->super.sig =
             (submission->action == SM_INPUT_ACTION_CONNECT)
@@ -754,6 +835,19 @@ static void SM_UI_submitCommand_(
             .sig = SPMNGR_REFRESH_PORTS_SIG,
         };
         SST_Task_post(AO_SpMngr, &refreshEvt);
+    } else if (submission->action
+               == SM_INPUT_ACTION_REFRESH_PROTOCOLS)
+    {
+        static SST_Evt const refreshProtocolsEvt = {
+            .sig = SPMNGR_REFRESH_PROTOCOLS_SIG,
+        };
+        SST_Task_post(AO_SpMngr, &refreshProtocolsEvt);
+    } else if (submission->action == SM_INPUT_ACTION_LOAD_PROTOCOL) {
+        SpMngrProtocolEvt * const load = SST_NEW(SpMngrProtocolEvt);
+        load->super.sig = SPMNGR_LOAD_PROTOCOL_SIG;
+        SM_UI_applyCommandOverride_(load->relativePath,
+                                    &submission->protocolPath);
+        SST_Task_post(AO_SpMngr, &load->super);
     } else {
         DBC_ERROR(633);
     }

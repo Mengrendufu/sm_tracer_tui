@@ -23,6 +23,10 @@ typedef enum {
 void UI_postText(char const *text);
 // Copy a NUL-separated, double-NUL-terminated sequence into the UI inbox.
 void UI_postPortList(char const *portNames, size_t portNamesSize);
+// Copy catalog-relative protocol paths into the UI inbox.
+void UI_postProtocolList(char const *protocolPaths,
+                         size_t protocolPathsSize);
+void UI_postProtocolLoaded(char const *relativePath);
 void UI_postConnectionStatus(UI_ConnectionStatus status);
 
 #endif // UI_EVT_H_

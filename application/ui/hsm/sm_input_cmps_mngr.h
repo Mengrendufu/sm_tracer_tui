@@ -30,9 +30,10 @@ typedef enum {
     SM_INPUT_COMMAND_DATA_BITS,
     SM_INPUT_COMMAND_DISCONNECT,
     SM_INPUT_COMMAND_FLOW_CONTROL,
+    SM_INPUT_COMMAND_LOAD_PROTOCOL,
     SM_INPUT_COMMAND_PARITY,
-    SM_INPUT_COMMAND_PROTOCOL,
     SM_INPUT_COMMAND_REFRESH,
+    SM_INPUT_COMMAND_REFRESH_PROTOCOLS,
     SM_INPUT_COMMAND_STOP_BITS,
     SM_INPUT_COMMAND_NUM
 } SM_InputCommand;
@@ -42,6 +43,8 @@ typedef enum {
     SM_INPUT_ACTION_CONNECT,
     SM_INPUT_ACTION_DISCONNECT,
     SM_INPUT_ACTION_REFRESH,
+    SM_INPUT_ACTION_REFRESH_PROTOCOLS,
+    SM_INPUT_ACTION_LOAD_PROTOCOL,
 } SM_InputCmpsMngrAction;
 
 // Borrowed text span valid only during CommandSink.submit().
@@ -59,7 +62,7 @@ typedef struct {
     SM_InputCmpsMngrArg stopBits;
     SM_InputCmpsMngrArg parity;
     SM_InputCmpsMngrArg flowControl;
-    SM_InputCmpsMngrArg protocol;
+    SM_InputCmpsMngrArg protocolPath;
 } SM_InputCmpsMngrSubmission;
 
 typedef struct {
@@ -90,6 +93,8 @@ typedef struct {
     size_t suggestionEnd;
     char const *portCatalog; // borrowed from SM_UI
     size_t portCatalogSize;
+    char const *protocolCatalog; // borrowed from SM_UI
+    size_t protocolCatalogSize;
     bool limitReached;
     int inputY;
     unsigned cols;
@@ -107,6 +112,11 @@ void SM_InputCmpsMngr_setCommandSink(
 void SM_InputCmpsMngr_setPortCatalog(SM_InputCmpsMngr *me,
                                      char const *portCatalog,
                                      size_t portCatalogSize);
+// Borrows protocolCatalog until the next call or Manager teardown.
+void SM_InputCmpsMngr_setProtocolCatalog(
+         SM_InputCmpsMngr *me,
+         char const *protocolCatalog,
+         size_t protocolCatalogSize);
 // One-way state-machine event dispatch; no action result is returned.
 void SM_InputCmpsMngr_dispatchEvt(SM_InputCmpsMngr * const me,
                                   UI_InputEvt const * const e);

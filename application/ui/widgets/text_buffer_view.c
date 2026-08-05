@@ -23,6 +23,7 @@ DBC_MODULE_NAME("text_buffer_view")
 static struct ncplane *TextBufferView_frame_create_(
                            struct ncplane *stdPlane,
                            void *owner,
+                           int y,
                            unsigned rows,
                            unsigned cols,
                            uint64_t borderCh,
@@ -74,6 +75,7 @@ static void            TextBufferView_frame_content_create_(
                            struct TextBufferView *view,
                            struct ncplane *stdPlane,
                            void *owner,
+                           int y,
                            unsigned rows,
                            unsigned cols,
                            uint64_t borderCh,
@@ -296,6 +298,7 @@ uint32_t ScrollBar_cellCh(ScrollBar_Thumb const * const thumb,
 static struct ncplane *TextBufferView_frame_create_(
     struct ncplane * const stdPlane,
     void * const owner,
+    int const y,
     unsigned const rows,
     unsigned const cols,
     uint64_t const borderCh,
@@ -304,7 +307,7 @@ static struct ncplane *TextBufferView_frame_create_(
     DBC_REQUIRE(410, stdPlane != (struct ncplane *)0);
 
     ncplane_options nopts = {
-        .y = 5, .x = 2, .rows = rows, .cols = cols, .name = "main",
+        .y = y, .x = 2, .rows = rows, .cols = cols, .name = "main",
         .userptr = owner, .resizecb = resizeCb,
     };
     struct ncplane * const framePlane = ncplane_create(stdPlane, &nopts);
@@ -495,6 +498,7 @@ static void TextBufferView_frame_content_create_(
     struct TextBufferView * const view,
     struct ncplane * const stdPlane,
     void * const owner,
+    int const y,
     unsigned const rows,
     unsigned const cols,
     uint64_t const borderCh,
@@ -504,8 +508,8 @@ static void TextBufferView_frame_content_create_(
     DBC_REQUIRE(420, view != (struct TextBufferView *)0);
     DBC_REQUIRE(421, stdPlane != (struct ncplane *)0);
 
-    view->framePlane = TextBufferView_frame_create_(stdPlane, owner, rows,
-                                                    cols, borderCh, frameCb);
+    view->framePlane = TextBufferView_frame_create_(
+        stdPlane, owner, y, rows, cols, borderCh, frameCb);
     view->contentPlane = TextBufferView_content_create_(view->framePlane,
                                                         owner, rows, cols,
                                                         contentCb);
@@ -555,6 +559,7 @@ void TextBufferView_init(struct TextBufferView * const view) {
 void TextBufferView_create(struct TextBufferView * const view,
                            struct ncplane * const stdPlane,
                            void * const owner,
+                           int const y,
                            unsigned const rows,
                            unsigned const cols,
                            uint64_t const borderCh,
@@ -563,8 +568,9 @@ void TextBufferView_create(struct TextBufferView * const view,
 {
     DBC_REQUIRE(430, view != (struct TextBufferView *)0);
 
-    TextBufferView_frame_content_create_(view, stdPlane, owner, rows, cols,
-                                         borderCh, frameCb, contentCb);
+    TextBufferView_frame_content_create_(
+        view, stdPlane, owner, y, rows, cols,
+        borderCh, frameCb, contentCb);
 }
 
 void TextBufferView_pushText(struct TextBufferView * const view,

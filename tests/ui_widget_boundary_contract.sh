@@ -13,6 +13,17 @@ grep -q 'struct TitleBar' \
     "$root/application/ui/widgets/title_bar.h"
 grep -q 'struct ConnectionStatusBar' \
     "$root/application/ui/widgets/connection_status_bar.h"
+grep -q 'CONNECTION_STATUS_ROWS_.*4U' \
+    "$root/application/ui/widgets/connection_status_bar.h"
+grep -q 'SM_UI_MAIN_Y_.*7U' \
+    "$root/application/ui/hsm/sm_ui.c"
+grep -q 'TextBufferView_create(&me->mainBuffer, std, me, SM_UI_MAIN_Y_,' \
+    "$root/application/ui/hsm/sm_ui.c"
+if grep -q '\.y = 5' \
+    "$root/application/ui/widgets/text_buffer_view.c"
+then
+    exit 1
+fi
 grep -q 'struct InputComposer' \
     "$root/application/ui/widgets/input_composer.h"
 grep -q 'struct CommandSuggestion' \

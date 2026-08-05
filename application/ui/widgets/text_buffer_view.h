@@ -95,6 +95,7 @@ void TextBufferView_init(struct TextBufferView *view);
 void TextBufferView_create(struct TextBufferView *view,
                            struct ncplane *stdPlane,
                            void *owner,
+                           int y,
                            unsigned rows,
                            unsigned cols,
                            uint64_t borderCh,

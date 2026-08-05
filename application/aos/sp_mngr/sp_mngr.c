@@ -24,6 +24,9 @@
 #include "sp_thread/sp_thread.h"
 #include <bits/sockaddr.h>
 #include "hdlc_parser_priv.h"
+#include "protocol_catalog_priv.h"
+#include "protocol_decoder_priv.h"
+#include "protocol_frame_formatter_priv.h"
 #include "sp_mngr.h"
 DBC_MODULE_NAME("sp_mngr")
 
@@ -34,6 +37,9 @@ typedef struct {
     SST_Task super;
     SM_Hsm hsm;
     HdlcParser hdlcParser;
+    ProtocolCatalog protocolCatalog;
+    ProtocolDecoder protocolDecoder;
+    ProtocolFrameFormatter protocolFrameFormatter;
 } SpMngr;
 
 static SpMngr SpMngr_inst_;
@@ -47,6 +53,10 @@ static bool SpMngr_makeSerialConfig_(
 static void SpMngr_onHdlcFrame_(void *ctx,
                                 uint8_t const *frame,
                                 size_t size);
+static void SpMngr_refreshProtocols_(SpMngr *me);
+static void SpMngr_loadProtocol_(SpMngr *me,
+                                 SpMngrProtocolEvt const *request);
+static bool SpMngr_postProtocolCatalog_(ProtocolCatalog const *catalog);
 
 //============================================================================
 //=== HSM states
@@ -82,6 +92,14 @@ static SM_RetState SpMngr_active_(SM_Hsm * const me, SST_Evt const * const e) SM
             SpMngr_reportConfig_(
                 "configuration updated",
                 SST_EVT_DOWNCAST(SpMngrConfigEvt, e));
+            return _SM_HANDLED();
+        }
+
+        case SPMNGR_LOAD_PROTOCOL_SIG: {
+            SpMngr * const manager = containerof(me, SpMngr, hsm);
+            SpMngr_loadProtocol_(
+                manager,
+                SST_EVT_DOWNCAST(SpMngrProtocolEvt, e));
             return _SM_HANDLED();
         }
 
@@ -134,6 +152,12 @@ static SM_RetState SpMngr_active_(SM_Hsm * const me, SST_Evt const * const e) SM
             return _SM_HANDLED();
         }
 
+        case SPMNGR_REFRESH_PROTOCOLS_SIG: {
+            SpMngr * const manager = containerof(me, SpMngr, hsm);
+            SpMngr_refreshProtocols_(manager);
+            return _SM_HANDLED();
+        }
+
         case SPMNGR_REFRESH_PORTS_SIG: {
             SpThread_postRefreshPorts();
             return _SM_HANDLED();
@@ -182,24 +206,12 @@ static void SpMngr_onHdlcFrame_(void * const ctx,
     DBC_REQUIRE(501, frame != (uint8_t const *)0);
     DBC_REQUIRE(502, (size > 0U)
                      && (size <= HDLC_PARSER_FRAME_MAX_SIZE));
-    (void)me;
 
-    char text[(HDLC_PARSER_FRAME_MAX_SIZE * 3U) + 48U];
-    int written = snprintf(text, sizeof(text),
-                           "SpMngr HDLC [%zu bytes]:", size);
-    DBC_ASSERT(503, (written > 0) && ((size_t)written < sizeof(text)));
-
-    size_t offset = (size_t)written;
-    for (size_t i = 0U; i < size; ++i) {
-        written = snprintf(&text[offset], sizeof(text) - offset,
-                           " %02X", (unsigned)frame[i]);
-        DBC_ASSERT(504, (written > 0)
-                        && ((size_t)written < (sizeof(text) - offset)));
-        offset += (size_t)written;
-    }
-    text[offset++] = '\n';
-    text[offset] = '\0';
-    UI_postText(text);
+    (void)ProtocolFrameFormatter_format(
+        &me->protocolFrameFormatter, &me->protocolDecoder,
+        frame, size);
+    UI_postText(ProtocolFrameFormatter_text(
+        &me->protocolFrameFormatter));
 }
 
 static void SpMngr_reportConfig_(
@@ -213,11 +225,10 @@ static void SpMngr_reportConfig_(
     int const len = snprintf(
         text, sizeof(text),
         "SpMngr: %s: port=%s baud=%s data=%s stop=%s "
-        "parity=%s flow=%s proto=%s\n",
+        "parity=%s flow=%s\n",
         action, e->config.port, e->config.baudrate,
         e->config.dataBits, e->config.stopBits,
-        e->config.parity, e->config.flowControl,
-        e->config.protocol);
+        e->config.parity, e->config.flowControl);
     DBC_ASSERT(302, (len > 0) && ((size_t)len < sizeof(text)));
     (void)len;
     UI_postText(text);
@@ -335,13 +346,141 @@ static bool SpMngr_makeSerialConfig_(
     return true;
 }
 
+static void SpMngr_refreshProtocols_(SpMngr * const me) {
+    DBC_REQUIRE(700, me != (SpMngr *)0);
+
+    ProtocolCatalogResult const result =
+        ProtocolCatalog_scan(&me->protocolCatalog);
+    char text[256];
+    if (result == PROTOCOL_CATALOG_OK) {
+        if (!SpMngr_postProtocolCatalog_(&me->protocolCatalog)) {
+            UI_postText(
+                "SpMngr: protocol catalog allocation failed.\n");
+            return;
+        }
+        int const length = snprintf(
+            text, sizeof(text),
+            "SpMngr: discovered %zu protocol file(s).\n",
+            ProtocolCatalog_count(&me->protocolCatalog));
+        DBC_ASSERT(701, (length > 0)
+                        && ((size_t)length < sizeof(text)));
+        (void)length;
+    } else {
+        int const length = snprintf(
+            text, sizeof(text),
+            "SpMngr: protocol catalog failed: %s\n",
+            ProtocolCatalog_error(&me->protocolCatalog)->detail);
+        DBC_ASSERT(702, (length > 0)
+                        && ((size_t)length < sizeof(text)));
+        (void)length;
+    }
+    UI_postText(text);
+}
+
+static bool SpMngr_postProtocolCatalog_(
+    ProtocolCatalog const * const catalog)
+{
+    size_t const count = ProtocolCatalog_count(catalog);
+    size_t packedSize = 1U;
+    for (size_t i = 0U; i < count; ++i) {
+        packedSize += strlen(
+            ProtocolCatalog_relativePath(catalog, i)) + 1U;
+    }
+    if (count == 0U) {
+        ++packedSize;
+    }
+
+    char * const packed = (char *)malloc(packedSize);
+    if (packed == (char *)0) {
+        return false;
+    }
+
+    size_t offset = 0U;
+    for (size_t i = 0U; i < count; ++i) {
+        char const * const path =
+            ProtocolCatalog_relativePath(catalog, i);
+        size_t const pathSize = strlen(path) + 1U;
+        memcpy(&packed[offset], path, pathSize);
+        offset += pathSize;
+    }
+    packed[offset++] = '\0';
+    if (count == 0U) {
+        packed[offset++] = '\0';
+    }
+    DBC_ASSERT(703, offset == packedSize);
+
+    UI_postProtocolList(packed, packedSize);
+    free(packed);
+    return true;
+}
+
+static void SpMngr_loadProtocol_(
+    SpMngr * const me,
+    SpMngrProtocolEvt const * const request)
+{
+    DBC_REQUIRE(710, me != (SpMngr *)0);
+    DBC_REQUIRE(711, request != (SpMngrProtocolEvt const *)0);
+
+    char text[512];
+    if (memchr(request->relativePath, '\0',
+               sizeof(request->relativePath)) == (void *)0)
+    {
+        UI_postText("SpMngr: protocol load failed: invalid path.\n");
+        return;
+    }
+
+    char filePath[PROTOCOL_CATALOG_FILE_PATH_CAPACITY];
+    ProtocolCatalogResult const resolveResult =
+        ProtocolCatalog_resolvePath(
+            &me->protocolCatalog, request->relativePath,
+            filePath, sizeof(filePath));
+    if (resolveResult != PROTOCOL_CATALOG_OK) {
+        int const length = snprintf(
+            text, sizeof(text),
+            "SpMngr: protocol load failed: %s\n",
+            ProtocolCatalog_error(&me->protocolCatalog)->detail);
+        DBC_ASSERT(712, (length > 0)
+                        && ((size_t)length < sizeof(text)));
+        (void)length;
+        UI_postText(text);
+        return;
+    }
+
+    ProtocolLoadResult const loadResult =
+        ProtocolDecoder_loadFile(&me->protocolDecoder, filePath);
+    if (loadResult != PROTOCOL_LOAD_OK) {
+        ProtocolLoadError const * const error =
+            ProtocolDecoder_error(&me->protocolDecoder);
+        int const length = snprintf(
+            text, sizeof(text),
+            "SpMngr: protocol load failed: %s\n", error->detail);
+        DBC_ASSERT(713, (length > 0)
+                        && ((size_t)length < sizeof(text)));
+        (void)length;
+        UI_postText(text);
+        return;
+    }
+
+    UI_postProtocolLoaded(request->relativePath);
+    int const length = snprintf(
+        text, sizeof(text),
+        "SpMngr: protocol loaded: %s\n", request->relativePath);
+    DBC_ASSERT(714, (length > 0)
+                    && ((size_t)length < sizeof(text)));
+    (void)length;
+    UI_postText(text);
+}
+
 //============================================================================
 //=== SST virtuals
 
 static void SpMngr_init_(SpMngr * const me,
                          SST_Evt const * const e)
 {
-    static SST_Evt const initialRefreshEvt = {
+    static SST_Evt const initialProtocolRefreshEvt = {
+        .sig = SPMNGR_REFRESH_PROTOCOLS_SIG,
+    };
+    static SST_Evt const initialPortRefreshEvt = {
         .sig = SPMNGR_REFRESH_PORTS_SIG,
     };
 
@@ -351,11 +490,12 @@ static void SpMngr_init_(SpMngr * const me,
     HdlcParser_init(&me->hdlcParser);
     SM_Hsm_init_(&me->hsm, (SM_InitHandler)SpMngr_TOP_initial_);
 
+    // Queue initial business intents only after the HSM reaches its stable
+    // leaf state. Future UI refresh commands reuse these same event paths.
+    UI_postText("SpMngr: requesting initial protocol catalog refresh.\n");
+    SST_Task_post(&me->super, &initialProtocolRefreshEvt);
     UI_postText("SpMngr: requesting initial serial port refresh.\n");
-
-    // Queue the AO's initial business intent only after its HSM has reached
-    // a stable leaf state; the worker may dispatch as soon as this is posted.
-    SST_Task_post(&me->super, &initialRefreshEvt);
+    SST_Task_post(&me->super, &initialPortRefreshEvt);
 }
 
 static void SpMngr_dispatch_(SpMngr * const me,
@@ -375,6 +515,9 @@ void SpMngr_ctor(void) {
 
     HdlcParser_ctor(&me->hdlcParser,
                     &SpMngr_onHdlcFrame_, me);
+    ProtocolCatalog_ctor(&me->protocolCatalog);
+    ProtocolDecoder_ctor(&me->protocolDecoder);
+    ProtocolFrameFormatter_ctor(&me->protocolFrameFormatter);
     SST_Task_ctor(&me->super,
                   (SST_Handler)&SpMngr_init_,
                   (SST_Handler)&SpMngr_dispatch_);
