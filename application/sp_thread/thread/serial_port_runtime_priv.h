@@ -19,6 +19,10 @@
 // after success and releases every acquired resource after failure.
 bool SerialPortRuntime_open(SerialConfig const *config);
 
+// Apply a complete configuration to the retained open port. The caller must
+// close the port after failure because its effective configuration is unknown.
+bool SerialPortRuntime_reconfigure(SerialConfig const *config);
+
 // Best-effort close the retained port, then always release local ownership.
 // Return whether the operating-system close operation succeeded.
 bool SerialPortRuntime_close(void);

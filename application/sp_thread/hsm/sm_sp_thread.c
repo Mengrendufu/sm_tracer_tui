@@ -127,6 +127,23 @@ static SM_RetState SM_SpThread_connected_(SM_Hsm * const me, SpThreadEvt const *
     (void)me;
 
     switch (e->sig) {
+        case SPTHRD_APPLY_CONFIG_SIG: {
+            static SST_Evt const appliedEvt = {
+                .sig = SPMNGR_CONFIG_APPLIED_SIG,
+            };
+            static SST_Evt const failedEvt = {
+                .sig = SPMNGR_CONFIG_APPLY_FAILED_SIG,
+            };
+            if (SerialPortRuntime_reconfigure(&e->config)) {
+                SST_Task_post(AO_SpMngr, &appliedEvt);
+                return _SM_HANDLED();
+            } else {
+                (void)SerialPortRuntime_close();
+                SST_Task_post(AO_SpMngr, &failedEvt);
+                return _SM_TRAN(&SM_SpThread_disconnected);
+            }
+        }
+
         case SPTHRD_OPEN_PORT_SIG: {
             static SST_Evt const failedEvt = {
                 .sig = SPMNGR_PORT_OPEN_FAILED_SIG,

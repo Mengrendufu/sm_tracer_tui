@@ -59,6 +59,9 @@ int SpThread_start(void);
 // Copy and post a serial-port-open request to the thread event inbox.
 void SpThread_postOpenPort(SerialConfig const *config);
 
+// Copy and post a configuration request for an already-open serial port.
+void SpThread_postApplyConfig(SerialConfig const *config);
+
 // Post a serial-port-close request to the thread event inbox.
 void SpThread_postClosePort(void);
 

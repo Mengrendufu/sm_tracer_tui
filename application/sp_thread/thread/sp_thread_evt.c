@@ -74,6 +74,16 @@ void SpThread_postOpenPort(SerialConfig const * const config) {
     SpThread_evtPost_(&openEvt);
 }
 
+void SpThread_postApplyConfig(SerialConfig const * const config) {
+    DBC_REQUIRE(120, config != (SerialConfig const *)0);
+
+    SpThreadEvt const configEvt = {
+        .sig = SPTHRD_APPLY_CONFIG_SIG,
+        .config = *config,
+    };
+    SpThread_evtPost_(&configEvt);
+}
+
 void SpThread_postClosePort(void) {
     static SpThreadEvt const closeEvt = {
         .sig = SPTHRD_CLOSE_PORT_SIG,

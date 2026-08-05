@@ -115,6 +115,9 @@ static void *SpThread_run_(void * const arg) {
             SpThreadEvt e;
             while (SpThread_evtDequeue(&e)) {
                 SM_SpThread_dispatchEvt(&me->hsm, &e);
+                if (e.sig == SPTHRD_APPLY_CONFIG_SIG) {
+                    RxPacketAssembler_reset(&me->rxAssembler);
+                }
             }
         }
 

@@ -222,6 +222,23 @@ int main(void) {
     failed += l_flowControl_ == SP_FLOWCONTROL_RTSCTS ? 0 : 1;
     failed += SerialPortRuntime_fd() == l_portFd_ ? 0 : 1;
 
+    SerialConfig updatedConfig = config;
+    updatedConfig.baudRate = 9600;
+    updatedConfig.dataBits = 7U;
+    updatedConfig.parity = SERIAL_PARITY_ODD;
+    int const openCallsBeforeReconfigure = l_openCalls_;
+    failed += SerialPortRuntime_reconfigure(&updatedConfig) ? 0 : 1;
+    failed += l_openCalls_ == openCallsBeforeReconfigure ? 0 : 1;
+    failed += l_baudrate_ == 9600 ? 0 : 1;
+    failed += l_dataBits_ == 7 ? 0 : 1;
+    failed += l_parity_ == SP_PARITY_ODD ? 0 : 1;
+    failed += SerialPortRuntime_fd() == l_portFd_ ? 0 : 1;
+
+    l_configResult_ = SP_ERR_FAIL;
+    failed += !SerialPortRuntime_reconfigure(&config) ? 0 : 1;
+    failed += SerialPortRuntime_fd() == l_portFd_ ? 0 : 1;
+    l_configResult_ = SP_OK;
+
     uint8_t readData[sizeof(l_readData_)] = {0};
     int const readSize = SerialPortRuntime_read(readData,
                                                 sizeof(readData));

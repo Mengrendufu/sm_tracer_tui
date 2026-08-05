@@ -27,7 +27,12 @@ static bool l_refreshDispatched_;
 static bool l_openDispatched_;
 static bool l_runtimeCloseResult_;
 static unsigned l_runtimeCloseCalls_;
+static bool l_runtimeReconfigureResult_;
+static unsigned l_runtimeReconfigureCalls_;
+static SerialConfig l_reconfigureConfig_;
 static unsigned l_closeDispatchCount_;
+static bool l_reconfigureDispatched_;
+static SST_Signal l_reconfigureResultSig_;
 static SST_Signal l_openResultSig_;
 static SerialConfig l_openConfig_;
 static char l_portNames_[128];
@@ -67,6 +72,12 @@ bool SerialPortRuntime_close(void) {
     ++l_runtimeCloseCalls_;
     l_runtimeFd_ = -1;
     return l_runtimeCloseResult_;
+}
+
+bool SerialPortRuntime_reconfigure(SerialConfig const * const config) {
+    ++l_runtimeReconfigureCalls_;
+    l_reconfigureConfig_ = *config;
+    return l_runtimeReconfigureResult_;
 }
 
 int SerialPortRuntime_fd(void) {
@@ -117,6 +128,15 @@ void SST_Task_post(SST_Task * const me, SST_Evt const * const e) {
         pthread_mutex_lock(&l_mutex_);
         l_openResultSig_ = e->sig;
         ++l_closeDispatchCount_;
+        pthread_cond_signal(&l_cond_);
+        pthread_mutex_unlock(&l_mutex_);
+    } else if ((me == AO_SpMngr)
+               && ((e->sig == SPMNGR_CONFIG_APPLIED_SIG)
+                   || (e->sig == SPMNGR_CONFIG_APPLY_FAILED_SIG)))
+    {
+        pthread_mutex_lock(&l_mutex_);
+        l_reconfigureResultSig_ = e->sig;
+        l_reconfigureDispatched_ = true;
         pthread_cond_signal(&l_cond_);
         pthread_mutex_unlock(&l_mutex_);
     } else if ((me == AO_SpMngr)
@@ -202,6 +222,32 @@ int main(void) {
     failed += l_openResultSig_ == SPMNGR_PORT_OPENED_SIG ? 0 : 1;
     failed += strcmp(l_openConfig_.portName, config.portName) == 0
               ? 0 : 1;
+
+    SerialConfig updatedConfig = config;
+    updatedConfig.baudRate = 9600;
+    l_runtimeReconfigureResult_ = true;
+    unsigned const closeCallsBeforeReconfigure = l_runtimeCloseCalls_;
+    SpThread_postApplyConfig(&updatedConfig);
+    (void)clock_gettime(CLOCK_REALTIME, &deadline);
+    ++deadline.tv_sec;
+
+    pthread_mutex_lock(&l_mutex_);
+    while (!l_reconfigureDispatched_) {
+        int const status = pthread_cond_timedwait(
+            &l_cond_, &l_mutex_, &deadline);
+        if (status != 0) {
+            failed = 1;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&l_mutex_);
+
+    failed += l_reconfigureResultSig_ == SPMNGR_CONFIG_APPLIED_SIG
+              ? 0 : 1;
+    failed += l_runtimeReconfigureCalls_ == 1U ? 0 : 1;
+    failed += l_reconfigureConfig_.baudRate == 9600 ? 0 : 1;
+    failed += l_runtimeCloseCalls_ == closeCallsBeforeReconfigure ? 0 : 1;
+    failed += l_runtimeFd_ == l_serialPipe_[0] ? 0 : 1;
 
     uint8_t const rxData[] = {0x11U, 0x22U, 0x33U};
     failed += write(l_serialPipe_[1], rxData, sizeof(rxData))
@@ -296,6 +342,47 @@ int main(void) {
     }
     pthread_mutex_unlock(&l_mutex_);
 
+    failed += l_runtimeFd_ == -1 ? 0 : 1;
+
+    l_forceReadFailure_ = false;
+    l_openDispatched_ = false;
+    SpThread_postOpenPort(&config);
+    (void)clock_gettime(CLOCK_REALTIME, &deadline);
+    ++deadline.tv_sec;
+
+    pthread_mutex_lock(&l_mutex_);
+    while (!l_openDispatched_) {
+        int const status = pthread_cond_timedwait(
+            &l_cond_, &l_mutex_, &deadline);
+        if (status != 0) {
+            failed = 1;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&l_mutex_);
+
+    l_runtimeReconfigureResult_ = false;
+    l_reconfigureDispatched_ = false;
+    unsigned const closeCallsBeforeFailure = l_runtimeCloseCalls_;
+    SpThread_postApplyConfig(&updatedConfig);
+    (void)clock_gettime(CLOCK_REALTIME, &deadline);
+    ++deadline.tv_sec;
+
+    pthread_mutex_lock(&l_mutex_);
+    while (!l_reconfigureDispatched_) {
+        int const status = pthread_cond_timedwait(
+            &l_cond_, &l_mutex_, &deadline);
+        if (status != 0) {
+            failed = 1;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&l_mutex_);
+
+    failed += l_reconfigureResultSig_
+              == SPMNGR_CONFIG_APPLY_FAILED_SIG ? 0 : 1;
+    failed += l_runtimeReconfigureCalls_ == 2U ? 0 : 1;
+    failed += l_runtimeCloseCalls_ == closeCallsBeforeFailure + 1U ? 0 : 1;
     failed += l_runtimeFd_ == -1 ? 0 : 1;
 
     (void)close(l_serialPipe_[0]);

@@ -88,9 +88,26 @@ static SM_RetState SpMngr_active_(SM_Hsm * const me, SST_Evt const * const e) SM
 
     switch (e->sig) {
         case SPMNGR_CONFIG_UPDATE_SIG: {
-            SpMngr_reportConfig_(
-                "Configuration updated",
-                SST_EVT_DOWNCAST(SpMngrConfigEvt, e));
+            SpMngrConfigEvt const * const command =
+                SST_EVT_DOWNCAST(SpMngrConfigEvt, e);
+            SerialConfig config;
+            SpMngr_reportConfig_("Configuration updated", command);
+            if (SpMngr_makeSerialConfig_(&command->config, &config)) {
+                SpThread_postApplyConfig(&config);
+            }
+            return _SM_HANDLED();
+        }
+
+        case SPMNGR_CONFIG_APPLIED_SIG: {
+            UI_postText(
+                "[SYS_INFO]>>Serial configuration applied.\n");
+            return _SM_HANDLED();
+        }
+
+        case SPMNGR_CONFIG_APPLY_FAILED_SIG: {
+            UI_postText(
+                "[SYS_INFO]>>Serial configuration failed; port closed.\n");
+            UI_postConnectionStatus(UI_CONNECTION_DISCONNECTED);
             return _SM_HANDLED();
         }
 

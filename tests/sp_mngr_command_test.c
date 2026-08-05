@@ -13,8 +13,10 @@ static unsigned l_refreshPosts_;
 static unsigned l_aoPosts_;
 static SST_Signal l_aoSignals_[4];
 static unsigned l_openPosts_;
+static unsigned l_applyConfigPosts_;
 static unsigned l_closePosts_;
 static SerialConfig l_openConfig_;
+static SerialConfig l_appliedConfig_;
 static UI_ConnectionStatus l_connectionStatus_;
 static char l_portNames_[128];
 static size_t l_portNamesSize_;
@@ -59,6 +61,11 @@ void SpThread_postRefreshPorts(void) {
 void SpThread_postOpenPort(SerialConfig const * const config) {
     ++l_openPosts_;
     l_openConfig_ = *config;
+}
+
+void SpThread_postApplyConfig(SerialConfig const * const config) {
+    ++l_applyConfigPosts_;
+    l_appliedConfig_ = *config;
 }
 
 void SpThread_postClosePort(void) {
@@ -143,6 +150,7 @@ int main(void) {
     failed += expectContains_("[SYS_INFO]>>Configuration updated:");
     failed += expectContains_("port=none");
     failed += expectContains_("baud=9600");
+    failed += l_applyConfigPosts_ == 0U ? 0 : 1;
 
     config.super.sig = SPMNGR_PORT_CONNECT_SIG;
     (void)snprintf(config.config.port, sizeof(config.config.port),
@@ -158,6 +166,35 @@ int main(void) {
     failed += l_openConfig_.parity == SERIAL_PARITY_EVEN ? 0 : 1;
     failed += l_openConfig_.flowControl == SERIAL_FLOW_NONE ? 0 : 1;
 
+    config.super.sig = SPMNGR_CONFIG_UPDATE_SIG;
+    (*AO_SpMngr->dispatch)(AO_SpMngr, &config.super);
+    failed += l_applyConfigPosts_ == 1U ? 0 : 1;
+    failed += strcmp(l_appliedConfig_.portName, "com3") == 0 ? 0 : 1;
+    failed += l_appliedConfig_.baudRate == 9600 ? 0 : 1;
+    failed += l_appliedConfig_.dataBits == 7U ? 0 : 1;
+    failed += l_appliedConfig_.stopBits == SERIAL_STOP_BITS_2 ? 0 : 1;
+    failed += l_appliedConfig_.parity == SERIAL_PARITY_EVEN ? 0 : 1;
+    failed += l_appliedConfig_.flowControl == SERIAL_FLOW_NONE ? 0 : 1;
+
+    SST_Evt const configApplied = {
+        .sig = SPMNGR_CONFIG_APPLIED_SIG,
+    };
+    (*AO_SpMngr->dispatch)(AO_SpMngr, &configApplied);
+    failed += strcmp(
+        l_text_, "[SYS_INFO]>>Serial configuration applied.\n") == 0
+        ? 0 : 1;
+
+    SST_Evt const configApplyFailed = {
+        .sig = SPMNGR_CONFIG_APPLY_FAILED_SIG,
+    };
+    (*AO_SpMngr->dispatch)(AO_SpMngr, &configApplyFailed);
+    failed += strcmp(
+        l_text_,
+        "[SYS_INFO]>>Serial configuration failed; port closed.\n") == 0
+        ? 0 : 1;
+    failed += l_connectionStatus_ == UI_CONNECTION_DISCONNECTED ? 0 : 1;
+
+    config.super.sig = SPMNGR_PORT_CONNECT_SIG;
     (void)snprintf(config.config.baudrate,
                    sizeof(config.config.baudrate), "%s", "invalid");
     (*AO_SpMngr->dispatch)(AO_SpMngr, &config.super);

@@ -71,6 +71,21 @@ static bool SerialPortRuntime_mapFlowControl_(
     return true;
 }
 
+static bool SerialPortRuntime_configure_(
+    struct sp_port * const port,
+    SerialConfig const * const config,
+    int const stopBits,
+    enum sp_parity const parity,
+    enum sp_flowcontrol const flowControl)
+{
+    return (sp_set_baudrate(port, config->baudRate) == SP_OK)
+           && (sp_set_bits(port, config->dataBits) == SP_OK)
+           && (sp_set_stopbits(port, stopBits) == SP_OK)
+           && (sp_set_parity(port, parity) == SP_OK)
+           && (sp_set_flowcontrol(port, flowControl) == SP_OK)
+           && (sp_flush(port, SP_BUF_BOTH) == SP_OK);
+}
+
 bool SerialPortRuntime_open(SerialConfig const * const config) {
     if ((config == (SerialConfig const *)0)
         || (SerialPortRuntime_port_ != (struct sp_port *)0))
@@ -98,13 +113,8 @@ bool SerialPortRuntime_open(SerialConfig const * const config) {
         return false;
     }
 
-    bool const configured =
-        (sp_set_baudrate(port, config->baudRate) == SP_OK)
-        && (sp_set_bits(port, config->dataBits) == SP_OK)
-        && (sp_set_stopbits(port, stopBits) == SP_OK)
-        && (sp_set_parity(port, parity) == SP_OK)
-        && (sp_set_flowcontrol(port, flowControl) == SP_OK)
-        && (sp_flush(port, SP_BUF_BOTH) == SP_OK);
+    bool const configured = SerialPortRuntime_configure_(
+        port, config, stopBits, parity, flowControl);
     if (!configured) {
         (void)sp_close(port);
         sp_free_port(port);
@@ -121,6 +131,30 @@ bool SerialPortRuntime_open(SerialConfig const * const config) {
     SerialPortRuntime_port_ = port;
     SerialPortRuntime_fd_ = fd;
     return true;
+}
+
+bool SerialPortRuntime_reconfigure(
+    SerialConfig const * const config)
+{
+    if ((config == (SerialConfig const *)0)
+        || (SerialPortRuntime_port_ == (struct sp_port *)0))
+    {
+        return false;
+    }
+
+    int stopBits;
+    enum sp_parity parity;
+    enum sp_flowcontrol flowControl;
+    if (!SerialPortRuntime_mapStopBits_(config->stopBits, &stopBits)
+        || !SerialPortRuntime_mapParity_(config->parity, &parity)
+        || !SerialPortRuntime_mapFlowControl_(config->flowControl,
+                                              &flowControl))
+    {
+        return false;
+    }
+
+    return SerialPortRuntime_configure_(SerialPortRuntime_port_, config,
+                                        stopBits, parity, flowControl);
 }
 
 bool SerialPortRuntime_close(void) {
