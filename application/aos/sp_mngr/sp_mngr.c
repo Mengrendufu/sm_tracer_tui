@@ -80,7 +80,6 @@ static SM_HsmState SM_HSM_ROM SpMngr_active = {
 
 static SM_StatePtr SpMngr_TOP_initial_(SM_Hsm * const me) SM_HSM_RETT {
     (void)me;
-    UI_postText("SpMngr initialized.\n");
     return _SM_INIT(&SpMngr_active);
 }
 
@@ -90,7 +89,7 @@ static SM_RetState SpMngr_active_(SM_Hsm * const me, SST_Evt const * const e) SM
     switch (e->sig) {
         case SPMNGR_CONFIG_UPDATE_SIG: {
             SpMngr_reportConfig_(
-                "configuration updated",
+                "Configuration updated",
                 SST_EVT_DOWNCAST(SpMngrConfigEvt, e));
             return _SM_HANDLED();
         }
@@ -108,46 +107,46 @@ static SM_RetState SpMngr_active_(SM_Hsm * const me, SST_Evt const * const e) SM
                 SST_EVT_DOWNCAST(SpMngrConfigEvt, e);
             SerialConfig config;
             if (SpMngr_makeSerialConfig_(&command->config, &config)) {
-                SpMngr_reportConfig_("connect requested", command);
+                SpMngr_reportConfig_("Connect requested", command);
                 SpThread_postOpenPort(&config);
             } else {
                 UI_postText(
-                    "SpMngr: invalid serial configuration.\n");
+                    "[SYS_INFO]>>Invalid serial configuration.\n");
             }
             return _SM_HANDLED();
         }
 
         case SPMNGR_PORT_OPENED_SIG: {
-            UI_postText("SpMngr: serial port opened.\n");
+            UI_postText("[SYS_INFO]>>Serial port opened.\n");
             UI_postConnectionStatus(UI_CONNECTION_CONNECTED);
             return _SM_HANDLED();
         }
 
         case SPMNGR_PORT_OPEN_FAILED_SIG: {
-            UI_postText("SpMngr: serial port open failed.\n");
+            UI_postText("[SYS_INFO]>>Serial port open failed.\n");
             return _SM_HANDLED();
         }
 
         case SPMNGR_PORT_DISCONNECT_SIG: {
-            UI_postText("SpMngr: disconnect requested.\n");
+            UI_postText("[SYS_INFO]>>Disconnect requested.\n");
             SpThread_postClosePort();
             return _SM_HANDLED();
         }
 
         case SPMNGR_PORT_CLOSED_SIG: {
-            UI_postText("SpMngr: serial port closed.\n");
+            UI_postText("[SYS_INFO]>>Serial port closed.\n");
             UI_postConnectionStatus(UI_CONNECTION_DISCONNECTED);
             return _SM_HANDLED();
         }
 
         case SPMNGR_PORT_CLOSE_FAILED_SIG: {
-            UI_postText("SpMngr: serial port close failed.\n");
+            UI_postText("[SYS_INFO]>>Serial port close failed.\n");
             UI_postConnectionStatus(UI_CONNECTION_DISCONNECTED);
             return _SM_HANDLED();
         }
 
         case SPMNGR_PORT_CONNECTION_LOST_SIG: {
-            UI_postText("SpMngr: serial port connection lost.\n");
+            UI_postText("[SYS_INFO]>>Serial port connection lost.\n");
             UI_postConnectionStatus(UI_CONNECTION_DISCONNECTED);
             return _SM_HANDLED();
         }
@@ -171,7 +170,8 @@ static SM_RetState SpMngr_active_(SM_Hsm * const me, SST_Evt const * const e) SM
                                 result->portNamesSize);
                 free(result->portNames);
             } else {
-                UI_postText("Serial port refresh failed.\n");
+                UI_postText(
+                    "[SYS_INFO]>>Serial port refresh failed.\n");
             }
             return _SM_HANDLED();
         }
@@ -224,7 +224,7 @@ static void SpMngr_reportConfig_(
     char text[2048];
     int const len = snprintf(
         text, sizeof(text),
-        "SpMngr: %s: port=%s baud=%s data=%s stop=%s "
+        "[SYS_INFO]>>%s: port=%s baud=%s data=%s stop=%s "
         "parity=%s flow=%s\n",
         action, e->config.port, e->config.baudrate,
         e->config.dataBits, e->config.stopBits,
@@ -351,30 +351,22 @@ static void SpMngr_refreshProtocols_(SpMngr * const me) {
 
     ProtocolCatalogResult const result =
         ProtocolCatalog_scan(&me->protocolCatalog);
-    char text[256];
     if (result == PROTOCOL_CATALOG_OK) {
         if (!SpMngr_postProtocolCatalog_(&me->protocolCatalog)) {
             UI_postText(
-                "SpMngr: protocol catalog allocation failed.\n");
-            return;
+                "[SYS_INFO]>>Protocol catalog allocation failed.\n");
         }
-        int const length = snprintf(
-            text, sizeof(text),
-            "SpMngr: discovered %zu protocol file(s).\n",
-            ProtocolCatalog_count(&me->protocolCatalog));
-        DBC_ASSERT(701, (length > 0)
-                        && ((size_t)length < sizeof(text)));
-        (void)length;
     } else {
+        char text[256];
         int const length = snprintf(
             text, sizeof(text),
-            "SpMngr: protocol catalog failed: %s\n",
+            "[SYS_INFO]>>Protocol catalog failed: %s\n",
             ProtocolCatalog_error(&me->protocolCatalog)->detail);
         DBC_ASSERT(702, (length > 0)
                         && ((size_t)length < sizeof(text)));
         (void)length;
+        UI_postText(text);
     }
-    UI_postText(text);
 }
 
 static bool SpMngr_postProtocolCatalog_(
@@ -425,7 +417,8 @@ static void SpMngr_loadProtocol_(
     if (memchr(request->relativePath, '\0',
                sizeof(request->relativePath)) == (void *)0)
     {
-        UI_postText("SpMngr: protocol load failed: invalid path.\n");
+        UI_postText(
+            "[SYS_INFO]>>Protocol load failed: invalid path.\n");
         return;
     }
 
@@ -437,7 +430,7 @@ static void SpMngr_loadProtocol_(
     if (resolveResult != PROTOCOL_CATALOG_OK) {
         int const length = snprintf(
             text, sizeof(text),
-            "SpMngr: protocol load failed: %s\n",
+            "[SYS_INFO]>>Protocol load failed: %s\n",
             ProtocolCatalog_error(&me->protocolCatalog)->detail);
         DBC_ASSERT(712, (length > 0)
                         && ((size_t)length < sizeof(text)));
@@ -453,7 +446,8 @@ static void SpMngr_loadProtocol_(
             ProtocolDecoder_error(&me->protocolDecoder);
         int const length = snprintf(
             text, sizeof(text),
-            "SpMngr: protocol load failed: %s\n", error->detail);
+            "[SYS_INFO]>>Protocol load failed: %s\n",
+            error->detail);
         DBC_ASSERT(713, (length > 0)
                         && ((size_t)length < sizeof(text)));
         (void)length;
@@ -464,7 +458,8 @@ static void SpMngr_loadProtocol_(
     UI_postProtocolLoaded(request->relativePath);
     int const length = snprintf(
         text, sizeof(text),
-        "SpMngr: protocol loaded: %s\n", request->relativePath);
+        "[SYS_INFO]>>Protocol loaded: %s\n",
+        request->relativePath);
     DBC_ASSERT(714, (length > 0)
                     && ((size_t)length < sizeof(text)));
     (void)length;
@@ -492,9 +487,11 @@ static void SpMngr_init_(SpMngr * const me,
 
     // Queue initial business intents only after the HSM reaches its stable
     // leaf state. Future UI refresh commands reuse these same event paths.
-    UI_postText("SpMngr: requesting initial protocol catalog refresh.\n");
+    UI_postText(
+        "[SYS_INFO]>>Requesting initial protocol catalog refresh.\n");
     SST_Task_post(&me->super, &initialProtocolRefreshEvt);
-    UI_postText("SpMngr: requesting initial serial port refresh.\n");
+    UI_postText(
+        "[SYS_INFO]>>Requesting initial serial port refresh.\n");
     SST_Task_post(&me->super, &initialPortRefreshEvt);
 }
 

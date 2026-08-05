@@ -15,7 +15,6 @@
 #include "sm_hsm.h"
 #include "bsp.h"
 #include "dbc_assert.h"
-#include "ui_evt.h"
 #include "blinky.h"
 
 //============================================================================
@@ -66,7 +65,6 @@ SM_HsmState SM_HSM_ROM Blinky_on = {
 static SM_StatePtr Blinky_TOP_initial(SM_Hsm * const me) SM_HSM_RETT {
     Blinky *b = containerof(me, Blinky, hsm);
     SST_TimeEvt_arm(&b->timer, BSP_TICKS_PER_SEC, BSP_TICKS_PER_SEC);
-    UI_postText("BlinkyTOPInit.\n");
     return _SM_INIT(&Blinky_off);
 }
 

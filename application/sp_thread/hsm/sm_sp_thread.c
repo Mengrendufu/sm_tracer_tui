@@ -18,7 +18,6 @@
 #include "sp_mngr/sp_mngr.h"
 #include "sm_sp_thread.h"
 #include "sp_thread/thread/serial_port_runtime_priv.h"
-#include "ui_evt.h"
 DBC_MODULE_NAME("sm_sp_thread")
 
 //============================================================================
@@ -63,7 +62,6 @@ static SM_HsmState SM_HSM_ROM SM_SpThread_connected = {
 
 static SM_StatePtr SM_SpThread_TOP_initial_(SM_Hsm * const me) SM_HSM_RETT {
     (void)me;
-    UI_postText("SerialPortThread initialized.\n");
     return _SM_INIT(&SM_SpThread_active);
 }
 

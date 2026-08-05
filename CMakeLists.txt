@@ -514,6 +514,9 @@ if(BUILD_TESTING)
 
     add_test(NAME ui_widget_boundary_contract
              COMMAND ${CMAKE_SOURCE_DIR}/tests/ui_widget_boundary_contract.sh)
+
+    add_test(NAME system_message_contract
+             COMMAND sh ${CMAKE_SOURCE_DIR}/tests/system_message_contract.sh)
 endif()
 
 #=============================================================================

@@ -632,12 +632,12 @@ static void SM_UI_updateAvailablePorts_(
     free(oldPortNames);
 
     if (copy[0] == '\0') {
-        char const empty[] = "Serial ports: none\n";
+        char const empty[] = "[SYS_INFO]>>Serial ports: none\n";
         SM_UI_mainBuffer_pushText_(me, empty, sizeof(empty) - 1U);
         return;
     }
 
-    char const heading[] = "Serial ports:\n";
+    char const heading[] = "[SYS_INFO]>>Serial ports:\n";
     SM_UI_mainBuffer_pushText_(me, heading, sizeof(heading) - 1U);
 
     size_t offset = 0U;
@@ -648,7 +648,6 @@ static void SM_UI_updateAvailablePorts_(
         DBC_ASSERT(619, end != (char const *)0);
         size_t const nameSize = (size_t)(end - &copy[offset]);
         SM_UI_mainBuffer_pushText_(me, &copy[offset], nameSize);
-        SM_UI_mainBuffer_pushText_(me, "\n", 1U);
         offset += nameSize + 1U;
     }
 }
@@ -675,12 +674,12 @@ static void SM_UI_updateAvailableProtocols_(
     free(oldPaths);
 
     if (copy[0] == '\0') {
-        char const empty[] = "Protocol files: none\n";
+        char const empty[] = "[SYS_INFO]>>Protocol files: none\n";
         SM_UI_mainBuffer_pushText_(me, empty, sizeof(empty) - 1U);
         return;
     }
 
-    char const heading[] = "Protocol files:\n";
+    char const heading[] = "[SYS_INFO]>>Protocol files:\n";
     SM_UI_mainBuffer_pushText_(me, heading, sizeof(heading) - 1U);
 
     size_t offset = 0U;
@@ -692,7 +691,6 @@ static void SM_UI_updateAvailableProtocols_(
         DBC_ASSERT(634, end != (char const *)0);
         size_t const pathSize = (size_t)(end - &copy[offset]);
         SM_UI_mainBuffer_pushText_(me, &copy[offset], pathSize);
-        SM_UI_mainBuffer_pushText_(me, "\n", 1U);
         offset += pathSize + 1U;
     }
 }
