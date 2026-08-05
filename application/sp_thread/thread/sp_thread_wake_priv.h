@@ -14,7 +14,8 @@ enum SpThreadWakeResult {
     SP_THREAD_WAKE_ERROR = -1,
     SP_THREAD_WAKE_TIMEOUT = 0,
     SP_THREAD_WAKE_EVENT = 1,
-    SP_THREAD_WAKE_SERIAL = 2
+    SP_THREAD_WAKE_SERIAL = 2,
+    SP_THREAD_WAKE_SERIAL_LOST = 4
 };
 
 void SpThreadWake_init(int eventFd);

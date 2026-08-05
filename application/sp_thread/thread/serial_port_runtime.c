@@ -127,14 +127,12 @@ bool SerialPortRuntime_close(void) {
     if (SerialPortRuntime_port_ == (struct sp_port *)0) {
         return false;
     }
-    if (sp_close(SerialPortRuntime_port_) != SP_OK) {
-        return false;
-    }
 
+    bool const closed = sp_close(SerialPortRuntime_port_) == SP_OK;
     sp_free_port(SerialPortRuntime_port_);
     SerialPortRuntime_port_ = (struct sp_port *)0;
     SerialPortRuntime_fd_ = -1;
-    return true;
+    return closed;
 }
 
 int SerialPortRuntime_fd(void) {

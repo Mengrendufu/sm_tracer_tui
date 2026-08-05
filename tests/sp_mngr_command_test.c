@@ -146,7 +146,17 @@ int main(void) {
         .sig = SPMNGR_PORT_CLOSE_FAILED_SIG,
     };
     (*AO_SpMngr->dispatch)(AO_SpMngr, &closeFailed);
-    failed += l_connectionStatus_ == UI_CONNECTION_CONNECTED ? 0 : 1;
+    failed += l_connectionStatus_ == UI_CONNECTION_DISCONNECTED ? 0 : 1;
+
+    (*AO_SpMngr->dispatch)(AO_SpMngr, &opened);
+    SST_Evt const connectionLost = {
+        .sig = SPMNGR_PORT_CONNECTION_LOST_SIG,
+    };
+    (*AO_SpMngr->dispatch)(AO_SpMngr, &connectionLost);
+    failed += strcmp(l_text_,
+                     "SpMngr: serial port connection lost.\n") == 0
+              ? 0 : 1;
+    failed += l_connectionStatus_ == UI_CONNECTION_DISCONNECTED ? 0 : 1;
 
     SST_Evt const refresh = {
         .sig = SPMNGR_REFRESH_PORTS_SIG,

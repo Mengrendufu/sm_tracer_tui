@@ -146,11 +146,19 @@ static SM_RetState SM_SpThread_connected_(SM_Hsm * const me, SpThreadEvt const *
             };
             if (SerialPortRuntime_close()) {
                 SST_Task_post(AO_SpMngr, &closedEvt);
-                return _SM_TRAN(&SM_SpThread_disconnected);
             } else {
                 SST_Task_post(AO_SpMngr, &failedEvt);
-                return _SM_HANDLED();
             }
+            return _SM_TRAN(&SM_SpThread_disconnected);
+        }
+
+        case SPTHRD_PORT_LOST_SIG: {
+            static SST_Evt const lostEvt = {
+                .sig = SPMNGR_PORT_CONNECTION_LOST_SIG,
+            };
+            (void)SerialPortRuntime_close();
+            SST_Task_post(AO_SpMngr, &lostEvt);
+            return _SM_TRAN(&SM_SpThread_disconnected);
         }
 
         default: {

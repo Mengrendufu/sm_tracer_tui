@@ -67,8 +67,9 @@ have completed synchronous construction, queue setup, and initial transition.
 
 The serial-thread HSM has an `active` parent with `disconnected` and
 `connected` leaf states. Port refresh is handled by `active`; open and close
-successes transition between the leaves, while operation failures retain the
-current state. `SerialPortRuntime` owns the opened `sp_port` handle.
+successes transition between the leaves. Open failure retains `disconnected`;
+close failure or connection loss performs best-effort cleanup and returns to
+`disconnected`. `SerialPortRuntime` owns the opened `sp_port` handle.
 
 The serial receive path is `SerialPortRuntime -> RxPacketAssembler ->
 SpMngrRxPacketEvt -> SpMngr HSM -> HdlcParser -> UI_postText`. The transport

@@ -231,14 +231,12 @@ int main(void) {
 
     l_closeResult_ = SP_ERR_FAIL;
     failed += !SerialPortRuntime_close() ? 0 : 1;
-    failed += (l_closeCalls_ == 2) && (l_freeCalls_ == 2)
-              ? 0 : 1;
-
-    l_closeResult_ = SP_OK;
-    failed += SerialPortRuntime_close() ? 0 : 1;
-    failed += (l_closeCalls_ == 3) && (l_freeCalls_ == 3)
+    failed += (l_closeCalls_ == 2) && (l_freeCalls_ == 3)
               ? 0 : 1;
     failed += SerialPortRuntime_fd() == -1 ? 0 : 1;
+    failed += !SerialPortRuntime_close() ? 0 : 1;
+    failed += (l_closeCalls_ == 2) && (l_freeCalls_ == 3)
+              ? 0 : 1;
 
     return failed == 0 ? 0 : 1;
 }

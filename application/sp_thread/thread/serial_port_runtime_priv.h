@@ -19,8 +19,8 @@
 // after success and releases every acquired resource after failure.
 bool SerialPortRuntime_open(SerialConfig const *config);
 
-// Close and release the retained serial-port handle. A close failure leaves
-// the handle retained so the caller can retry.
+// Best-effort close the retained port, then always release local ownership.
+// Return whether the operating-system close operation succeeded.
 bool SerialPortRuntime_close(void);
 
 // Return the native descriptor borrowed from the retained open port, or -1

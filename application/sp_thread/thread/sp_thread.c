@@ -76,6 +76,9 @@ static void SpThread_postPacket_(void * const ctx,
 
 static void *SpThread_run_(void * const arg) {
     SpThread * const me = (SpThread *)arg;
+    static SpThreadEvt const lostEvt = {
+        .sig = SPTHRD_PORT_LOST_SIG,
+    };
     DBC_REQUIRE(220, me != (SpThread *)0);
 
     SM_SpThread_ctor(&me->hsm);
@@ -115,6 +118,12 @@ static void *SpThread_run_(void * const arg) {
             }
         }
 
+        if (((ready & SP_THREAD_WAKE_SERIAL_LOST) != 0)
+            && (SerialPortRuntime_fd() >= 0))
+        {
+            SM_SpThread_dispatchEvt(&me->hsm, &lostEvt);
+        }
+
         currentFd = SerialPortRuntime_fd();
         if (currentFd != serialFd) {
             RxPacketAssembler_reset(&me->rxAssembler);
@@ -138,7 +147,10 @@ static void *SpThread_run_(void * const arg) {
             } while (readSize > 0);
 
             if (readSize < 0) {
-                UI_postText("SpThread: serial receive failed.\n");
+                SM_SpThread_dispatchEvt(&me->hsm, &lostEvt);
+                RxPacketAssembler_reset(&me->rxAssembler);
+                SpThreadWake_setSerialFd(-1);
+                serialFd = -1;
             }
         }
 

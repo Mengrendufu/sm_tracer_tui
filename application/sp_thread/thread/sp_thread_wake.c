@@ -72,8 +72,11 @@ int SpThreadWake_wait(int const timeoutMs) {
     if ((eventRevents & POLLIN) != 0) {
         result |= SP_THREAD_WAKE_EVENT;
     }
-    if ((serialRevents & (POLLIN | POLLERR | POLLHUP)) != 0) {
+    if ((serialRevents & POLLIN) != 0) {
         result |= SP_THREAD_WAKE_SERIAL;
+    }
+    if ((serialRevents & (POLLERR | POLLHUP)) != 0) {
+        result |= SP_THREAD_WAKE_SERIAL_LOST;
     }
     if (result == SP_THREAD_WAKE_TIMEOUT) {
         errno = EIO;

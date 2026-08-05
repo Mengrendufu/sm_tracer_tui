@@ -35,6 +35,8 @@ static size_t l_portNamesSize_;
 static int l_serialPipe_[2];
 static int l_runtimeFd_ = -1;
 static bool l_rxDispatched_;
+static bool l_forceReadFailure_;
+static bool l_lossDispatched_;
 static uint8_t l_rxData_[128];
 static size_t l_rxDataSize_;
 
@@ -63,9 +65,7 @@ bool SerialPortRuntime_open(SerialConfig const * const config) {
 
 bool SerialPortRuntime_close(void) {
     ++l_runtimeCloseCalls_;
-    if (l_runtimeCloseResult_) {
-        l_runtimeFd_ = -1;
-    }
+    l_runtimeFd_ = -1;
     return l_runtimeCloseResult_;
 }
 
@@ -76,6 +76,9 @@ int SerialPortRuntime_fd(void) {
 int SerialPortRuntime_read(uint8_t * const data,
                            size_t const capacity)
 {
+    if (l_forceReadFailure_) {
+        return -1;
+    }
     int const size = (int)read(l_serialPipe_[0], data, capacity);
     return (size < 0) && (errno == EAGAIN) ? 0 : size;
 }
@@ -114,6 +117,13 @@ void SST_Task_post(SST_Task * const me, SST_Evt const * const e) {
         pthread_mutex_lock(&l_mutex_);
         l_openResultSig_ = e->sig;
         ++l_closeDispatchCount_;
+        pthread_cond_signal(&l_cond_);
+        pthread_mutex_unlock(&l_mutex_);
+    } else if ((me == AO_SpMngr)
+               && (e->sig == SPMNGR_PORT_CONNECTION_LOST_SIG))
+    {
+        pthread_mutex_lock(&l_mutex_);
+        l_lossDispatched_ = true;
         pthread_cond_signal(&l_cond_);
         pthread_mutex_unlock(&l_mutex_);
     } else if ((me == AO_SpMngr)
@@ -233,7 +243,7 @@ int main(void) {
     failed += l_openResultSig_ == SPMNGR_PORT_CLOSE_FAILED_SIG
               ? 0 : 1;
 
-    l_runtimeCloseResult_ = true;
+    unsigned const closeCallsAfterFailure = l_runtimeCloseCalls_;
     SpThread_postClosePort();
     (void)clock_gettime(CLOCK_REALTIME, &deadline);
     ++deadline.tv_sec;
@@ -250,7 +260,43 @@ int main(void) {
     pthread_mutex_unlock(&l_mutex_);
 
     failed += l_openResultSig_ == SPMNGR_PORT_CLOSED_SIG ? 0 : 1;
-    failed += l_runtimeCloseCalls_ == 2U ? 0 : 1;
+    failed += l_runtimeCloseCalls_ == closeCallsAfterFailure ? 0 : 1;
+
+    l_openDispatched_ = false;
+    SpThread_postOpenPort(&config);
+    (void)clock_gettime(CLOCK_REALTIME, &deadline);
+    ++deadline.tv_sec;
+
+    pthread_mutex_lock(&l_mutex_);
+    while (!l_openDispatched_) {
+        int const status = pthread_cond_timedwait(
+            &l_cond_, &l_mutex_, &deadline);
+        if (status != 0) {
+            failed = 1;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&l_mutex_);
+
+    l_runtimeCloseResult_ = true;
+    l_forceReadFailure_ = true;
+    failed += write(l_serialPipe_[1], rxData, sizeof(rxData))
+              == sizeof(rxData) ? 0 : 1;
+    (void)clock_gettime(CLOCK_REALTIME, &deadline);
+    ++deadline.tv_sec;
+
+    pthread_mutex_lock(&l_mutex_);
+    while (!l_lossDispatched_) {
+        int const status = pthread_cond_timedwait(
+            &l_cond_, &l_mutex_, &deadline);
+        if (status != 0) {
+            failed = 1;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&l_mutex_);
+
+    failed += l_runtimeFd_ == -1 ? 0 : 1;
 
     (void)close(l_serialPipe_[0]);
     (void)close(l_serialPipe_[1]);

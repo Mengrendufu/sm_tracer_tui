@@ -45,14 +45,15 @@ int main(void) {
     ready = SpThreadWake_wait(1);
     failed += ready == SP_THREAD_WAKE_TIMEOUT ? 0 : 1;
 
+    (void)close(serialPipe[1]);
+    ready = SpThreadWake_wait(20);
+    failed += (ready & SP_THREAD_WAKE_SERIAL_LOST) != 0 ? 0 : 1;
+
     SpThreadWake_setSerialFd(-1);
-    failed += write(serialPipe[1], &byte, sizeof(byte)) == sizeof(byte)
-              ? 0 : 1;
     ready = SpThreadWake_wait(1);
     failed += ready == SP_THREAD_WAKE_TIMEOUT ? 0 : 1;
 
     (void)close(serialPipe[0]);
-    (void)close(serialPipe[1]);
     (void)close(eventFd);
     return failed == 0 ? 0 : 1;
 }

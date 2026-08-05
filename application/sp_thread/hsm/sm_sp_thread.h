@@ -21,7 +21,8 @@ enum SpThreadSignals {
     SPTHRD_NULL_SIG = 0U,
     SPTHRD_REFRESH_PORTS_SIG,
     SPTHRD_OPEN_PORT_SIG,
-    SPTHRD_CLOSE_PORT_SIG
+    SPTHRD_CLOSE_PORT_SIG,
+    SPTHRD_PORT_LOST_SIG
 };
 
 typedef struct {

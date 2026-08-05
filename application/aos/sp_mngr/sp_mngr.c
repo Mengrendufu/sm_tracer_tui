@@ -124,6 +124,13 @@ static SM_RetState SpMngr_active_(SM_Hsm * const me, SST_Evt const * const e) SM
 
         case SPMNGR_PORT_CLOSE_FAILED_SIG: {
             UI_postText("SpMngr: serial port close failed.\n");
+            UI_postConnectionStatus(UI_CONNECTION_DISCONNECTED);
+            return _SM_HANDLED();
+        }
+
+        case SPMNGR_PORT_CONNECTION_LOST_SIG: {
+            UI_postText("SpMngr: serial port connection lost.\n");
+            UI_postConnectionStatus(UI_CONNECTION_DISCONNECTED);
             return _SM_HANDLED();
         }
 
