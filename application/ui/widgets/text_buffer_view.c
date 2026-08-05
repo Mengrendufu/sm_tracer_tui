@@ -14,6 +14,8 @@
 #include "text_buffer_view.h"
 DBC_MODULE_NAME("text_buffer_view")
 
+#define TEXT_BUFFER_SYS_INFO_PREFIX_ "[SYS_INFO]> "
+
 //============================================================================
 //--- Private declarations
 
@@ -447,11 +449,18 @@ static void TextBufferView_content_drawText_(
     for (uint32_t i = 0U; i < rows; ++i) {
         uint32_t const bufIdx = start + i;
         if (cols > 1U && bufIdx < TextArea_total(&view->textArea)) {
+            char const * const line =
+                TextArea_lineAt(&view->textArea, bufIdx);
             char textLine[TEXT_LINE_W_];
             int const tw = (int)(cols - 1U);
             (void)snprintf(textLine, sizeof(textLine), "%-*.*s",
-                           tw, tw, TextArea_lineAt(&view->textArea, bufIdx));
+                           tw, tw, line);
             TextBufferView_plane_setMainStyle_(view->contentPlane);
+            if (strncmp(line, TEXT_BUFFER_SYS_INFO_PREFIX_,
+                        sizeof(TEXT_BUFFER_SYS_INFO_PREFIX_) - 1U) == 0)
+            {
+                ncplane_set_fg_rgb8(view->contentPlane, 105, 185, 170);
+            }
             (void)TextBufferView_content_putStrYx_(
                 view->contentPlane, (int)i, 0U, textLine);
         }
