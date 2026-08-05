@@ -11,6 +11,7 @@
 #define MENU_WIDGET_H_
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 struct ncplane;
@@ -25,6 +26,7 @@ typedef enum {
 struct Menu {
     struct ncplane *plane;
     uint32_t sel;
+    size_t firstVisible;
     bool visible;
 };
 

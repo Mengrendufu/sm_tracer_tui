@@ -10,6 +10,7 @@
 #include <stdbool.h>
 #include <notcurses/notcurses.h>
 #include "dbc_assert.h"
+#include "selection_viewport_priv.h"
 #include "command_suggestion.h"
 DBC_MODULE_NAME("command_suggestion")
 
@@ -55,6 +56,7 @@ void CommandSuggestion_init(
 {
     DBC_REQUIRE(200, suggestion != (struct CommandSuggestion *)0);
     suggestion->plane = (struct ncplane *)0;
+    suggestion->firstVisible = 0U;
 }
 
 void CommandSuggestion_create(
@@ -141,8 +143,9 @@ void CommandSuggestion_show(
         return;
     }
 
-    size_t const first = selected < rows
-                         ? 0U : selected - rows + 1U;
+    size_t const first = SelectionViewport_update(
+        suggestion->firstVisible, selected, count, rows);
+    suggestion->firstVisible = first;
     int const y = inputY - (int)rows;
 
     ncplane_erase(suggestion->plane);
@@ -166,6 +169,7 @@ void CommandSuggestion_hide(
     DBC_REQUIRE(240, suggestion != (struct CommandSuggestion *)0);
     DBC_REQUIRE(241, suggestion->plane != (struct ncplane *)0);
 
+    suggestion->firstVisible = 0U;
     ncplane_erase(suggestion->plane);
     ncplane_move_bottom(suggestion->plane);
 }

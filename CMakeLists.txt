@@ -449,6 +449,7 @@ if(BUILD_TESTING)
     add_executable(ui_command_suggestion_lifecycle_test
         tests/ui_command_suggestion_lifecycle.c
         application/ui/widgets/command_suggestion.c
+        application/ui/widgets/selection_viewport_priv.c
     )
     target_include_directories(ui_command_suggestion_lifecycle_test PRIVATE
         ${INC_ALL}
@@ -467,6 +468,19 @@ if(BUILD_TESTING)
     set_tests_properties(ui_command_suggestion_lifecycle PROPERTIES
         ENVIRONMENT "TERM=xterm-256color"
     )
+
+    add_executable(selection_viewport_test
+        tests/selection_viewport_test.c
+        application/ui/widgets/selection_viewport_priv.c
+    )
+    target_include_directories(selection_viewport_test PRIVATE
+        ${INC_ALL}
+    )
+    target_compile_definitions(selection_viewport_test PRIVATE
+        DBC_DISABLE
+    )
+    add_test(NAME selection_viewport
+             COMMAND selection_viewport_test)
 
     add_executable(scrollbar_test
         tests/scrollbar_test.c

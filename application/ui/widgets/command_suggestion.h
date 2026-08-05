@@ -17,6 +17,7 @@ struct ncplane;
 // Passive candidate projection owned by SM_InputCmpsMngr.
 struct CommandSuggestion {
     struct ncplane *plane;
+    size_t firstVisible;
 };
 
 void CommandSuggestion_init(struct CommandSuggestion *suggestion);

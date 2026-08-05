@@ -115,6 +115,24 @@ int main(void) {
         return 5;
     }
 
+    CommandSuggestion_show(&suggestion, 8, 20U, candidates,
+                           sizeof(candidates) / sizeof(candidates[0]), 6U);
+    CommandSuggestion_show(&suggestion, 8, 20U, candidates,
+                           sizeof(candidates) / sizeof(candidates[0]), 5U);
+    if (!cellEquals_(suggestion.plane, 0, 1, "d")
+        || !cellEquals_(suggestion.plane, 4, 1, "s")
+        || !cellEquals_(suggestion.plane, 5, 1, "t")
+        || cellChannels_(suggestion.plane, 3, 0)
+           == cellChannels_(suggestion.plane, 4, 0)
+        || cellChannels_(suggestion.plane, 4, 0)
+           == cellChannels_(suggestion.plane, 5, 0))
+    {
+        CommandSuggestion_destroy(&suggestion);
+        notcurses_stop(nc);
+        fclose(output);
+        return 6;
+    }
+
     char const * const narrow[] = {"open", "ports"};
     CommandSuggestion_show(&suggestion, 5, 6U, narrow, 2U, 1U);
     if (!geometryEquals_(suggestion.plane, 3, 2, 2U, 6U)
@@ -128,7 +146,7 @@ int main(void) {
         CommandSuggestion_destroy(&suggestion);
         notcurses_stop(nc);
         fclose(output);
-        return 6;
+        return 7;
     }
 
     CommandSuggestion_hide(&suggestion);
@@ -138,7 +156,7 @@ int main(void) {
         CommandSuggestion_destroy(&suggestion);
         notcurses_stop(nc);
         fclose(output);
-        return 7;
+        return 8;
     }
 
     CommandSuggestion_show(&suggestion, 0, 6U, narrow, 2U, 0U);
@@ -146,17 +164,17 @@ int main(void) {
         CommandSuggestion_destroy(&suggestion);
         notcurses_stop(nc);
         fclose(output);
-        return 8;
+        return 9;
     }
 
     CommandSuggestion_destroy(&suggestion);
     if (suggestion.plane != (struct ncplane *)0) {
         notcurses_stop(nc);
         fclose(output);
-        return 9;
+        return 10;
     }
 
     int const result = notcurses_stop(nc);
     fclose(output);
-    return result == 0 ? 0 : 10;
+    return result == 0 ? 0 : 11;
 }

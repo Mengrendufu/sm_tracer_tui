@@ -10,13 +10,18 @@
 #include <stdio.h>
 #include <notcurses/notcurses.h>
 #include "dbc_assert.h"
+#include "selection_viewport_priv.h"
 #include "widget_io_priv.h"
 #include "menu.h"
 DBC_MODULE_NAME("menu")
 
 #define MENU_W_ 24U
 #define MENU_NUM_ITEMS_ 4U
-#define MENU_H_ (MENU_NUM_ITEMS_ + 2U)
+#define MENU_MAX_VISIBLE_ITEMS_ 6U
+#define MENU_VISIBLE_ITEMS_ \
+    ((MENU_NUM_ITEMS_ < MENU_MAX_VISIBLE_ITEMS_) \
+     ? MENU_NUM_ITEMS_ : MENU_MAX_VISIBLE_ITEMS_)
+#define MENU_H_ (MENU_VISIBLE_ITEMS_ + 2U)
 
 static char const * const Menu_items_[MENU_NUM_ITEMS_] = {
     "Resume",
@@ -52,11 +57,13 @@ static void Menu_layout_(struct Menu * const menu,
 }
 
 static void Menu_drawItem_(struct Menu const * const menu,
-                           uint32_t const idx)
+                           uint32_t const idx,
+                           uint32_t const row)
 {
     DBC_REQUIRE(110, menu != (struct Menu const *)0);
     DBC_REQUIRE(111, menu->plane != (struct ncplane *)0);
     DBC_REQUIRE(112, idx < MENU_NUM_ITEMS_);
+    DBC_REQUIRE(113, row < MENU_VISIBLE_ITEMS_);
 
     char line[32];
     (void)snprintf(line, sizeof(line), "| %-*s|",
@@ -69,7 +76,7 @@ static void Menu_drawItem_(struct Menu const * const menu,
         ncplane_set_bg_rgb8(menu->plane, 50, 50, 100);
         ncplane_set_fg_rgb8(menu->plane, 200, 200, 220);
     }
-    (void)WidgetIO_putStrYx(menu->plane, (int)(idx + 1U), 0U, line);
+    (void)WidgetIO_putStrYx(menu->plane, (int)(row + 1U), 0U, line);
 }
 
 static void Menu_draw_(struct Menu const * const menu) {
@@ -82,11 +89,12 @@ static void Menu_draw_(struct Menu const * const menu) {
     (void)WidgetIO_putStrYx(menu->plane, 0, 0U,
                             "|     ----menu----     |");
     (void)WidgetIO_putStrYx(menu->plane,
-                            (int)(MENU_NUM_ITEMS_ + 1U), 0U,
+                            (int)(MENU_VISIBLE_ITEMS_ + 1U), 0U,
                             "|----------------------|");
 
-    for (uint32_t i = 0U; i < MENU_NUM_ITEMS_; ++i) {
-        Menu_drawItem_(menu, i);
+    for (uint32_t row = 0U; row < MENU_VISIBLE_ITEMS_; ++row) {
+        uint32_t const idx = (uint32_t)menu->firstVisible + row;
+        Menu_drawItem_(menu, idx, row);
     }
 }
 
@@ -95,6 +103,7 @@ void Menu_init(struct Menu * const menu) {
     DBC_REQUIRE(200, menu != (struct Menu *)0);
     menu->plane = (struct ncplane *)0;
     menu->sel = 0U;
+    menu->firstVisible = 0U;
     menu->visible = false;
 }
 
@@ -123,6 +132,7 @@ void Menu_show(struct Menu * const menu,
 
     Menu_layout_(menu, parent);
     menu->sel = 0U;
+    menu->firstVisible = 0U;
     menu->visible = true;
     Menu_draw_(menu);
     ncplane_move_top(menu->plane);
@@ -135,6 +145,7 @@ void Menu_hide(struct Menu * const menu,
     DBC_REQUIRE(231, parent != (struct ncplane *)0);
 
     Menu_layout_(menu, parent);
+    menu->firstVisible = 0U;
     menu->visible = false;
     ncplane_erase(menu->plane);
     ncplane_move_bottom(menu->plane);
@@ -158,21 +169,23 @@ void Menu_syncLayout(struct Menu * const menu,
 void Menu_selectNext(struct Menu * const menu) {
     DBC_REQUIRE(250, menu != (struct Menu *)0);
     DBC_REQUIRE(251, menu->plane != (struct ncplane *)0);
-    uint32_t const oldSel = menu->sel;
     uint32_t const maxIdx = MENU_NUM_ITEMS_ - 1U;
     menu->sel = (menu->sel >= maxIdx) ? 0U : (menu->sel + 1U);
-    Menu_drawItem_(menu, oldSel);
-    Menu_drawItem_(menu, menu->sel);
+    menu->firstVisible = SelectionViewport_update(
+        menu->firstVisible, menu->sel,
+        MENU_NUM_ITEMS_, MENU_VISIBLE_ITEMS_);
+    Menu_draw_(menu);
 }
 
 void Menu_selectPrev(struct Menu * const menu) {
     DBC_REQUIRE(260, menu != (struct Menu *)0);
     DBC_REQUIRE(261, menu->plane != (struct ncplane *)0);
-    uint32_t const oldSel = menu->sel;
     uint32_t const maxIdx = MENU_NUM_ITEMS_ - 1U;
     menu->sel = (menu->sel == 0U) ? maxIdx : (menu->sel - 1U);
-    Menu_drawItem_(menu, oldSel);
-    Menu_drawItem_(menu, menu->sel);
+    menu->firstVisible = SelectionViewport_update(
+        menu->firstVisible, menu->sel,
+        MENU_NUM_ITEMS_, MENU_VISIBLE_ITEMS_);
+    Menu_draw_(menu);
 }
 
 MenuAction Menu_action(struct Menu const * const menu) {
