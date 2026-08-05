@@ -10,6 +10,7 @@
 //============================================================================
 //=== UI HSM -- state and widget orchestration
 #include <notcurses/notcurses.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "sst.h"
@@ -103,6 +104,7 @@ static void        SM_UI_requestFrame_(void);
 static void        SM_UI_submitCommand_(
                         void *ctx,
                         SM_InputCmpsMngrSubmission const *submission);
+static void        SM_UI_rejectCommand_(void *ctx, char const *reason);
 
 // Notcurses callback adapters:
 // - adapt raw ncplane callback context back into SM_UI.
@@ -230,9 +232,21 @@ static SM_RetState SM_UI_active_(
         case UI_CONNECTION_STATUS_SIG: {
             UI_ConnectionEvt const * const connection =
                 (UI_ConnectionEvt const *)e;
-            ConnectionStatusBar_setConnection(
-                &ao->status,
-                connection->status == UI_CONNECTION_CONNECTED);
+            ConnectionStatusBar_State state;
+            if (connection->status == UI_CONNECTION_CONNECTING) {
+                state = CONNECTION_STATUS_BAR_CONNECTING;
+            } else if (connection->status == UI_CONNECTION_CONNECTED) {
+                state = CONNECTION_STATUS_BAR_CONNECTED;
+            } else if (connection->status
+                       == UI_CONNECTION_DISCONNECTING)
+            {
+                state = CONNECTION_STATUS_BAR_DISCONNECTING;
+            } else {
+                DBC_ASSERT(615, connection->status
+                                == UI_CONNECTION_DISCONNECTED);
+                state = CONNECTION_STATUS_BAR_DISCONNECTED;
+            }
+            ConnectionStatusBar_setState(&ao->status, state);
             SM_UI_requestFrame_();
             return _SM_HANDLED();
         }
@@ -418,6 +432,7 @@ static void SM_UI_ctor_(SM_UI * const me) {
     SM_InputCmpsMngr_ctor(&me->inputManager);
     SM_InputCmpsMngr_CommandSink const commandSink = {
         .submit = &SM_UI_submitCommand_,
+        .reject = &SM_UI_rejectCommand_,
         .ctx = me,
     };
     SM_InputCmpsMngr_setCommandSink(&me->inputManager, &commandSink);
@@ -632,12 +647,12 @@ static void SM_UI_updateAvailablePorts_(
     free(oldPortNames);
 
     if (copy[0] == '\0') {
-        char const empty[] = "[SYS_INFO]>>Serial ports: none\n";
+        char const empty[] = "[SYS_INFO]> Serial ports: none\n";
         SM_UI_mainBuffer_pushText_(me, empty, sizeof(empty) - 1U);
         return;
     }
 
-    char const heading[] = "[SYS_INFO]>>Serial ports:\n";
+    char const heading[] = "[SYS_INFO]> Serial ports:\n";
     SM_UI_mainBuffer_pushText_(me, heading, sizeof(heading) - 1U);
 
     size_t offset = 0U;
@@ -674,12 +689,12 @@ static void SM_UI_updateAvailableProtocols_(
     free(oldPaths);
 
     if (copy[0] == '\0') {
-        char const empty[] = "[SYS_INFO]>>Protocol files: none\n";
+        char const empty[] = "[SYS_INFO]> Protocol files: none\n";
         SM_UI_mainBuffer_pushText_(me, empty, sizeof(empty) - 1U);
         return;
     }
 
-    char const heading[] = "[SYS_INFO]>>Protocol files:\n";
+    char const heading[] = "[SYS_INFO]> Protocol files:\n";
     SM_UI_mainBuffer_pushText_(me, heading, sizeof(heading) - 1U);
 
     size_t offset = 0U;
@@ -796,6 +811,18 @@ static void SM_UI_submitCommand_(
         submission != (SM_InputCmpsMngrSubmission const *)0);
     SM_UI * const me = (SM_UI *)ctx;
 
+    if (submission->protocolPath.present) {
+        SpMngrProtocolEvt * const load = SST_NEW(SpMngrProtocolEvt);
+        load->super.sig = SPMNGR_LOAD_PROTOCOL_SIG;
+        SM_UI_applyCommandOverride_(load->relativePath,
+                                    &submission->protocolPath);
+        SST_Task_post(AO_SpMngr, &load->super);
+    }
+    if (submission->action == SM_INPUT_ACTION_LOAD_PROTOCOL) {
+        DBC_ASSERT(633, submission->protocolPath.present);
+        return;
+    }
+
     if ((submission->action == SM_INPUT_ACTION_CONFIG)
         || (submission->action == SM_INPUT_ACTION_CONNECT))
     {
@@ -840,15 +867,23 @@ static void SM_UI_submitCommand_(
             .sig = SPMNGR_REFRESH_PROTOCOLS_SIG,
         };
         SST_Task_post(AO_SpMngr, &refreshProtocolsEvt);
-    } else if (submission->action == SM_INPUT_ACTION_LOAD_PROTOCOL) {
-        SpMngrProtocolEvt * const load = SST_NEW(SpMngrProtocolEvt);
-        load->super.sig = SPMNGR_LOAD_PROTOCOL_SIG;
-        SM_UI_applyCommandOverride_(load->relativePath,
-                                    &submission->protocolPath);
-        SST_Task_post(AO_SpMngr, &load->super);
     } else {
-        DBC_ERROR(633);
+        DBC_ERROR(639);
     }
+}
+
+static void SM_UI_rejectCommand_(void * const ctx,
+                                 char const * const reason)
+{
+    DBC_REQUIRE(650, ctx != (void *)0);
+    DBC_REQUIRE(651, reason != (char const *)0);
+
+    SM_UI * const me = (SM_UI *)ctx;
+    char message[160];
+    int const n = snprintf(message, sizeof(message),
+                           "[SYS_INFO]> Command rejected: %s.\n", reason);
+    DBC_ASSERT(652, (n >= 0) && ((size_t)n < sizeof(message)));
+    SM_UI_mainBuffer_pushText_(me, message, (size_t)n);
 }
 
 //----------------------------------------------------------------------------

@@ -98,7 +98,7 @@ int main(void) {
     (*AO_SpMngr->init)(AO_SpMngr, (SST_Evt const *)0);
     failed += strcmp(
         l_text_,
-        "[SYS_INFO]>>Requesting initial serial port refresh.\n") == 0
+        "[SYS_INFO]> Requesting initial serial port refresh.\n") == 0
         ? 0 : 1;
     failed += (l_aoPosts_ == 2U)
               && (l_aoSignals_[0] == SPMNGR_REFRESH_PROTOCOLS_SIG)
@@ -125,7 +125,7 @@ int main(void) {
               ? 0 : 1;
     failed += strcmp(
         l_text_,
-        "[SYS_INFO]>>Protocol loaded: blinky_c51.json\n") == 0
+        "[SYS_INFO]> Protocol loaded: blinky_c51.json\n") == 0
         ? 0 : 1;
 
     (void)snprintf(loadProtocol.relativePath,
@@ -133,7 +133,7 @@ int main(void) {
                    "%s", "missing.json");
     (*AO_SpMngr->dispatch)(AO_SpMngr, &loadProtocol.super);
     failed += l_protocolLoadedPosts_ == 1U ? 0 : 1;
-    failed += expectContains_("[SYS_INFO]>>Protocol load failed:");
+    failed += expectContains_("[SYS_INFO]> Protocol load failed:");
 
     SpMngrConfigEvt config = {
         .super.sig = SPMNGR_CONFIG_UPDATE_SIG,
@@ -147,7 +147,7 @@ int main(void) {
         },
     };
     (*AO_SpMngr->dispatch)(AO_SpMngr, &config.super);
-    failed += expectContains_("[SYS_INFO]>>Configuration updated:");
+    failed += expectContains_("[SYS_INFO]> Configuration updated:");
     failed += expectContains_("port=none");
     failed += expectContains_("baud=9600");
     failed += l_applyConfigPosts_ == 0U ? 0 : 1;
@@ -156,7 +156,7 @@ int main(void) {
     (void)snprintf(config.config.port, sizeof(config.config.port),
                    "%s", "com3");
     (*AO_SpMngr->dispatch)(AO_SpMngr, &config.super);
-    failed += expectContains_("[SYS_INFO]>>Connect requested:");
+    failed += expectContains_("[SYS_INFO]> Connect requested:");
     failed += expectContains_("port=com3");
     failed += l_openPosts_ == 1U ? 0 : 1;
     failed += strcmp(l_openConfig_.portName, "com3") == 0 ? 0 : 1;
@@ -165,6 +165,7 @@ int main(void) {
     failed += l_openConfig_.stopBits == SERIAL_STOP_BITS_2 ? 0 : 1;
     failed += l_openConfig_.parity == SERIAL_PARITY_EVEN ? 0 : 1;
     failed += l_openConfig_.flowControl == SERIAL_FLOW_NONE ? 0 : 1;
+    failed += l_connectionStatus_ == UI_CONNECTION_CONNECTING ? 0 : 1;
 
     config.super.sig = SPMNGR_CONFIG_UPDATE_SIG;
     (*AO_SpMngr->dispatch)(AO_SpMngr, &config.super);
@@ -181,7 +182,7 @@ int main(void) {
     };
     (*AO_SpMngr->dispatch)(AO_SpMngr, &configApplied);
     failed += strcmp(
-        l_text_, "[SYS_INFO]>>Serial configuration applied.\n") == 0
+        l_text_, "[SYS_INFO]> Serial configuration applied.\n") == 0
         ? 0 : 1;
 
     SST_Evt const configApplyFailed = {
@@ -190,7 +191,7 @@ int main(void) {
     (*AO_SpMngr->dispatch)(AO_SpMngr, &configApplyFailed);
     failed += strcmp(
         l_text_,
-        "[SYS_INFO]>>Serial configuration failed; port closed.\n") == 0
+        "[SYS_INFO]> Serial configuration failed; port closed.\n") == 0
         ? 0 : 1;
     failed += l_connectionStatus_ == UI_CONNECTION_DISCONNECTED ? 0 : 1;
 
@@ -200,14 +201,14 @@ int main(void) {
     (*AO_SpMngr->dispatch)(AO_SpMngr, &config.super);
     failed += l_openPosts_ == 1U ? 0 : 1;
     failed += strcmp(
-        l_text_, "[SYS_INFO]>>Invalid serial configuration.\n") == 0
+        l_text_, "[SYS_INFO]> Invalid serial configuration.\n") == 0
         ? 0 : 1;
 
     SST_Evt const opened = {
         .sig = SPMNGR_PORT_OPENED_SIG,
     };
     (*AO_SpMngr->dispatch)(AO_SpMngr, &opened);
-    failed += strcmp(l_text_, "[SYS_INFO]>>Serial port opened.\n") == 0
+    failed += strcmp(l_text_, "[SYS_INFO]> Serial port opened.\n") == 0
               ? 0 : 1;
     failed += l_connectionStatus_ == UI_CONNECTION_CONNECTED ? 0 : 1;
 
@@ -216,23 +217,24 @@ int main(void) {
     };
     (*AO_SpMngr->dispatch)(AO_SpMngr, &openFailed);
     failed += strcmp(
-        l_text_, "[SYS_INFO]>>Serial port open failed.\n") == 0
+        l_text_, "[SYS_INFO]> Serial port open failed.\n") == 0
         ? 0 : 1;
-    failed += l_connectionStatus_ == UI_CONNECTION_CONNECTED ? 0 : 1;
+    failed += l_connectionStatus_ == UI_CONNECTION_DISCONNECTED ? 0 : 1;
 
     SST_Evt const disconnect = {
         .sig = SPMNGR_PORT_DISCONNECT_SIG,
     };
     (*AO_SpMngr->dispatch)(AO_SpMngr, &disconnect);
-    failed += strcmp(l_text_, "[SYS_INFO]>>Disconnect requested.\n") == 0
+    failed += strcmp(l_text_, "[SYS_INFO]> Disconnect requested.\n") == 0
               ? 0 : 1;
     failed += l_closePosts_ == 1U ? 0 : 1;
+    failed += l_connectionStatus_ == UI_CONNECTION_DISCONNECTING ? 0 : 1;
 
     SST_Evt const closed = {
         .sig = SPMNGR_PORT_CLOSED_SIG,
     };
     (*AO_SpMngr->dispatch)(AO_SpMngr, &closed);
-    failed += strcmp(l_text_, "[SYS_INFO]>>Serial port closed.\n") == 0
+    failed += strcmp(l_text_, "[SYS_INFO]> Serial port closed.\n") == 0
               ? 0 : 1;
     failed += l_connectionStatus_ == UI_CONNECTION_DISCONNECTED ? 0 : 1;
 
@@ -242,7 +244,7 @@ int main(void) {
     };
     (*AO_SpMngr->dispatch)(AO_SpMngr, &closeFailed);
     failed += strcmp(
-        l_text_, "[SYS_INFO]>>Serial port close failed.\n") == 0
+        l_text_, "[SYS_INFO]> Serial port close failed.\n") == 0
         ? 0 : 1;
     failed += l_connectionStatus_ == UI_CONNECTION_DISCONNECTED ? 0 : 1;
 
@@ -252,15 +254,16 @@ int main(void) {
     };
     (*AO_SpMngr->dispatch)(AO_SpMngr, &connectionLost);
     failed += strcmp(l_text_,
-                     "[SYS_INFO]>>Serial port connection lost.\n") == 0
+                     "[SYS_INFO]> Serial port connection lost.\n") == 0
               ? 0 : 1;
     failed += l_connectionStatus_ == UI_CONNECTION_DISCONNECTED ? 0 : 1;
+    failed += l_refreshPosts_ == 1U ? 0 : 1;
 
     SST_Evt const refresh = {
         .sig = SPMNGR_REFRESH_PORTS_SIG,
     };
     (*AO_SpMngr->dispatch)(AO_SpMngr, &refresh);
-    failed += l_refreshPosts_ == 1U ? 0 : 1;
+    failed += l_refreshPosts_ == 2U ? 0 : 1;
 
     char const portNames[] = "/dev/ttyTEST0\0";
     SpMngrPortsEvt ports = {
@@ -282,7 +285,7 @@ int main(void) {
     ports.portNamesSize = 0U;
     (*AO_SpMngr->dispatch)(AO_SpMngr, &ports.super);
     failed += strcmp(l_text_,
-                     "[SYS_INFO]>>Serial port refresh failed.\n") == 0
+                     "[SYS_INFO]> Serial port refresh failed.\n") == 0
               ? 0 : 1;
     failed += l_portNamesSize_ == sizeof(portNames)
               && memcmp(l_portNames_, portNames,

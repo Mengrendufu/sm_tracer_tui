@@ -161,7 +161,8 @@ static bool      SM_InputCmpsMngr_isWhitespaceRange_(
                         size_t end);
 static bool      SM_InputCmpsMngr_buildSubmission_(
                         SM_InputCmpsMngr const *me,
-                        SM_InputCmpsMngrSubmission *submission);
+                        SM_InputCmpsMngrSubmission *submission,
+                        char const **rejectionReason);
 static void      SM_InputCmpsMngr_clear_(SM_InputCmpsMngr *me);
 
 //============================================================================
@@ -339,8 +340,9 @@ static SM_RetState SM_InputCmpsMngr_active_(
 
         case INPUT_CMPS_MNGR_CONFIRM_SIG: {
             SM_InputCmpsMngrSubmission submission;
+            char const *rejectionReason;
             bool const valid = SM_InputCmpsMngr_buildSubmission_(
-                manager, &submission);
+                manager, &submission, &rejectionReason);
 
             if (valid) {
                 DBC_ASSERT(590,
@@ -353,6 +355,12 @@ static SM_RetState SM_InputCmpsMngr_active_(
                 SM_InputCmpsMngr_clear_(manager);
                 return _SM_TRAN(&SM_InputCmpsMngr_suggestAvailable);
             } else {
+                if (manager->commandSink.reject
+                    != (void (*)(void *, char const *))0)
+                {
+                    (*manager->commandSink.reject)(
+                        manager->commandSink.ctx, rejectionReason);
+                }
                 return _SM_HANDLED();
             }
         }
@@ -1992,7 +2000,8 @@ static bool SM_InputCmpsMngr_parseArg_(
 
 static bool SM_InputCmpsMngr_buildSubmission_(
     SM_InputCmpsMngr const * const me,
-    SM_InputCmpsMngrSubmission * const submission)
+    SM_InputCmpsMngrSubmission * const submission,
+    char const ** const rejectionReason)
 {
     bool seen[SM_INPUT_COMMAND_NUM] = {false};
     bool hasConfig = false;
@@ -2003,10 +2012,15 @@ static bool SM_InputCmpsMngr_buildSubmission_(
     bool hasLoadProtocol = false;
 
     memset(submission, 0, sizeof(*submission));
-    if ((me->tokenCount == 0U)
-        || !SM_InputCmpsMngr_isWhitespaceRange_(
-                me, 0U, me->tokens[0].begin))
+    *rejectionReason = "unknown command submission";
+    if (me->tokenCount == 0U) {
+        *rejectionReason = "no accepted command token";
+        return false;
+    }
+    if (!SM_InputCmpsMngr_isWhitespaceRange_(
+            me, 0U, me->tokens[0].begin))
     {
+        *rejectionReason = "text appears before the first command";
         return false;
     }
 
@@ -2017,16 +2031,31 @@ static bool SM_InputCmpsMngr_buildSubmission_(
             : me->length;
         SM_InputCmpsMngrArg arg;
 
-        if (((i > 0U)
-             && ((token->begin == 0U)
-                 || !SM_InputCmpsMngr_isWhitespaceAt_(
-                         me, token->begin - 1U)))
-            || ((token->end < argEnd)
-                && !SM_InputCmpsMngr_isWhitespaceAt_(me, token->end))
-            || seen[token->command]
-            || !SM_InputCmpsMngr_parseArg_(
-                    me, token->end, argEnd, &arg))
+        if ((i > 0U)
+            && ((token->begin == 0U)
+                || !SM_InputCmpsMngr_isWhitespaceAt_(
+                        me, token->begin - 1U)))
         {
+            *rejectionReason =
+                "command tokens must be separated by whitespace";
+            return false;
+        }
+        if ((token->end < argEnd)
+            && !SM_InputCmpsMngr_isWhitespaceAt_(me, token->end))
+        {
+            *rejectionReason =
+                "command tokens must be separated by whitespace";
+            return false;
+        }
+        if (seen[token->command]) {
+            *rejectionReason = "duplicate command";
+            return false;
+        }
+        if (!SM_InputCmpsMngr_parseArg_(
+                me, token->end, argEnd, &arg))
+        {
+            *rejectionReason =
+                "each command accepts at most one argument";
             return false;
         }
         seen[token->command] = true;
@@ -2034,6 +2063,7 @@ static bool SM_InputCmpsMngr_buildSubmission_(
         switch (token->command) {
             case SM_INPUT_COMMAND_BAUDRATE: {
                 if (!arg.present) {
+                    *rejectionReason = "command requires an argument";
                     return false;
                 }
                 submission->baudrate = arg;
@@ -2047,6 +2077,7 @@ static bool SM_InputCmpsMngr_buildSubmission_(
             }
             case SM_INPUT_COMMAND_DATA_BITS: {
                 if (!arg.present) {
+                    *rejectionReason = "command requires an argument";
                     return false;
                 }
                 submission->dataBits = arg;
@@ -2055,6 +2086,8 @@ static bool SM_InputCmpsMngr_buildSubmission_(
             }
             case SM_INPUT_COMMAND_DISCONNECT: {
                 if (arg.present) {
+                    *rejectionReason =
+                        "command does not accept an argument";
                     return false;
                 }
                 hasDisconnect = true;
@@ -2062,6 +2095,7 @@ static bool SM_InputCmpsMngr_buildSubmission_(
             }
             case SM_INPUT_COMMAND_FLOW_CONTROL: {
                 if (!arg.present) {
+                    *rejectionReason = "command requires an argument";
                     return false;
                 }
                 submission->flowControl = arg;
@@ -2070,6 +2104,7 @@ static bool SM_InputCmpsMngr_buildSubmission_(
             }
             case SM_INPUT_COMMAND_LOAD_PROTOCOL: {
                 if (!arg.present) {
+                    *rejectionReason = "command requires an argument";
                     return false;
                 }
                 submission->protocolPath = arg;
@@ -2078,6 +2113,7 @@ static bool SM_InputCmpsMngr_buildSubmission_(
             }
             case SM_INPUT_COMMAND_PARITY: {
                 if (!arg.present) {
+                    *rejectionReason = "command requires an argument";
                     return false;
                 }
                 submission->parity = arg;
@@ -2086,6 +2122,8 @@ static bool SM_InputCmpsMngr_buildSubmission_(
             }
             case SM_INPUT_COMMAND_REFRESH: {
                 if (arg.present) {
+                    *rejectionReason =
+                        "command does not accept an argument";
                     return false;
                 }
                 hasRefresh = true;
@@ -2093,6 +2131,8 @@ static bool SM_InputCmpsMngr_buildSubmission_(
             }
             case SM_INPUT_COMMAND_REFRESH_PROTOCOLS: {
                 if (arg.present) {
+                    *rejectionReason =
+                        "command does not accept an argument";
                     return false;
                 }
                 hasRefreshProtocols = true;
@@ -2100,6 +2140,7 @@ static bool SM_InputCmpsMngr_buildSubmission_(
             }
             case SM_INPUT_COMMAND_STOP_BITS: {
                 if (!arg.present) {
+                    *rejectionReason = "command requires an argument";
                     return false;
                 }
                 submission->stopBits = arg;
@@ -2107,6 +2148,7 @@ static bool SM_InputCmpsMngr_buildSubmission_(
                 break;
             }
             default: {
+                *rejectionReason = "unsupported command";
                 return false;
             }
         }
@@ -2115,12 +2157,16 @@ static bool SM_InputCmpsMngr_buildSubmission_(
     unsigned const actionCount = (hasConnect ? 1U : 0U)
                                + (hasDisconnect ? 1U : 0U)
                                + (hasRefresh ? 1U : 0U)
-                               + (hasRefreshProtocols ? 1U : 0U)
-                               + (hasLoadProtocol ? 1U : 0U);
-    if ((actionCount > 1U)
-        || ((hasDisconnect || hasRefresh || hasRefreshProtocols
-             || hasLoadProtocol) && hasConfig))
+                               + (hasRefreshProtocols ? 1U : 0U);
+    if (actionCount > 1U) {
+        *rejectionReason = "lifecycle commands cannot be combined";
+        return false;
+    }
+    if ((hasDisconnect || hasRefresh || hasRefreshProtocols)
+        && (hasConfig || hasLoadProtocol))
     {
+        *rejectionReason =
+            "disconnect and refresh commands must be used alone";
         return false;
     }
 
@@ -2132,11 +2178,12 @@ static bool SM_InputCmpsMngr_buildSubmission_(
         submission->action = SM_INPUT_ACTION_REFRESH;
     } else if (hasRefreshProtocols) {
         submission->action = SM_INPUT_ACTION_REFRESH_PROTOCOLS;
-    } else if (hasLoadProtocol) {
-        submission->action = SM_INPUT_ACTION_LOAD_PROTOCOL;
     } else if (hasConfig) {
         submission->action = SM_INPUT_ACTION_CONFIG;
+    } else if (hasLoadProtocol) {
+        submission->action = SM_INPUT_ACTION_LOAD_PROTOCOL;
     } else {
+        *rejectionReason = "no executable command";
         return false;
     }
     return true;
@@ -2181,6 +2228,8 @@ void SM_InputCmpsMngr_ctor(SM_InputCmpsMngr * const me) {
     me->cols = 0U;
     me->commandSink.submit = (void (*)(
         void *, SM_InputCmpsMngrSubmission const *))0;
+    me->commandSink.reject =
+        (void (*)(void *, char const *))0;
     me->commandSink.ctx = (void *)0;
     InputComposer_init(&me->composer);
     CommandSuggestion_init(&me->suggestion);
@@ -2204,6 +2253,8 @@ void SM_InputCmpsMngr_setCommandSink(
         commandSink->submit
             != (void (*)(
                 void *, SM_InputCmpsMngrSubmission const *))0);
+    DBC_REQUIRE(451,
+        commandSink->reject != (void (*)(void *, char const *))0);
     me->commandSink = *commandSink;
 }
 

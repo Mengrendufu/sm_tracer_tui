@@ -17,7 +17,9 @@
 
 typedef enum {
     UI_CONNECTION_DISCONNECTED,
-    UI_CONNECTION_CONNECTED
+    UI_CONNECTION_CONNECTING,
+    UI_CONNECTION_CONNECTED,
+    UI_CONNECTION_DISCONNECTING
 } UI_ConnectionStatus;
 
 void UI_postText(char const *text);

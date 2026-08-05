@@ -76,10 +76,12 @@ static void ConnectionStatusBar_drawCell_(
     (void)WidgetIO_putStrYx(bar->plane, y, *x, labelPart);
     ncplane_off_styles(bar->plane, NCSTYLE_BOLD);
     if (connectionValue) {
-        if (bar->connected) {
+        if (bar->state == CONNECTION_STATUS_BAR_CONNECTED) {
             ncplane_set_fg_rgb8(bar->plane, 105, 220, 150);
-        } else {
+        } else if (bar->state == CONNECTION_STATUS_BAR_DISCONNECTED) {
             ncplane_set_fg_rgb8(bar->plane, 235, 100, 110);
+        } else {
+            ncplane_set_fg_rgb8(bar->plane, 235, 190, 90);
         }
     } else {
         ncplane_set_fg_rgb8(bar->plane, 225, 230, 232);
@@ -139,7 +141,8 @@ void ConnectionStatusBar_init(struct ConnectionStatusBar * const bar) {
     DBC_REQUIRE(200, bar != (struct ConnectionStatusBar *)0);
 
     bar->plane = (struct ncplane *)0;
-    ConnectionStatusBar_setConnection(bar, false);
+    ConnectionStatusBar_setState(
+        bar, CONNECTION_STATUS_BAR_DISCONNECTED);
     ConnectionStatusBar_setSerial(bar, (char const *)0, (char const *)0,
                                   (char const *)0, (char const *)0,
                                   (char const *)0, (char const *)0);
@@ -175,15 +178,24 @@ void ConnectionStatusBar_resize(
     ncplane_resize_simple(bar->plane, CONNECTION_STATUS_ROWS_, cols);
 }
 
-void ConnectionStatusBar_setConnection(
+void ConnectionStatusBar_setState(
     struct ConnectionStatusBar * const bar,
-    bool const connected)
+    ConnectionStatusBar_State const state)
 {
     DBC_REQUIRE(230, bar != (struct ConnectionStatusBar *)0);
-    bar->connected = connected;
+    DBC_REQUIRE(231, (CONNECTION_STATUS_BAR_DISCONNECTED <= state)
+                     && (state <= CONNECTION_STATUS_BAR_DISCONNECTING));
+
+    static char const * const stateText[] = {
+        "disconnected",
+        "connecting",
+        "connected",
+        "disconnecting"
+    };
+    bar->state = state;
     ConnectionStatusBar_setText_(
         bar->connection, sizeof(bar->connection),
-        connected ? "connected" : "disconnected", "disconnected");
+        stateText[state], "disconnected");
     if (bar->plane != (struct ncplane *)0) {
         ConnectionStatusBar_draw_(bar);
     }

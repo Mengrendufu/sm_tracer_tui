@@ -208,8 +208,8 @@ void UI_postProtocolLoaded(char const * const relativePath) {
 }
 
 void UI_postConnectionStatus(UI_ConnectionStatus const status) {
-    DBC_REQUIRE(350, (status == UI_CONNECTION_DISCONNECTED)
-                     || (status == UI_CONNECTION_CONNECTED));
+    DBC_REQUIRE(350, (UI_CONNECTION_DISCONNECTED <= status)
+                     && (status <= UI_CONNECTION_DISCONNECTING));
     DBC_REQUIRE(351, UI_eventInbox_.wakeFd >= 0);
 
     UI_ConnectionEvt * const connection =

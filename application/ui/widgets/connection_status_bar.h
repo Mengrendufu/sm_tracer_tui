@@ -21,9 +21,16 @@ enum {
     CONNECTION_STATUS_PROTO_LEN_ = 256U
 };
 
+typedef enum {
+    CONNECTION_STATUS_BAR_DISCONNECTED,
+    CONNECTION_STATUS_BAR_CONNECTING,
+    CONNECTION_STATUS_BAR_CONNECTED,
+    CONNECTION_STATUS_BAR_DISCONNECTING
+} ConnectionStatusBar_State;
+
 struct ConnectionStatusBar {
     struct ncplane *plane;
-    bool connected;
+    ConnectionStatusBar_State state;
     char connection[CONNECTION_STATUS_SHORT_LEN_];
     char port[CONNECTION_STATUS_PORT_LEN_];
     char baud[CONNECTION_STATUS_SHORT_LEN_];
@@ -45,8 +52,8 @@ void ConnectionStatusBar_create(
          ConnectionStatusBar_ResizeCb resizeCb);
 void ConnectionStatusBar_resize(struct ConnectionStatusBar *bar,
                                 unsigned cols);
-void ConnectionStatusBar_setConnection(struct ConnectionStatusBar *bar,
-                                       bool connected);
+void ConnectionStatusBar_setState(struct ConnectionStatusBar *bar,
+                                  ConnectionStatusBar_State state);
 void ConnectionStatusBar_setSerial(struct ConnectionStatusBar *bar,
                                    char const *port,
                                    char const *baud,

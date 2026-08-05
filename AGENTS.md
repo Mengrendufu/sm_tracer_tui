@@ -140,10 +140,12 @@ accepts an argument candidate, while `Enter` submits the command and therefore
 preserves parameterless `$connect`.
 
 Submission accepts configuration-only updates or one `$connect` plus optional
-configuration Tokens. `$disconnect`, `$refresh`, `$refreshProtocols`, and
-`$loadProtocol` are standalone. Duplicate commands, mixed lifecycle actions,
-missing configuration values, and stray text reject the whole submission
-without posting or clearing the input.
+configuration Tokens. An optional `$loadProtocol` can precede either operation;
+the UI posts protocol loading before the configuration or connection event.
+`$disconnect`, `$refresh`, and `$refreshProtocols` are standalone. Duplicate
+commands, mixed lifecycle actions, missing values, and stray text reject the
+whole submission without posting or clearing the input, and report the reason
+in `TextBufferView`.
 
 ## UI event system
 

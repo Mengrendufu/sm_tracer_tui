@@ -27,7 +27,9 @@ static size_t l_presentedLen_;
 static size_t l_presentedEditPos_;
 static size_t l_dirtyPos_;
 static unsigned l_submissionCount_;
+static unsigned l_rejectionCount_;
 static SM_InputCmpsMngrSubmission l_submission_;
+static char const *l_rejectionReason_;
 static char l_submissionPort_[SM_INPUT_CMPS_MNGR_BUFFER_SIZE];
 static char l_submissionBaudrate_[SM_INPUT_CMPS_MNGR_BUFFER_SIZE];
 static char l_submissionDataBits_[SM_INPUT_CMPS_MNGR_BUFFER_SIZE];
@@ -282,8 +284,18 @@ static void recordSubmission_(
              sizeof(l_submissionProtocol_));
 }
 
+static void recordRejection_(void * const ctx,
+                             char const * const reason)
+{
+    (void)ctx;
+    ++l_rejectionCount_;
+    l_rejectionReason_ = reason;
+}
+
 static void resetSubmission_(void) {
     l_submissionCount_ = 0U;
+    l_rejectionCount_ = 0U;
+    l_rejectionReason_ = (char const *)0;
     memset(&l_submission_, 0, sizeof(l_submission_));
     l_submissionPort_[0] = '\0';
     l_submissionBaudrate_[0] = '\0';
@@ -1057,6 +1069,7 @@ int main(void) {
 
     SM_InputCmpsMngr_CommandSink const commandSink = {
         .submit = &recordSubmission_,
+        .reject = &recordRejection_,
         .ctx = (void *)0,
     };
 
@@ -1236,6 +1249,26 @@ int main(void) {
               && loadProtocolManager.length == 0U
               ? 0 : 1;
 
+    SM_InputCmpsMngr loadAndConnectManager;
+    SM_InputCmpsMngr_ctor(&loadAndConnectManager);
+    SM_InputCmpsMngr_setCommandSink(
+        &loadAndConnectManager, &commandSink);
+    SM_InputCmpsMngr_init(&loadAndConnectManager);
+    SM_InputCmpsMngr_setActive(&loadAndConnectManager, true);
+    acceptCommand_(&loadAndConnectManager, "loadProtocol");
+    dispatchAsciiText_(&loadAndConnectManager, " blinky_c51.json ");
+    acceptCommand_(&loadAndConnectManager, "connect");
+    dispatchAsciiText_(&loadAndConnectManager, " /dev/ttyUSB0");
+    resetSubmission_();
+    dispatchInput_(&loadAndConnectManager, UI_KEY_ENTER_SIG,
+                   (char const *)0);
+    failed += l_submissionCount_ == 1U
+              && l_submission_.action == SM_INPUT_ACTION_CONNECT
+              && strcmp(l_submissionProtocol_, "blinky_c51.json") == 0
+              && strcmp(l_submissionPort_, "/dev/ttyUSB0") == 0
+              && loadAndConnectManager.length == 0U
+              ? 0 : 1;
+
     SM_InputCmpsMngr missingProtocolManager;
     SM_InputCmpsMngr_ctor(&missingProtocolManager);
     SM_InputCmpsMngr_setCommandSink(
@@ -1248,6 +1281,9 @@ int main(void) {
                    (char const *)0);
     failed += l_submissionCount_ == 0U
               && missingProtocolManager.tokenCount == 1U
+              && l_rejectionCount_ == 1U
+              && strcmp(l_rejectionReason_,
+                        "command requires an argument") == 0
               ? 0 : 1;
 
     SM_InputCmpsMngr mixedManager;
@@ -1264,6 +1300,9 @@ int main(void) {
               && strcmp(mixedManager.buffer,
                         "$connect $disconnect ") == 0
               && mixedManager.tokenCount == 2U
+              && l_rejectionCount_ == 1U
+              && strcmp(l_rejectionReason_,
+                        "lifecycle commands cannot be combined") == 0
               ? 0 : 1;
 
     SM_InputCmpsMngr invalidArgsManager;
@@ -1279,6 +1318,9 @@ int main(void) {
     failed += l_submissionCount_ == 0U
               && strcmp(invalidArgsManager.buffer,
                         "$disconnect now") == 0
+              && l_rejectionCount_ == 1U
+              && strcmp(l_rejectionReason_,
+                        "command does not accept an argument") == 0
               ? 0 : 1;
 
     SM_InputCmpsMngr reorderedManager;
@@ -1311,6 +1353,8 @@ int main(void) {
                    (char const *)0);
     failed += l_submissionCount_ == 0U
               && duplicateManager.tokenCount == 2U
+              && l_rejectionCount_ == 1U
+              && strcmp(l_rejectionReason_, "duplicate command") == 0
               ? 0 : 1;
 
     SM_InputCmpsMngr missingValueManager;
@@ -1324,6 +1368,9 @@ int main(void) {
                    (char const *)0);
     failed += l_submissionCount_ == 0U
               && missingValueManager.tokenCount == 1U
+              && l_rejectionCount_ == 1U
+              && strcmp(l_rejectionReason_,
+                        "command requires an argument") == 0
               ? 0 : 1;
 
     SM_InputCmpsMngr refreshConfigManager;
@@ -1339,6 +1386,11 @@ int main(void) {
                    (char const *)0);
     failed += l_submissionCount_ == 0U
               && refreshConfigManager.tokenCount == 2U
+              && l_rejectionCount_ == 1U
+              && strcmp(
+                    l_rejectionReason_,
+                    "disconnect and refresh commands must be used alone")
+                 == 0
               ? 0 : 1;
 
     SM_InputCmpsMngr joinedTokenManager;
@@ -1364,6 +1416,10 @@ int main(void) {
                    (char const *)0);
     failed += l_submissionCount_ == 0U
               && joinedTokenManager.tokenCount == 2U
+              && l_rejectionCount_ == 1U
+              && strcmp(
+                    l_rejectionReason_,
+                    "command tokens must be separated by whitespace") == 0
               ? 0 : 1;
 
     SM_InputCmpsMngr joinedArgManager;
@@ -1380,6 +1436,10 @@ int main(void) {
                    (char const *)0);
     failed += l_submissionCount_ == 0U
               && joinedArgManager.tokenCount == 1U
+              && l_rejectionCount_ == 1U
+              && strcmp(
+                    l_rejectionReason_,
+                    "command tokens must be separated by whitespace") == 0
               ? 0 : 1;
 
     UI_InputEvt const invalidEvt = {

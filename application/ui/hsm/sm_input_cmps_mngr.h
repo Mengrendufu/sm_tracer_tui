@@ -68,6 +68,7 @@ typedef struct {
 typedef struct {
     void (*submit)(void *ctx,
                    SM_InputCmpsMngrSubmission const *submission);
+    void (*reject)(void *ctx, char const *reason);
     void *ctx;
 } SM_InputCmpsMngr_CommandSink;
 
