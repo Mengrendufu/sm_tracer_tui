@@ -49,30 +49,32 @@ pacman -S \
     mingw-w64-ucrt-x86_64-libdeflate
 ```
 
-The Windows CMake presets expect MSYS2 under `C:\msys64` and use the UCRT64
-toolchain. Run the project presets from PowerShell.
+Add the MSYS2 `ucrt64/bin` directory to the Windows `PATH`. The shared CMake
+presets discover `gcc` and `windres` from that environment. Run the project
+presets from PowerShell.
 
 ## Build
 
-Linux debug build and tests:
+Linux or Windows debug build:
 
 ```sh
 cmake --preset debug
 cmake --build --preset build-debug
+```
+
+Run the application on either platform with:
+
+```sh
+cmake --build --preset run-debug
+```
+
+Build trees are separated automatically under `build/Linux/debug` and
+`build/Windows/debug`. Run tests from the corresponding directory:
+
+```sh
 ctest --test-dir build/Linux/debug --output-on-failure
+ctest --test-dir build/Windows/debug --output-on-failure
 ```
-
-Windows debug build and tests from PowerShell:
-
-```powershell
-cmake --preset windows-debug
-cmake --build --preset windows-build-debug
-ctest --test-dir "$env:LOCALAPPDATA/sm_tracer_tui/build/windows-debug" `
-  --output-on-failure
-```
-
-Run the application with `run-debug` on Linux or `windows-run-debug` on
-Windows.
 
 ## notcurses dependency
 

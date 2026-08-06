@@ -40,8 +40,7 @@ build.
 |-- tests/                     # Contract and focused behavior tests
 |-- CMakeLists.txt
 |-- CMakePresets.json
-|-- toolchain_gcc.cmake
-`-- toolchain_mingw_ucrt64.cmake
+`-- toolchain_gcc.cmake
 ```
 
 ## Runtime architecture
@@ -345,24 +344,23 @@ cmake --build --preset clean-debug
 cmake --build --preset clean-release
 ```
 
-Run native Windows presets from PowerShell so `${hostSystemName}` is
-`Windows`; their build trees live below `%LOCALAPPDATA%/sm_tracer_tui/build`:
+Run the same presets from PowerShell for native Windows builds. The shared
+toolchain discovers the UCRT64 `gcc` and `windres` from `PATH`, and
+`${hostSystemName}` keeps the build trees platform-specific:
 
 ```powershell
-cmake --preset windows-debug
-cmake --build --preset windows-build-debug
-ctest --test-dir "$env:LOCALAPPDATA/sm_tracer_tui/build/windows-debug" `
-  --output-on-failure
+cmake --preset debug
+cmake --build --preset build-debug
+ctest --test-dir build/Windows/debug --output-on-failure
 
-cmake --preset windows-release
-cmake --build --preset windows-build-release
-cmake --build --preset windows-run-debug
+cmake --preset release
+cmake --build --preset build-release
+cmake --build --preset run-debug
 ```
 
 Because application sources are collected with `GLOB_RECURSE` without
 `CONFIGURE_DEPENDS`, rerun `cmake --preset debug` or `release` after adding or
-removing a `.c` file. Use the corresponding `windows-*` configure preset for a
-native Windows build.
+removing a `.c` file. The same configure preset names apply on both platforms.
 
 CTest currently exercises:
 
