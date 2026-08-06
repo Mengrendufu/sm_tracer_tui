@@ -11,12 +11,12 @@
 //=== Board Support Package: assertions, tick, SST runtime init
 #include <stdio.h>
 #include <stdlib.h>
-#include <pthread.h>
 #include "sst.h"
 #include "sst_pubsub.h"
 #include "app_sig.h"
 #include "aos/sp_mngr/sp_mngr.h"
 #include "bsp.h"
+#include "platform_port.h"
 #include "sm_assert.h"
 #include "dbc_assert.h"
 DBC_MODULE_NAME("bsp")
@@ -24,20 +24,14 @@ DBC_MODULE_NAME("bsp")
 //============================================================================
 //=== Tick rate + idle hook.
 static uint32_t l_tickRateMs = 10U;
-static pthread_mutex_t l_sstStartMutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t l_sstStartCond = PTHREAD_COND_INITIALIZER;
-static bool l_sstStarted;
+static PlatformBarrier l_sstStart = PLATFORM_BARRIER_INITIALIZER;
 
 void SST_setTickRate(uint32_t ticksPerSec) {
     l_tickRateMs = ticksPerSec > 0U ? 1000U / ticksPerSec : l_tickRateMs;
 }
 
 void SST_onIdle(void) {
-    struct timespec ts = {
-        .tv_sec  = l_tickRateMs / 1000U,
-        .tv_nsec = (l_tickRateMs % 1000U) * 1000000UL,
-    };
-    nanosleep(&ts, (struct timespec *)0);
+    Platform_delayMs(l_tickRateMs);
 
     // ao tick ---------------------------------------------------------------
     SST_TimeEvt_tick();
@@ -67,6 +61,10 @@ void BSP_onTick(void) {
 //============================================================================
 //=== SST lifecycle.
 void SST_init(void) {
+    int const barrierStatus = PlatformBarrier_init(&l_sstStart);
+    DBC_ENSURE(300, barrierStatus == 0);
+    (void)barrierStatus;
+
     static SST_SubscrSet subscrSto[MAX_PUB_SIG];
     SST_PubSub_init(subscrSto, ARRAY_NELEM(subscrSto));
 
@@ -88,45 +86,25 @@ void SST_init(void) {
 void SST_onStart(void) {
     SST_setTickRate(BSP_TICKS_PER_SEC);
 
-    int result = pthread_mutex_lock(&l_sstStartMutex);
+    int const result = PlatformBarrier_signal(&l_sstStart);
     DBC_ASSERT(500, result == 0);
-    l_sstStarted = true;
-    result = pthread_cond_broadcast(&l_sstStartCond);
-    DBC_ASSERT(501, result == 0);
-    result = pthread_mutex_unlock(&l_sstStartMutex);
-    DBC_ASSERT(502, result == 0);
     (void)result;
 }
 
 void BSP_waitForSSTStart(void) {
-    int result = pthread_mutex_lock(&l_sstStartMutex);
+    int const result = PlatformBarrier_wait(&l_sstStart);
     DBC_ASSERT(510, result == 0);
-    while (!l_sstStarted) {
-        result = pthread_cond_wait(&l_sstStartCond, &l_sstStartMutex);
-        DBC_ASSERT(511, result == 0);
-    }
-    result = pthread_mutex_unlock(&l_sstStartMutex);
-    DBC_ASSERT(512, result == 0);
     (void)result;
 }
 
 //============================================================================
 //=== DBC fault handler.
 #ifndef DBC_DISABLE
-#include <unistd.h>
-#include <fcntl.h>
-#include <stdlib.h>
 void DBC_fault_handler(char const *module, int label) {
     char buf[128];
     int len = snprintf(buf, sizeof(buf), "\nDBC ASSERT [%s:%d]\n",
                        module, label);
-    // write directly to controlling tty (bypasses notcurses alternate screen)
-    int tty = open("/dev/tty", O_WRONLY);
-    if (tty >= 0) {
-        ssize_t wr = write(tty, buf, (size_t)len);
-        (void)wr;
-        close(tty);
-    }
+    Platform_faultWrite(buf, (size_t)len);
     abort();
 }
 #endif // DBC_DISABLE

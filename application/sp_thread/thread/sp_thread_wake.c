@@ -9,77 +9,66 @@
 //============================================================================
 //============================================================================
 //=== Component: SpThreadWake
-#include <errno.h>
-#include <poll.h>
 #include "dbc_assert.h"
+#include "platform_port.h"
 #include "sp_thread_wake_priv.h"
 DBC_MODULE_NAME("sp_thread_wake")
 
 enum {
-    SP_THREAD_EVENT_FD_,
-    SP_THREAD_SERIAL_FD_,
-    SP_THREAD_FD_COUNT_
+    SP_THREAD_EVENT_SOURCE_,
+    SP_THREAD_SERIAL_SOURCE_,
+    SP_THREAD_SOURCE_COUNT_
 };
 
-static struct pollfd SpThread_pollFds_[SP_THREAD_FD_COUNT_] = {
-    [SP_THREAD_EVENT_FD_] = {
-        .fd = -1,
-        .events = POLLIN,
-    },
-    [SP_THREAD_SERIAL_FD_] = {
-        .fd = -1,
-        .events = POLLIN,
-    },
-};
+static PlatformWaitSet SpThread_waitSet_ = PLATFORM_WAIT_SET_INITIALIZER;
 
-void SpThreadWake_init(int const eventFd) {
-    DBC_REQUIRE(100, eventFd >= 0);
-    SpThread_pollFds_[SP_THREAD_EVENT_FD_].fd = eventFd;
-    SpThread_pollFds_[SP_THREAD_SERIAL_FD_].fd = -1;
+void SpThreadWake_init(PlatformWaitObject const event) {
+    DBC_REQUIRE(100, PlatformWaitObject_isValid(event));
+    PlatformWaitSet_init(&SpThread_waitSet_, SP_THREAD_SOURCE_COUNT_);
+    PlatformWaitSet_bind(&SpThread_waitSet_, SP_THREAD_EVENT_SOURCE_, event);
 }
 
-void SpThreadWake_setSerialFd(int const serialFd) {
-    DBC_REQUIRE(200, serialFd >= -1);
-    SpThread_pollFds_[SP_THREAD_SERIAL_FD_].fd = serialFd;
+void SpThreadWake_setSerialObject(PlatformWaitObject const serial) {
+    PlatformWaitSet_bind(&SpThread_waitSet_, SP_THREAD_SERIAL_SOURCE_,
+                         serial);
 }
 
 int SpThreadWake_wait(int const timeoutMs) {
-    DBC_REQUIRE(300,
-                SpThread_pollFds_[SP_THREAD_EVENT_FD_].fd >= 0);
+    DBC_REQUIRE(300, PlatformWaitObject_isValid(
+        SpThread_waitSet_.objects[SP_THREAD_EVENT_SOURCE_]));
     DBC_REQUIRE(301, timeoutMs >= -1);
 
-    int const ready = poll(SpThread_pollFds_,
-                           SP_THREAD_FD_COUNT_, timeoutMs);
-    if (ready < 0) {
+    PlatformWaitResult ready;
+    PlatformWaitStatus const status = PlatformWaitSet_wait(
+        &SpThread_waitSet_, timeoutMs, &ready);
+    if (status == PLATFORM_WAIT_INTERRUPTED) {
+        return SP_THREAD_WAKE_INTERRUPTED;
+    } else if (status == PLATFORM_WAIT_ERROR) {
         return SP_THREAD_WAKE_ERROR;
-    }
-    if (ready == 0) {
+    } else if (status == PLATFORM_WAIT_TIMEOUT) {
         return SP_THREAD_WAKE_TIMEOUT;
     }
 
-    short const eventRevents =
-        SpThread_pollFds_[SP_THREAD_EVENT_FD_].revents;
-    short const serialRevents =
-        SpThread_pollFds_[SP_THREAD_SERIAL_FD_].revents;
-    if (((eventRevents & (POLLERR | POLLHUP | POLLNVAL)) != 0)
-        || ((serialRevents & POLLNVAL) != 0))
+    uint32_t const eventBit =
+        (uint32_t)1U << SP_THREAD_EVENT_SOURCE_;
+    uint32_t const serialBit =
+        (uint32_t)1U << SP_THREAD_SERIAL_SOURCE_;
+    if ((ready.closedMask & eventBit) != 0U)
     {
-        errno = EIO;
         return SP_THREAD_WAKE_ERROR;
     }
 
     int result = SP_THREAD_WAKE_TIMEOUT;
-    if ((eventRevents & POLLIN) != 0) {
+    if ((ready.readyMask & eventBit) != 0U) {
         result |= SP_THREAD_WAKE_EVENT;
     }
-    if ((serialRevents & POLLIN) != 0) {
+    if ((ready.readyMask & serialBit) != 0U) {
         result |= SP_THREAD_WAKE_SERIAL;
     }
-    if ((serialRevents & (POLLERR | POLLHUP)) != 0) {
+    if ((ready.closedMask & serialBit) != 0U) {
         result |= SP_THREAD_WAKE_SERIAL_LOST;
     }
     if (result == SP_THREAD_WAKE_TIMEOUT) {
-        errno = EIO;
         return SP_THREAD_WAKE_ERROR;
     }
     return result;

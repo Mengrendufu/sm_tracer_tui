@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "dbc_assert.h"
+#include "platform_port.h"
 #include "yyjson.h"
 #include "protocol_decoder_priv.h"
 DBC_MODULE_NAME("protocol_decoder")
@@ -216,7 +217,7 @@ static bool ProtocolDecoder_readFile_(
     char const * const path,
     size_t * const fileSize)
 {
-    FILE * const file = fopen(path, "rb");
+    FILE * const file = PlatformFile_openRead(path);
     if (file == (FILE *)0) {
         int const errorNumber = errno;
         (void)ProtocolDecoder_fail_(

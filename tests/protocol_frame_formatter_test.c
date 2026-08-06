@@ -44,7 +44,7 @@ static int expectFrame_(ProtocolFrameFormatter * const formatter,
 
 int main(void) {
     int failed = 0;
-    ProtocolDecoder decoder = {0};
+    static ProtocolDecoder decoder;
     ProtocolFrameFormatter formatter;
     ProtocolFrameFormatter_ctor(&formatter);
 

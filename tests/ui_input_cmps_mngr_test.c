@@ -1,5 +1,7 @@
 #include <setjmp.h>
 #include <stddef.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "hsm/sm_input_cmps_mngr.h"
 #include "widgets/input_composer.h"
@@ -7,6 +9,7 @@
 static jmp_buf l_faultJump_;
 static char const *l_faultModule_;
 static int l_faultLabel_;
+static bool l_faultArmed_;
 static unsigned l_projectAllCount_;
 static unsigned l_projectFromCount_;
 static unsigned l_moveCursorCount_;
@@ -41,6 +44,10 @@ static char l_submissionProtocol_[SM_INPUT_CMPS_MNGR_BUFFER_SIZE];
 void DBC_fault_handler(char const * const module, int const label) {
     l_faultModule_ = module;
     l_faultLabel_ = label;
+    if (!l_faultArmed_) {
+        fprintf(stderr, "unexpected DBC fault [%s:%d]\n", module, label);
+        abort();
+    }
     longjmp(l_faultJump_, 1);
 }
 
@@ -341,11 +348,37 @@ static void acceptCommand_(SM_InputCmpsMngr * const manager,
     dispatchInput_(manager, UI_KEY_ENTER_SIG, (char const *)0);
 }
 
+static int expectInvalidSignalFault_(
+    SM_InputCmpsMngr * const manager)
+{
+    UI_InputEvt const invalidEvt = {
+        .super.sig = UI_TIMER_SIG,
+    };
+    l_faultModule_ = (char const *)0;
+    l_faultLabel_ = 0;
+    l_faultArmed_ = true;
+
+    if (setjmp(l_faultJump_) == 0) {
+        SM_InputCmpsMngr_dispatchEvt(manager, &invalidEvt);
+        l_faultArmed_ = false;
+        return 1;
+    }
+
+    l_faultArmed_ = false;
+    return strcmp(l_faultModule_, "sm_input_cmps_mngr") == 0
+           && l_faultLabel_ == 302 ? 0 : 1;
+}
+
 int main(void) {
     SM_InputCmpsMngr manager;
     int failed = 0;
 
     SM_InputCmpsMngr_ctor(&manager);
+    failed += manager.portCatalog == (char const *)0
+              && manager.portCatalogSize == 0U
+              && manager.protocolCatalog == (char const *)0
+              && manager.protocolCatalogSize == 0U
+              ? 0 : 1;
     SM_InputCmpsMngr_init(&manager);
 
     resetProjection_();
@@ -587,16 +620,12 @@ int main(void) {
 
     l_faultModule_ = (char const *)0;
     l_faultLabel_ = 0;
-    if (setjmp(l_faultJump_) == 0) {
-        dispatchInput_(&slashBeforeTextManager, UI_INPUT_SIG, "/");
-        failed += strcmp(slashBeforeTextManager.buffer,
-                         "/dis /con /ref /hi there") == 0
-                  && slashBeforeTextManager.editPos == 16U
-                  && slashBeforeTextManager.candidateCount == 0U
-                  ? 0 : 1;
-    } else {
-        ++failed;
-    }
+    dispatchInput_(&slashBeforeTextManager, UI_INPUT_SIG, "/");
+    failed += strcmp(slashBeforeTextManager.buffer,
+                     "/dis /con /ref /hi there") == 0
+              && slashBeforeTextManager.editPos == 16U
+              && slashBeforeTextManager.candidateCount == 0U
+              ? 0 : 1;
 
     SM_InputCmpsMngr whitespaceManager;
     SM_InputCmpsMngr_ctor(&whitespaceManager);
@@ -1442,19 +1471,6 @@ int main(void) {
                     "command tokens must be separated by whitespace") == 0
               ? 0 : 1;
 
-    UI_InputEvt const invalidEvt = {
-        .super.sig = UI_TIMER_SIG,
-    };
-    l_faultModule_ = (char const *)0;
-    l_faultLabel_ = 0;
-    if (setjmp(l_faultJump_) == 0) {
-        SM_InputCmpsMngr_dispatchEvt(&manager, &invalidEvt);
-        ++failed;
-    } else {
-        failed += strcmp(l_faultModule_, "sm_input_cmps_mngr") == 0
-                  && l_faultLabel_ == 302
-                  ? 0 : 1;
-    }
-
+    failed += expectInvalidSignalFault_(&manager);
     return failed == 0 ? 0 : 1;
 }

@@ -10,31 +10,34 @@
 #include "sst.h"
 #include "sst_priv.h"
 #include "dbc_assert.h"
-#include <time.h>
 
 DBC_MODULE_NAME("sst_port")
 
 //============================================================================
 //=== Critical section: non-recursive mutex with thread-local nesting guard.
-static pthread_mutex_t l_portLock = PTHREAD_MUTEX_INITIALIZER;
+static PlatformMutex l_portLock = PLATFORM_MUTEX_INITIALIZER;
 
-static __thread int l_critSectNest;
+static PLATFORM_THREAD_LOCAL int l_critSectNest;
 
 void enterCriticalSection_(void) {
     DBC_REQUIRE(100, l_critSectNest == 0);
-    pthread_mutex_lock(&l_portLock);
+    int const result = PlatformMutex_lock(&l_portLock);
+    DBC_ASSERT(101, result == 0);
+    (void)result;
     ++l_critSectNest;
 }
 
 void leaveCriticalSection_(void) {
     DBC_REQUIRE(200, l_critSectNest == 1);
     --l_critSectNest;
-    pthread_mutex_unlock(&l_portLock);
+    int const result = PlatformMutex_unlock(&l_portLock);
+    DBC_ASSERT(201, result == 0);
+    (void)result;
 }
 
 //============================================================================
-//=== AO thread: sem_wait -> dequeue -> dispatch.
-static void *ao_thread(void *arg) {
+//=== AO thread: wait -> dequeue -> dispatch.
+static void ao_thread(void *arg) {
     SST_Task *me = (SST_Task *)arg;
 
     for (;;) {
@@ -60,20 +63,19 @@ static void *ao_thread(void *arg) {
 
         SST_GC(e);
     }
-    return NULL;
 }
 
 //============================================================================
-//=== Task launch: sem_init + pthread_create, called from SST_Task_start.
+//=== Task launch: semaphore + native thread, called from SST_Task_start.
 void SST_Task_setPrio(SST_Task * const me, SST_TaskPrio const prio) {
     DBC_REQUIRE(400, (0U < prio) && (prio <= SST_MAX_TASK));
     DBC_REQUIRE(401, SST_tasks_[prio] == (SST_Task *)0);
     me->prio = prio;
     SST_tasks_[prio] = me;
 
-    int result = sem_init(&me->sem, 0, 0);
+    int result = PlatformSemaphore_init(&me->sem, 0U);
     DBC_ENSURE(402, result == 0);
-    result = pthread_create(&me->thread, NULL, ao_thread, me);
+    result = PlatformThread_start(&me->thread, &ao_thread, me);
     DBC_ENSURE(403, result == 0);
     (void)result;
 }

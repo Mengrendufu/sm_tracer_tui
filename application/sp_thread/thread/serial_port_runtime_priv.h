@@ -13,6 +13,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "platform_port.h"
 #include "sp_thread/sp_thread.h"
 
 // Open and configure one serial port. The runtime retains the port handle
@@ -20,19 +21,20 @@
 bool SerialPortRuntime_open(SerialConfig const *config);
 
 // Apply a complete configuration to the retained open port. The caller must
-// close the port after failure because its effective configuration is unknown.
+// close the port after failure because its effective configuration is
+// unknown.
 bool SerialPortRuntime_reconfigure(SerialConfig const *config);
 
 // Best-effort close the retained port, then always release local ownership.
 // Return whether the operating-system close operation succeeded.
 bool SerialPortRuntime_close(void);
 
-// Return the native descriptor borrowed from the retained open port, or -1
-// while no port is open. The runtime retains descriptor ownership.
-int SerialPortRuntime_fd(void);
+// Return the wait object borrowed from the retained open port, or an invalid
+// object while no port is open. The runtime retains native ownership.
+PlatformWaitObject SerialPortRuntime_waitObject(void);
 
 // Read at most capacity bytes without blocking. Return a byte count, zero
-// when no bytes are available, or a negative libserialport error.
+// when no bytes are available, or a negative runtime error.
 int SerialPortRuntime_read(uint8_t *data, size_t capacity);
 
 // Return an owned, double-NUL-terminated sequence of NUL-terminated names.

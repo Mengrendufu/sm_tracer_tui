@@ -9,15 +9,13 @@
 //============================================================================
 //============================================================================
 //=== SpThread runtime: lifecycle, mixed wake, and RX assembly
-#include <errno.h>
-#include <pthread.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 #include "sst.h"
 #include "dbc_assert.h"
+#include "platform_port.h"
 #include "app_sig.h"
 #include "sp_mngr/sp_mngr.h"
 #include "sp_thread/sp_thread.h"
@@ -33,7 +31,7 @@ DBC_MODULE_NAME("sp_thread")
 //=== Runtime instance
 
 typedef struct {
-    pthread_t thread;
+    PlatformThread thread;
     SM_SpThread hsm;
     RxPacketAssembler rxAssembler;
     bool started;
@@ -45,13 +43,11 @@ static SpThread SpThread_inst_;
 //=== Thread entry
 
 static uint64_t SpThread_monotonicMs_(void) {
-    struct timespec now;
-    int const status = clock_gettime(CLOCK_MONOTONIC, &now);
+    uint64_t now;
+    int const status = Platform_monotonicMs(&now);
     DBC_ASSERT(200, status == 0);
     (void)status;
-
-    return ((uint64_t)now.tv_sec * 1000U)
-           + ((uint64_t)now.tv_nsec / 1000000U);
+    return now;
 }
 
 static void SpThread_postPacket_(void * const ctx,
@@ -74,7 +70,7 @@ static void SpThread_postPacket_(void * const ctx,
     SST_Task_post(AO_SpMngr, &packet->super);
 }
 
-static void *SpThread_run_(void * const arg) {
+static void SpThread_run_(void * const arg) {
     SpThread * const me = (SpThread *)arg;
     static SpThreadEvt const lostEvt = {
         .sig = SPTHRD_PORT_LOST_SIG,
@@ -85,22 +81,23 @@ static void *SpThread_run_(void * const arg) {
     SM_SpThread_init(&me->hsm);
     RxPacketAssembler_init(&me->rxAssembler,
                            &SpThread_postPacket_, me);
-    SpThreadWake_init(SpThread_evtWakeFd());
+    SpThreadWake_init(SpThread_evtWakeObject());
 
-    int serialFd = -1;
+    PlatformWaitObject serialObject = PLATFORM_WAIT_OBJECT_INVALID;
     for (;;) {
-        int currentFd = SerialPortRuntime_fd();
-        if (currentFd != serialFd) {
+        PlatformWaitObject currentObject =
+            SerialPortRuntime_waitObject();
+        if (!PlatformWaitObject_equal(currentObject, serialObject)) {
             RxPacketAssembler_reset(&me->rxAssembler);
-            SpThreadWake_setSerialFd(currentFd);
-            serialFd = currentFd;
+            SpThreadWake_setSerialObject(currentObject);
+            serialObject = currentObject;
         }
 
         uint64_t nowMs = SpThread_monotonicMs_();
         int const timeoutMs = RxPacketAssembler_timeoutMs(
             &me->rxAssembler, nowMs);
         int const ready = SpThreadWake_wait(timeoutMs);
-        if ((ready == SP_THREAD_WAKE_ERROR) && (errno == EINTR)) {
+        if (ready == SP_THREAD_WAKE_INTERRUPTED) {
             continue;
         }
         if (ready == SP_THREAD_WAKE_ERROR) {
@@ -122,20 +119,21 @@ static void *SpThread_run_(void * const arg) {
         }
 
         if (((ready & SP_THREAD_WAKE_SERIAL_LOST) != 0)
-            && (SerialPortRuntime_fd() >= 0))
+            && PlatformWaitObject_isValid(
+                   SerialPortRuntime_waitObject()))
         {
             SM_SpThread_dispatchEvt(&me->hsm, &lostEvt);
         }
 
-        currentFd = SerialPortRuntime_fd();
-        if (currentFd != serialFd) {
+        currentObject = SerialPortRuntime_waitObject();
+        if (!PlatformWaitObject_equal(currentObject, serialObject)) {
             RxPacketAssembler_reset(&me->rxAssembler);
-            SpThreadWake_setSerialFd(currentFd);
-            serialFd = currentFd;
+            SpThreadWake_setSerialObject(currentObject);
+            serialObject = currentObject;
         }
 
         if (((ready & SP_THREAD_WAKE_SERIAL) != 0)
-            && (serialFd >= 0))
+            && PlatformWaitObject_isValid(serialObject))
         {
             uint8_t rxData[256U];
             int readSize;
@@ -152,8 +150,9 @@ static void *SpThread_run_(void * const arg) {
             if (readSize < 0) {
                 SM_SpThread_dispatchEvt(&me->hsm, &lostEvt);
                 RxPacketAssembler_reset(&me->rxAssembler);
-                SpThreadWake_setSerialFd(-1);
-                serialFd = -1;
+                SpThreadWake_setSerialObject(
+                    PLATFORM_WAIT_OBJECT_INVALID);
+                serialObject = PLATFORM_WAIT_OBJECT_INVALID;
             }
         }
 
@@ -161,7 +160,6 @@ static void *SpThread_run_(void * const arg) {
         RxPacketAssembler_onTimeout(&me->rxAssembler, nowMs);
     }
 
-    return (void *)0;
 }
 
 //============================================================================
@@ -176,10 +174,7 @@ int SpThread_start(void) {
         return status;
     }
 
-    status = pthread_create(&me->thread,
-                            (pthread_attr_t const *)0,
-                            &SpThread_run_,
-                            me);
+    status = PlatformThread_start(&me->thread, &SpThread_run_, me);
     if (status != 0) {
         SpThread_evtDeinit();
         return status;

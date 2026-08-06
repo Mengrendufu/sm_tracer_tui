@@ -12,8 +12,7 @@
 
 //============================================================================
 #include <stdint.h>
-#include <pthread.h>
-#include <semaphore.h>
+#include "platform_port.h"
 
 //============================================================================
 #define SST_EVT_POOL_NUM 3U
@@ -73,8 +72,8 @@ typedef int SST_LockKey;
 //============================================================================
 //=== Task attributes: thread handle + event semaphore.
 #define SST_PORT_TASK_ATTR \
-    pthread_t thread; \
-    sem_t sem;
+    PlatformThread thread; \
+    PlatformSemaphore sem;
 
 //============================================================================
 //=== Additional operations (placed after type definitions in sst.h).
@@ -93,11 +92,11 @@ void leaveCriticalSection_(void);
 
 //============================================================================
 //=== Task pend: wake the receiving task's thread.
-#define SST_PORT_TASK_PEND()  sem_post(&(me)->sem)
+#define SST_PORT_TASK_PEND()  PlatformSemaphore_post(&(me)->sem)
 
 //============================================================================
 //=== Task wait: suspend until an event is posted.
-#define SST_PORT_TASK_WAIT(me_)  sem_wait(&(me_)->sem)
+#define SST_PORT_TASK_WAIT(me_)  PlatformSemaphore_wait(&(me_)->sem)
 
 //============================================================================
 //=== Tick rate control.

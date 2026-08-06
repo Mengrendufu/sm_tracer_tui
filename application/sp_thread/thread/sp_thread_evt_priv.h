@@ -11,11 +11,12 @@
 #define SP_THREAD_EVT_PRIV_H_
 
 #include <stdbool.h>
+#include "platform_port.h"
 #include "sp_thread/hsm/sm_sp_thread.h"
 
 int SpThread_evtInit(void);
 void SpThread_evtDeinit(void);
-int SpThread_evtWakeFd(void);
+PlatformWaitObject SpThread_evtWakeObject(void);
 int SpThread_evtConsumeWake(void);
 bool SpThread_evtDequeue(SpThreadEvt *e);
 

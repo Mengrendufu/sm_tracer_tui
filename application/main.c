@@ -11,10 +11,9 @@
 //=== Application entry: UI init, serial/SST startup, main-thread UI loop
 #include <stdio.h>
 #include <stdlib.h>
-#include <locale.h>
-#include <pthread.h>
 #include "sst.h"
 #include "bsp.h"
+#include "platform_port.h"
 #include "ui.h"
 #include "sp_thread/sp_thread.h"
 #include "dbc_assert.h"
@@ -25,12 +24,11 @@
 //============================================================================
 //=== SST kernel thread
 
-static void *SST_thread(void *arg) {
+static void SST_thread_(void *arg) {
     (void)arg;
     SST_Task_run();
-    return NULL;
 }
-static pthread_t SST_tid;
+static PlatformThread SST_tid_ = PLATFORM_THREAD_INITIALIZER;
 
 //============================================================================
 //=== Main entry
@@ -39,7 +37,10 @@ int main(int const argc, char const ** const argv) {
     (void)argc; (void)argv;
 
     //------------------------------------------------------------------------
-    setlocale(LC_ALL, "");
+    if (Platform_consoleInit() != 0) {
+        fprintf(stderr, "terminal runtime init failed\n");
+        return 1;
+    }
 
     // resource init of UI ---------------------------------------------------
     if (UI_init() != 0) {
@@ -55,7 +56,7 @@ int main(int const argc, char const ** const argv) {
 
     // AOs -------------------------------------------------------------------
     SST_init();
-    if (pthread_create(&SST_tid, NULL, SST_thread, NULL) != 0) {
+    if (PlatformThread_start(&SST_tid_, &SST_thread_, (void *)0) != 0) {
         fprintf(stderr, "SST thread start failed\n");
         return 1;
     }

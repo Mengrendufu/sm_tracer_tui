@@ -9,11 +9,9 @@
 //============================================================================
 //============================================================================
 //=== Component: SpThreadEventInbox
-#include <pthread.h>
 #include <stdint.h>
-#include <sys/eventfd.h>
-#include <unistd.h>
 #include "dbc_assert.h"
+#include "platform_port.h"
 #include "sp_thread/sp_thread.h"
 #include "sp_thread_evt_priv.h"
 DBC_MODULE_NAME("sp_thread_evt")
@@ -25,27 +23,29 @@ struct SpThreadEvtQueue {
     uint8_t head;
     uint8_t tail;
     uint8_t used;
-    pthread_mutex_t mutex;
+    PlatformMutex mutex;
 };
 
 struct SpThreadEventInbox {
     struct SpThreadEvtQueue queue;
-    int wakeFd;
+    PlatformWake wake;
 };
 
 static struct SpThreadEventInbox SpThread_eventInbox_ = {
-    .queue = {.mutex = PTHREAD_MUTEX_INITIALIZER},
-    .wakeFd = -1
+    .queue = {.mutex = PLATFORM_MUTEX_INITIALIZER},
+    .wake = PLATFORM_WAKE_INITIALIZER
 };
 
 static void SpThread_evtPost_(SpThreadEvt const * const e) {
     DBC_REQUIRE(100, e != (SpThreadEvt const *)0);
     DBC_REQUIRE(101, e->sig > SPTHRD_NULL_SIG);
-    DBC_REQUIRE(102, SpThread_eventInbox_.wakeFd >= 0);
+    DBC_REQUIRE(102, PlatformWaitObject_isValid(
+        PlatformWake_waitObject(&SpThread_eventInbox_.wake)));
 
     struct SpThreadEvtQueue * const queue =
         &SpThread_eventInbox_.queue;
-    pthread_mutex_lock(&queue->mutex);
+    int status = PlatformMutex_lock(&queue->mutex);
+    DBC_ASSERT(104, status == 0);
     DBC_REQUIRE(103, queue->used < SP_THREAD_EVT_QLEN_);
 
     queue->buf[queue->head] = *e;
@@ -56,12 +56,11 @@ static void SpThread_evtPost_(SpThreadEvt const * const e) {
     }
     ++queue->used;
 
-    pthread_mutex_unlock(&queue->mutex);
+    status = PlatformMutex_unlock(&queue->mutex);
+    DBC_ASSERT(105, status == 0);
 
-    uint64_t const one = 1ULL;
-    ssize_t const written = write(SpThread_eventInbox_.wakeFd,
-                                  &one, sizeof(one));
-    (void)written;
+    status = PlatformWake_signal(&SpThread_eventInbox_.wake);
+    (void)status;
 }
 
 void SpThread_postOpenPort(SerialConfig const * const config) {
@@ -99,31 +98,28 @@ void SpThread_postRefreshPorts(void) {
 }
 
 int SpThread_evtInit(void) {
-    DBC_REQUIRE(200, SpThread_eventInbox_.wakeFd < 0);
+    DBC_REQUIRE(200, !PlatformWaitObject_isValid(
+        PlatformWake_waitObject(&SpThread_eventInbox_.wake)));
 
-    SpThread_eventInbox_.wakeFd = eventfd(
-        0U, EFD_NONBLOCK | EFD_CLOEXEC);
-    return SpThread_eventInbox_.wakeFd >= 0 ? 0 : 1;
+    return PlatformWake_init(&SpThread_eventInbox_.wake);
 }
 
 void SpThread_evtDeinit(void) {
-    DBC_REQUIRE(210, SpThread_eventInbox_.wakeFd >= 0);
+    DBC_REQUIRE(210, PlatformWaitObject_isValid(
+        PlatformWake_waitObject(&SpThread_eventInbox_.wake)));
 
-    (void)close(SpThread_eventInbox_.wakeFd);
-    SpThread_eventInbox_.wakeFd = -1;
+    PlatformWake_deinit(&SpThread_eventInbox_.wake);
 }
 
-int SpThread_evtWakeFd(void) {
-    return SpThread_eventInbox_.wakeFd;
+PlatformWaitObject SpThread_evtWakeObject(void) {
+    return PlatformWake_waitObject(&SpThread_eventInbox_.wake);
 }
 
 int SpThread_evtConsumeWake(void) {
-    DBC_REQUIRE(220, SpThread_eventInbox_.wakeFd >= 0);
+    DBC_REQUIRE(220, PlatformWaitObject_isValid(
+        PlatformWake_waitObject(&SpThread_eventInbox_.wake)));
 
-    uint64_t count;
-    ssize_t const readSize = read(SpThread_eventInbox_.wakeFd,
-                                  &count, sizeof(count));
-    return readSize == (ssize_t)sizeof(count) ? 0 : 1;
+    return PlatformWake_consume(&SpThread_eventInbox_.wake);
 }
 
 bool SpThread_evtDequeue(SpThreadEvt * const e) {
@@ -131,7 +127,8 @@ bool SpThread_evtDequeue(SpThreadEvt * const e) {
 
     struct SpThreadEvtQueue * const queue =
         &SpThread_eventInbox_.queue;
-    pthread_mutex_lock(&queue->mutex);
+    int status = PlatformMutex_lock(&queue->mutex);
+    DBC_ASSERT(231, status == 0);
 
     bool const hasEvent = queue->used > 0U;
     if (hasEvent) {
@@ -144,6 +141,8 @@ bool SpThread_evtDequeue(SpThreadEvt * const e) {
         --queue->used;
     }
 
-    pthread_mutex_unlock(&queue->mutex);
+    status = PlatformMutex_unlock(&queue->mutex);
+    DBC_ASSERT(232, status == 0);
+    (void)status;
     return hasEvent;
 }

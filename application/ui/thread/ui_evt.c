@@ -10,13 +10,11 @@
 //============================================================================
 //=== Component: UIEventInbox
 //
-// Owns queued UI events and the eventfd used to wake UIThreadRuntime.
-#include <pthread.h>
+// Owns queued UI events and the platform wake used by UIThreadRuntime.
 #include <stdlib.h>
 #include <string.h>
-#include <sys/eventfd.h>
-#include <unistd.h>
 #include "dbc_assert.h"
+#include "platform_port.h"
 #include "ui_evt.h"
 #include "ui_evt_priv.h"
 DBC_MODULE_NAME("ui_evt")
@@ -28,17 +26,17 @@ struct UI_EvtQueue {
     uint16_t head;
     uint16_t tail;
     uint16_t used;
-    pthread_mutex_t mtx;
+    PlatformMutex mtx;
 };
 
 struct UIEventInbox {
     struct UI_EvtQueue queue;
-    int wakeFd;
+    PlatformWake wake;
 };
 
 static struct UIEventInbox UI_eventInbox_ = {
-    .queue = {.mtx = PTHREAD_MUTEX_INITIALIZER},
-    .wakeFd = -1
+    .queue = {.mtx = PLATFORM_MUTEX_INITIALIZER},
+    .wake = PLATFORM_WAKE_INITIALIZER
 };
 
 //============================================================================
@@ -61,7 +59,8 @@ static void UI_enqueue_(UI_Evt *e) {
     DBC_REQUIRE(200, e != (UI_Evt *)0);
 
     struct UI_EvtQueue * const queue = &UI_eventInbox_.queue;
-    pthread_mutex_lock(&queue->mtx);
+    int status = PlatformMutex_lock(&queue->mtx);
+    DBC_ASSERT(202, status == 0);
     DBC_REQUIRE(201, queue->used < UI_QLEN_);
 
     queue->buf[queue->head] = e;
@@ -72,12 +71,15 @@ static void UI_enqueue_(UI_Evt *e) {
     }
     ++queue->used;
 
-    pthread_mutex_unlock(&queue->mtx);
+    status = PlatformMutex_unlock(&queue->mtx);
+    DBC_ASSERT(203, status == 0);
+    (void)status;
 }
 
 static UI_Evt *UI_dequeue_(void) {
     struct UI_EvtQueue * const queue = &UI_eventInbox_.queue;
-    pthread_mutex_lock(&queue->mtx);
+    int status = PlatformMutex_lock(&queue->mtx);
+    DBC_ASSERT(210, status == 0);
 
     UI_Evt *e = (UI_Evt *)0;
 
@@ -91,7 +93,9 @@ static UI_Evt *UI_dequeue_(void) {
         --queue->used;
     }
 
-    pthread_mutex_unlock(&queue->mtx);
+    status = PlatformMutex_unlock(&queue->mtx);
+    DBC_ASSERT(211, status == 0);
+    (void)status;
     return e;
 }
 
@@ -99,9 +103,8 @@ static UI_Evt *UI_dequeue_(void) {
 //=== Wake main loop after enqueue
 
 static void UI_wake_(void) {
-    uint64_t one = 1ULL;
-    ssize_t  wr  = write(UI_eventInbox_.wakeFd, &one, sizeof(one));
-    (void)wr;
+    int const status = PlatformWake_signal(&UI_eventInbox_.wake);
+    (void)status;
 }
 
 //============================================================================
@@ -109,7 +112,8 @@ static void UI_wake_(void) {
 
 void UI_evtPostSignal(UI_Signal sig) {
     DBC_REQUIRE(300, sig > UI_NULL_SIG);
-    DBC_REQUIRE(301, UI_eventInbox_.wakeFd >= 0);
+    DBC_REQUIRE(301, PlatformWaitObject_isValid(
+        PlatformWake_waitObject(&UI_eventInbox_.wake)));
 
     UI_Evt *ue = (UI_Evt *)UI_Alloc_(sizeof(UI_Evt));
     ue->sig = sig;
@@ -121,7 +125,8 @@ void UI_evtPostSignal(UI_Signal sig) {
 void UI_evtPostText(UI_Signal sig, char const *text) {
     DBC_REQUIRE(310, sig  > UI_NULL_SIG);
     DBC_REQUIRE(311, text != (char const *)0);
-    DBC_REQUIRE(312, UI_eventInbox_.wakeFd >= 0);
+    DBC_REQUIRE(312, PlatformWaitObject_isValid(
+        PlatformWake_waitObject(&UI_eventInbox_.wake)));
 
     size_t len = strlen(text);
     size_t size = sizeof(UI_AppEvt) + len + 1U;
@@ -142,14 +147,15 @@ void UI_evtEnqueueInput(UI_Signal const sig,
     DBC_REQUIRE(320, (UI_INPUT_SIG <= sig)
                      && (sig <= UI_RESIZE_SIG));
     DBC_REQUIRE(321, input != (UI_Input const *)0);
-    DBC_REQUIRE(322, UI_eventInbox_.wakeFd >= 0);
+    DBC_REQUIRE(322, PlatformWaitObject_isValid(
+        PlatformWake_waitObject(&UI_eventInbox_.wake)));
 
     UI_InputEvt *ie = (UI_InputEvt *)UI_Alloc_(sizeof(UI_InputEvt));
     ie->super.sig = sig;
     ie->input = *input;
 
     // Terminal input is already executing on the UI thread and will be
-    // drained in this loop iteration, so no eventfd wake is required.
+    // drained in this loop iteration, so no additional wake is required.
     UI_enqueue_((UI_Evt *)ie);
 }
 
@@ -164,7 +170,8 @@ void UI_postPortList(char const * const portNames,
     DBC_REQUIRE(331, portNamesSize >= 2U);
     DBC_REQUIRE(332, portNames[portNamesSize - 1U] == '\0');
     DBC_REQUIRE(333, portNames[portNamesSize - 2U] == '\0');
-    DBC_REQUIRE(334, UI_eventInbox_.wakeFd >= 0);
+    DBC_REQUIRE(334, PlatformWaitObject_isValid(
+        PlatformWake_waitObject(&UI_eventInbox_.wake)));
     DBC_REQUIRE(335,
                 portNamesSize <= (SIZE_MAX - sizeof(UI_PortListEvt)));
 
@@ -187,7 +194,8 @@ void UI_postProtocolList(char const * const protocolPaths,
     DBC_REQUIRE(337, protocolPathsSize >= 2U);
     DBC_REQUIRE(338, protocolPaths[protocolPathsSize - 1U] == '\0');
     DBC_REQUIRE(339, protocolPaths[protocolPathsSize - 2U] == '\0');
-    DBC_REQUIRE(340, UI_eventInbox_.wakeFd >= 0);
+    DBC_REQUIRE(340, PlatformWaitObject_isValid(
+        PlatformWake_waitObject(&UI_eventInbox_.wake)));
     DBC_REQUIRE(341,
         protocolPathsSize <= (SIZE_MAX - sizeof(UI_ProtocolListEvt)));
 
@@ -210,7 +218,8 @@ void UI_postProtocolLoaded(char const * const relativePath) {
 void UI_postConnectionStatus(UI_ConnectionStatus const status) {
     DBC_REQUIRE(350, (UI_CONNECTION_DISCONNECTED <= status)
                      && (status <= UI_CONNECTION_DISCONNECTING));
-    DBC_REQUIRE(351, UI_eventInbox_.wakeFd >= 0);
+    DBC_REQUIRE(351, PlatformWaitObject_isValid(
+        PlatformWake_waitObject(&UI_eventInbox_.wake)));
 
     UI_ConnectionEvt * const connection =
         (UI_ConnectionEvt *)UI_Alloc_(sizeof(UI_ConnectionEvt));
@@ -222,25 +231,24 @@ void UI_postConnectionStatus(UI_ConnectionStatus const status) {
 }
 
 //============================================================================
-//=== Init / Wake fd / Dequeue / Free
+//=== Init / Wake object / Dequeue / Free
 
 int UI_evtInit(void) {
-    DBC_REQUIRE(500, UI_eventInbox_.wakeFd < 0);
+    DBC_REQUIRE(500, !PlatformWaitObject_isValid(
+        PlatformWake_waitObject(&UI_eventInbox_.wake)));
 
-    UI_eventInbox_.wakeFd = eventfd(0, EFD_NONBLOCK);
-    return UI_eventInbox_.wakeFd >= 0 ? 0 : 1;
+    return PlatformWake_init(&UI_eventInbox_.wake);
 }
 
-int UI_evtWakeFd(void) {
-    return UI_eventInbox_.wakeFd;
+PlatformWaitObject UI_evtWakeObject(void) {
+    return PlatformWake_waitObject(&UI_eventInbox_.wake);
 }
 
 int UI_evtConsumeWake(void) {
-    DBC_REQUIRE(501, UI_eventInbox_.wakeFd >= 0);
+    DBC_REQUIRE(501, PlatformWaitObject_isValid(
+        PlatformWake_waitObject(&UI_eventInbox_.wake)));
 
-    uint64_t count;
-    ssize_t const rd = read(UI_eventInbox_.wakeFd, &count, sizeof(count));
-    return rd == (ssize_t)sizeof(count) ? 0 : 1;
+    return PlatformWake_consume(&UI_eventInbox_.wake);
 }
 
 UI_Evt *UI_evtDequeue(void) {

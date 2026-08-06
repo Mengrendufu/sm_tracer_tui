@@ -37,6 +37,39 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
       }
+    },
+    {
+      "name": "windows-base",
+      "hidden": true,
+      "inherits": "base",
+      "binaryDir": "$env{LOCALAPPDATA}/sm_tracer_tui/build/${presetName}",
+      "toolchainFile": "${sourceDir}/toolchain_mingw_ucrt64.cmake",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "environment": {
+        "PATH": "C:/msys64/ucrt64/bin;$penv{PATH}"
+      }
+    },
+    {
+      "name": "windows-debug",
+      "inherits": "windows-base",
+      "displayName": "Configure Windows Debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "NOTCURSES_ROOT": "$env{LOCALAPPDATA}/notcurses-win-patched/install-ucrt64"
+      }
+    },
+    {
+      "name": "windows-release",
+      "inherits": "windows-base",
+      "displayName": "Configure Windows Release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "NOTCURSES_ROOT": "$env{LOCALAPPDATA}/notcurses-win-patched/install-ucrt64"
+      }
     }
   ],
 
@@ -85,6 +118,48 @@
       "displayName": "Run Release",
       "description": "Build and run the Release executable.",
       "configurePreset": "release",
+      "targets": [
+        "run"
+      ]
+    },
+    {
+      "name": "windows-build-debug",
+      "displayName": "Build Windows Debug",
+      "configurePreset": "windows-debug"
+    },
+    {
+      "name": "windows-build-release",
+      "displayName": "Build Windows Release",
+      "configurePreset": "windows-release"
+    },
+    {
+      "name": "windows-clean-debug",
+      "displayName": "Clean Windows Debug",
+      "configurePreset": "windows-debug",
+      "targets": [
+        "clean"
+      ]
+    },
+    {
+      "name": "windows-clean-release",
+      "displayName": "Clean Windows Release",
+      "configurePreset": "windows-release",
+      "targets": [
+        "clean"
+      ]
+    },
+    {
+      "name": "windows-run-debug",
+      "displayName": "Run Windows Debug",
+      "configurePreset": "windows-debug",
+      "targets": [
+        "run"
+      ]
+    },
+    {
+      "name": "windows-run-release",
+      "displayName": "Run Windows Release",
+      "configurePreset": "windows-release",
       "targets": [
         "run"
       ]

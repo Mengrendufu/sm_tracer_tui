@@ -13,18 +13,23 @@
 #ifndef UI_THREAD_WAKE_PRIV_H_
 #define UI_THREAD_WAKE_PRIV_H_
 
+#include "platform_port.h"
+
 enum {
-    UI_THREAD_WAKE_TIMEOUT  = 0U,
-    UI_THREAD_WAKE_TERMINAL = 1U << 0U,
-    UI_THREAD_WAKE_EVENT    = 1U << 1U,
+    UI_THREAD_WAKE_ERROR       = -1,
+    UI_THREAD_WAKE_INTERRUPTED = -2,
+    UI_THREAD_WAKE_TIMEOUT     = 0U,
+    UI_THREAD_WAKE_TERMINAL    = 1U << 0U,
+    UI_THREAD_WAKE_EVENT       = 1U << 1U,
 };
 
 // Bind the terminal-input and event-wake required inputs. Their providers
-// retain descriptor ownership and lifetime.
-void UI_ThreadWake_init(int terminalFd, int eventFd);
+// retain native-object ownership and lifetime.
+void UI_ThreadWake_init(PlatformWaitObject terminal,
+                        PlatformWaitObject event);
 
 // Accept the Frame Clock deadline and return ready-source bits, zero on
-// timeout, or -1 with errno on poll failure.
+// timeout, or a stable negative error status.
 int  UI_ThreadWake_wait(int timeout);
 
 #endif // UI_THREAD_WAKE_PRIV_H_

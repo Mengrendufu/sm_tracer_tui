@@ -31,29 +31,55 @@ file(GLOB_RECURSE SRC_LOCAL
 
 #=============================================================================
 # ===Component notcurses.
-find_path(NOTCURSES_INCLUDE_DIR notcurses/notcurses.h)
-find_library(NOTCURSES_LIBRARY notcurses-core)
+set(NOTCURSES_ROOT "" CACHE PATH "Optional notcurses installation root")
+if(NOTCURSES_ROOT)
+    unset(NOTCURSES_INCLUDE_DIR CACHE)
+    unset(NOTCURSES_LIBRARY CACHE)
+    find_path(NOTCURSES_INCLUDE_DIR notcurses/notcurses.h
+        PATHS "${NOTCURSES_ROOT}/include"
+        NO_DEFAULT_PATH
+        NO_CMAKE_FIND_ROOT_PATH)
+    find_library(NOTCURSES_LIBRARY notcurses-core
+        PATHS "${NOTCURSES_ROOT}/lib"
+        NO_DEFAULT_PATH
+        NO_CMAKE_FIND_ROOT_PATH)
+else()
+    find_path(NOTCURSES_INCLUDE_DIR notcurses/notcurses.h)
+    find_library(NOTCURSES_LIBRARY notcurses-core)
+endif()
 
 if(NOT NOTCURSES_INCLUDE_DIR OR NOT NOTCURSES_LIBRARY)
     message(FATAL_ERROR "notcurses-core not found")
 endif()
 
 #=============================================================================
+# ===Component platform port.
+if(WIN32)
+    set(PLATFORM_SRC
+        ${CMAKE_SOURCE_DIR}/ports/platform/platform_port_win32.c)
+else()
+    set(PLATFORM_SRC
+        ${CMAKE_SOURCE_DIR}/ports/platform/platform_port_posix.c)
+endif()
+set(PLATFORM_INC ${CMAKE_SOURCE_DIR}/ports/platform)
+
+add_library(platform_port STATIC ${PLATFORM_SRC})
+target_include_directories(platform_port PUBLIC ${PLATFORM_INC})
+if(NOT WIN32)
+    find_package(Threads REQUIRED)
+    target_link_libraries(platform_port PUBLIC Threads::Threads)
+    target_compile_definitions(platform_port PRIVATE
+        _DEFAULT_SOURCE
+        _POSIX_C_SOURCE=200809L
+        _XOPEN_SOURCE=700
+    )
+endif()
+
+#=============================================================================
 # ===Component libserialport.
 set(SERIALPORT_ROOT ${CMAKE_SOURCE_DIR}/3rd_party/libserialport)
-add_library(serialport SHARED IMPORTED GLOBAL)
-
-if(WIN32)
-    set(SERIALPORT_INCLUDE_DIR "${SERIALPORT_ROOT}/windows/include")
-    set_target_properties(serialport PROPERTIES
-        IMPORTED_LOCATION
-            "${SERIALPORT_ROOT}/windows/libserialport-0.dll"
-        IMPORTED_IMPLIB
-            "${SERIALPORT_ROOT}/windows/libserialport.dll.a"
-        INTERFACE_INCLUDE_DIRECTORIES
-            "${SERIALPORT_INCLUDE_DIR}"
-    )
-else()
+if(NOT WIN32)
+    add_library(serialport SHARED IMPORTED GLOBAL)
     set(SERIALPORT_INCLUDE_DIR "${SERIALPORT_ROOT}/linux/include")
     set_target_properties(serialport PROPERTIES
         IMPORTED_LOCATION
@@ -123,6 +149,7 @@ set(INC_ALL
     ${NOTCURSES_INCLUDE_DIR}
     ${SST_INC}
     ${PORT_INC}
+    ${PLATFORM_INC}
     ${SM_HSM_INC}
     ${COMMON_C_INC}
     ${YYJSON_INC}
@@ -138,16 +165,21 @@ target_include_directories(${PROJECT_NAME} PUBLIC
     ${INC_ALL}
 )
 
-target_compile_definitions(${PROJECT_NAME} PRIVATE
-    _DEFAULT_SOURCE
-    _POSIX_C_SOURCE=200809L
-    _XOPEN_SOURCE=700
-)
+if(NOT WIN32)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE
+        _DEFAULT_SOURCE
+        _POSIX_C_SOURCE=200809L
+        _XOPEN_SOURCE=700
+    )
+endif()
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
     ${NOTCURSES_LIBRARY}
-    serialport
+    platform_port
 )
+if(NOT WIN32)
+    target_link_libraries(${PROJECT_NAME} PRIVATE serialport)
+endif()
 
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory
@@ -157,13 +189,15 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
         $<TARGET_FILE_DIR:${PROJECT_NAME}>/protocols
 )
 
-if(WIN32)
+if(WIN32 AND NOTCURSES_ROOT)
     add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${SERIALPORT_ROOT}/windows/libserialport-0.dll"
+            "${NOTCURSES_ROOT}/bin/libnotcurses-core.dll"
             $<TARGET_FILE_DIR:${PROJECT_NAME}>
     )
-else()
+endif()
+
+if(NOT WIN32)
     set_target_properties(${PROJECT_NAME} PROPERTIES
         BUILD_RPATH "${SERIALPORT_ROOT}/linux"
         INSTALL_RPATH_USE_LINK_PATH TRUE
@@ -174,6 +208,12 @@ endif()
 # ===Tests and compile-time interface contracts.
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(platform_port_test
+        tests/platform_port_test.c
+    )
+    target_link_libraries(platform_port_test PRIVATE platform_port)
+    add_test(NAME platform_port COMMAND platform_port_test)
+
     add_library(ui_event_ingress_contract OBJECT
         tests/ui_event_ingress_contract.c
     )
@@ -241,6 +281,7 @@ if(BUILD_TESTING)
     target_include_directories(sp_mngr_command_test PRIVATE
         ${INC_ALL}
     )
+    target_link_libraries(sp_mngr_command_test PRIVATE platform_port)
     target_compile_definitions(sp_mngr_command_test PRIVATE
         DBC_DISABLE
         SM_DBC_DISABLE
@@ -279,6 +320,7 @@ if(BUILD_TESTING)
     target_include_directories(protocol_decoder_test PRIVATE
         ${INC_ALL}
     )
+    target_link_libraries(protocol_decoder_test PRIVATE platform_port)
     target_compile_definitions(protocol_decoder_test PRIVATE
         DBC_DISABLE
     )
@@ -295,6 +337,7 @@ if(BUILD_TESTING)
     target_include_directories(protocol_frame_formatter_test PRIVATE
         ${INC_ALL}
     )
+    target_link_libraries(protocol_frame_formatter_test PRIVATE platform_port)
     target_compile_definitions(protocol_frame_formatter_test PRIVATE
         DBC_DISABLE
     )
@@ -338,25 +381,28 @@ if(BUILD_TESTING)
                     $<TARGET_FILE_DIR:protocol_catalog_test>/protocols)
     endif()
 
-    add_executable(sp_thread_event_flow_test
-        tests/sp_thread_event_flow_test.c
-        application/sp_thread/thread/sp_thread.c
-        application/sp_thread/thread/sp_thread_evt.c
-        application/sp_thread/thread/sp_thread_wake.c
-        application/sp_thread/thread/rx_packet_assembler.c
-        application/sp_thread/hsm/sm_sp_thread.c
-        ${SM_HSM_SRC}
-    )
-    target_include_directories(sp_thread_event_flow_test PRIVATE
-        ${INC_ALL}
-    )
-    target_compile_definitions(sp_thread_event_flow_test PRIVATE
-        DBC_DISABLE
-        SM_DBC_DISABLE
-        _POSIX_C_SOURCE=200809L
-    )
-    add_test(NAME sp_thread_event_flow
-             COMMAND sp_thread_event_flow_test)
+    if(NOT WIN32)
+        add_executable(sp_thread_event_flow_test
+            tests/sp_thread_event_flow_test.c
+            application/sp_thread/thread/sp_thread.c
+            application/sp_thread/thread/sp_thread_evt.c
+            application/sp_thread/thread/sp_thread_wake.c
+            application/sp_thread/thread/rx_packet_assembler.c
+            application/sp_thread/hsm/sm_sp_thread.c
+            ${SM_HSM_SRC}
+        )
+        target_include_directories(sp_thread_event_flow_test PRIVATE
+            ${INC_ALL}
+        )
+        target_compile_definitions(sp_thread_event_flow_test PRIVATE
+            DBC_DISABLE
+            SM_DBC_DISABLE
+            _POSIX_C_SOURCE=200809L
+        )
+        target_link_libraries(sp_thread_event_flow_test PRIVATE platform_port)
+        add_test(NAME sp_thread_event_flow
+                 COMMAND sp_thread_event_flow_test)
+    endif()
 
     add_executable(sp_thread_event_contract_test
         tests/sp_thread_event_contract_test.c
@@ -369,32 +415,50 @@ if(BUILD_TESTING)
         DBC_DISABLE
         _POSIX_C_SOURCE=200809L
     )
+    target_link_libraries(sp_thread_event_contract_test PRIVATE platform_port)
     add_test(NAME sp_thread_event_contract
              COMMAND sp_thread_event_contract_test)
 
-    add_executable(sp_thread_wake_test
-        tests/sp_thread_wake_test.c
-        application/sp_thread/thread/sp_thread_wake.c
-    )
-    target_include_directories(sp_thread_wake_test PRIVATE
-        ${INC_ALL}
-    )
-    target_compile_definitions(sp_thread_wake_test PRIVATE
-        DBC_DISABLE
-    )
-    add_test(NAME sp_thread_wake
-             COMMAND sp_thread_wake_test)
+    if(NOT WIN32)
+        add_executable(sp_thread_wake_test
+            tests/sp_thread_wake_test.c
+            application/sp_thread/thread/sp_thread_wake.c
+        )
+        target_include_directories(sp_thread_wake_test PRIVATE
+            ${INC_ALL}
+        )
+        target_compile_definitions(sp_thread_wake_test PRIVATE
+            DBC_DISABLE
+        )
+        target_link_libraries(sp_thread_wake_test PRIVATE platform_port)
+        add_test(NAME sp_thread_wake
+                 COMMAND sp_thread_wake_test)
 
-    add_executable(serial_port_runtime_test
-        tests/serial_port_runtime_test.c
-        application/sp_thread/thread/serial_port_runtime.c
-    )
-    target_include_directories(serial_port_runtime_test PRIVATE
-        ${INC_ALL}
-        ${SERIALPORT_INCLUDE_DIR}
-    )
-    add_test(NAME serial_port_runtime
-             COMMAND serial_port_runtime_test)
+        add_executable(serial_port_runtime_test
+            tests/serial_port_runtime_test.c
+            application/sp_thread/thread/serial_port_runtime.c
+        )
+        target_include_directories(serial_port_runtime_test PRIVATE
+            ${INC_ALL}
+            ${SERIALPORT_INCLUDE_DIR}
+        )
+        target_link_libraries(serial_port_runtime_test PRIVATE platform_port)
+        add_test(NAME serial_port_runtime
+                 COMMAND serial_port_runtime_test)
+    else()
+        add_executable(serial_port_runtime_win32_test
+            tests/serial_port_runtime_win32_test.c
+            application/sp_thread/thread/serial_port_runtime.c
+        )
+        target_include_directories(serial_port_runtime_win32_test PRIVATE
+            ${INC_ALL}
+        )
+        target_link_libraries(serial_port_runtime_win32_test PRIVATE
+            platform_port
+        )
+        add_test(NAME serial_port_runtime_win32
+                 COMMAND serial_port_runtime_win32_test)
+    endif()
 
     add_executable(rx_packet_assembler_test
         tests/rx_packet_assembler_test.c
@@ -420,6 +484,7 @@ if(BUILD_TESTING)
         DBC_DISABLE
         _POSIX_C_SOURCE=200809L
     )
+    target_link_libraries(ui_port_list_event_test PRIVATE platform_port)
     add_test(NAME ui_port_list_event
              COMMAND ui_port_list_event_test)
 
@@ -440,11 +505,13 @@ if(BUILD_TESTING)
     target_link_libraries(ui_input_composer_lifecycle_test PRIVATE
         ${NOTCURSES_LIBRARY}
     )
-    add_test(NAME ui_input_composer_lifecycle
-             COMMAND ui_input_composer_lifecycle_test)
-    set_tests_properties(ui_input_composer_lifecycle PROPERTIES
-        ENVIRONMENT "TERM=xterm-256color"
-    )
+    if(NOT WIN32)
+        add_test(NAME ui_input_composer_lifecycle
+                 COMMAND ui_input_composer_lifecycle_test)
+        set_tests_properties(ui_input_composer_lifecycle PROPERTIES
+            ENVIRONMENT "TERM=xterm-256color"
+        )
+    endif()
 
     add_executable(ui_command_suggestion_lifecycle_test
         tests/ui_command_suggestion_lifecycle.c
@@ -463,11 +530,13 @@ if(BUILD_TESTING)
     target_link_libraries(ui_command_suggestion_lifecycle_test PRIVATE
         ${NOTCURSES_LIBRARY}
     )
-    add_test(NAME ui_command_suggestion_lifecycle
-             COMMAND ui_command_suggestion_lifecycle_test)
-    set_tests_properties(ui_command_suggestion_lifecycle PROPERTIES
-        ENVIRONMENT "TERM=xterm-256color"
-    )
+    if(NOT WIN32)
+        add_test(NAME ui_command_suggestion_lifecycle
+                 COMMAND ui_command_suggestion_lifecycle_test)
+        set_tests_properties(ui_command_suggestion_lifecycle PROPERTIES
+            ENVIRONMENT "TERM=xterm-256color"
+        )
+    endif()
 
     add_executable(selection_viewport_test
         tests/selection_viewport_test.c
@@ -523,14 +592,25 @@ if(BUILD_TESTING)
     target_link_libraries(text_area_test PRIVATE
         ${NOTCURSES_LIBRARY}
     )
-    add_test(NAME text_area
-             COMMAND text_area_test)
+    if(NOT WIN32)
+        add_test(NAME text_area
+                 COMMAND text_area_test)
+    endif()
 
-    add_test(NAME ui_widget_boundary_contract
-             COMMAND ${CMAKE_SOURCE_DIR}/tests/ui_widget_boundary_contract.sh)
+    if(NOT WIN32)
+        add_test(NAME ui_widget_boundary_contract
+                 COMMAND ${CMAKE_SOURCE_DIR}/tests/ui_widget_boundary_contract.sh)
 
-    add_test(NAME system_message_contract
-             COMMAND sh ${CMAKE_SOURCE_DIR}/tests/system_message_contract.sh)
+        add_test(NAME system_message_contract
+                 COMMAND sh ${CMAKE_SOURCE_DIR}/tests/system_message_contract.sh)
+    else()
+        get_property(TEST_NAMES DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+                     PROPERTY TESTS)
+        set_tests_properties(${TEST_NAMES} PROPERTIES
+            ENVIRONMENT_MODIFICATION
+                "PATH=path_list_prepend:${UCRT64_ROOT}/bin"
+        )
+    endif()
 endif()
 
 #=============================================================================

@@ -21,8 +21,9 @@ int main(void) {
         return 1;
     }
 
-    SpThreadWake_init(eventFd);
-    SpThreadWake_setSerialFd(serialPipe[0]);
+    SpThreadWake_init(PlatformWaitObject_fromDescriptor(eventFd));
+    SpThreadWake_setSerialObject(
+        PlatformWaitObject_fromDescriptor(serialPipe[0]));
 
     uint64_t const wake = 1U;
     failed += write(eventFd, &wake, sizeof(wake)) == sizeof(wake)
@@ -49,7 +50,7 @@ int main(void) {
     ready = SpThreadWake_wait(20);
     failed += (ready & SP_THREAD_WAKE_SERIAL_LOST) != 0 ? 0 : 1;
 
-    SpThreadWake_setSerialFd(-1);
+    SpThreadWake_setSerialObject(PLATFORM_WAIT_OBJECT_INVALID);
     ready = SpThreadWake_wait(1);
     failed += ready == SP_THREAD_WAKE_TIMEOUT ? 0 : 1;
 

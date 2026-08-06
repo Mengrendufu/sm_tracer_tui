@@ -162,7 +162,8 @@ enum sp_return sp_nonblocking_read(struct sp_port * const port,
 int main(void) {
     int failed = 0;
 
-    failed += SerialPortRuntime_fd() == -1 ? 0 : 1;
+    failed += !PlatformWaitObject_isValid(
+        SerialPortRuntime_waitObject()) ? 0 : 1;
 
     l_mode_ = LIST_MODE_PORTS_;
     size_t portNamesSize = 0U;
@@ -220,7 +221,9 @@ int main(void) {
     failed += l_stopBits_ == 1 ? 0 : 1;
     failed += l_parity_ == SP_PARITY_EVEN ? 0 : 1;
     failed += l_flowControl_ == SP_FLOWCONTROL_RTSCTS ? 0 : 1;
-    failed += SerialPortRuntime_fd() == l_portFd_ ? 0 : 1;
+    failed += PlatformWaitObject_equal(
+        SerialPortRuntime_waitObject(),
+        PlatformWaitObject_fromDescriptor(l_portFd_)) ? 0 : 1;
 
     SerialConfig updatedConfig = config;
     updatedConfig.baudRate = 9600;
@@ -232,11 +235,15 @@ int main(void) {
     failed += l_baudrate_ == 9600 ? 0 : 1;
     failed += l_dataBits_ == 7 ? 0 : 1;
     failed += l_parity_ == SP_PARITY_ODD ? 0 : 1;
-    failed += SerialPortRuntime_fd() == l_portFd_ ? 0 : 1;
+    failed += PlatformWaitObject_equal(
+        SerialPortRuntime_waitObject(),
+        PlatformWaitObject_fromDescriptor(l_portFd_)) ? 0 : 1;
 
     l_configResult_ = SP_ERR_FAIL;
     failed += !SerialPortRuntime_reconfigure(&config) ? 0 : 1;
-    failed += SerialPortRuntime_fd() == l_portFd_ ? 0 : 1;
+    failed += PlatformWaitObject_equal(
+        SerialPortRuntime_waitObject(),
+        PlatformWaitObject_fromDescriptor(l_portFd_)) ? 0 : 1;
     l_configResult_ = SP_OK;
 
     uint8_t readData[sizeof(l_readData_)] = {0};
@@ -250,7 +257,8 @@ int main(void) {
     failed += !SerialPortRuntime_close() ? 0 : 1;
     failed += (l_closeCalls_ == 2) && (l_freeCalls_ == 3)
               ? 0 : 1;
-    failed += SerialPortRuntime_fd() == -1 ? 0 : 1;
+    failed += !PlatformWaitObject_isValid(
+        SerialPortRuntime_waitObject()) ? 0 : 1;
     failed += !SerialPortRuntime_close() ? 0 : 1;
     failed += (l_closeCalls_ == 2) && (l_freeCalls_ == 3)
               ? 0 : 1;

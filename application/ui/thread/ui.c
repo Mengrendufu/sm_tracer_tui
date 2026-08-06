@@ -11,16 +11,16 @@
 //=== UI module — main loop, input router, render
 #include <stdbool.h>
 #include <stdint.h>
-#include <errno.h>
 #include <stdio.h>
 #include <string.h>
-#include <time.h>
 #include <notcurses/notcurses.h>
 #include "dbc_assert.h"
 #include "bsp.h"
+#include "platform_port.h"
 #include "ui.h"
 #include "ui_evt_priv.h"
 #include "ui_input_router_priv.h"
+#include "ui_terminal_input_priv.h"
 #include "ui_thread_wake_priv.h"
 #include "hsm/sm_ui.h"
 DBC_MODULE_NAME("ui")
@@ -89,12 +89,11 @@ enum UI_TerminalInputResult {
 };
 
 static enum UI_TerminalInputResult UI_drainTerminalInput_(void) {
-    struct timespec const deadline = {0};
     ncinput input[UI_INPUT_BATCH_SIZE_];
 
     for (;;) {
-        int const count = notcurses_getvec(
-            UI_nc_, &deadline, input, UI_INPUT_BATCH_SIZE_);
+        int const count = UI_TerminalInput_read(
+            input, UI_INPUT_BATCH_SIZE_);
         if (count < 0) {
             return UI_TERMINAL_INPUT_ERROR;
         }
@@ -118,45 +117,19 @@ static enum UI_TerminalInputResult UI_drainTerminalInput_(void) {
 //
 // Acquires time once per loop and supplies render eligibility and deadline.
 
-#define UI_NS_PER_MS_  1000000L
-#define UI_NS_PER_SEC_ 1000000000L
-
 struct FrameClock {
-    struct timespec now;
-    struct timespec lastRender;
-    bool            canRender;
-    int             pollTimeout;
+    uint64_t nowMs;
+    uint64_t lastRenderMs;
+    bool     canRender;
+    int      pollTimeout;
 };
-
-static uint64_t FrameClock_elapsedMs_(struct timespec const *now,
-                                      struct timespec const *then)
-{
-    DBC_REQUIRE(504, now != (struct timespec const *)0);
-    DBC_REQUIRE(505, then != (struct timespec const *)0);
-
-    if (now->tv_sec < then->tv_sec) {
-        return 0U;
-    }
-
-    uint64_t sec = (uint64_t)now->tv_sec - (uint64_t)then->tv_sec;
-    long nsec = now->tv_nsec - then->tv_nsec;
-    if (nsec < 0) {
-        if (sec == 0U) {
-            return 0U;
-        }
-        --sec;
-        nsec += UI_NS_PER_SEC_;
-    }
-
-    return sec * 1000ULL + (uint64_t)nsec / (uint64_t)UI_NS_PER_MS_;
-}
 
 static int FrameClock_tick_(struct FrameClock *frameClock,
                             bool const framePending)
 {
     DBC_REQUIRE(520, frameClock != (struct FrameClock *)0);
 
-    if (clock_gettime(CLOCK_MONOTONIC, &frameClock->now) != 0) {
+    if (Platform_monotonicMs(&frameClock->nowMs) != 0) {
         return 1;
     }
 
@@ -166,8 +139,8 @@ static int FrameClock_tick_(struct FrameClock *frameClock,
         return 0;
     }
 
-    uint64_t const elapsed =
-        FrameClock_elapsedMs_(&frameClock->now, &frameClock->lastRender);
+    uint64_t const elapsed = frameClock->nowMs >= frameClock->lastRenderMs
+        ? frameClock->nowMs - frameClock->lastRenderMs : 0U;
     frameClock->canRender = (elapsed >= UI_FRAME_MS_);
     frameClock->pollTimeout =
         frameClock->canRender ? 0 : (int)(UI_FRAME_MS_ - elapsed);
@@ -221,6 +194,11 @@ int UI_init(void) {
         UI_nc_ = (struct notcurses *)0;
         return 1;
     }
+    if (UI_TerminalInput_init(UI_nc_) != 0) {
+        notcurses_stop(UI_nc_);
+        UI_nc_ = (struct notcurses *)0;
+        return 1;
+    }
 
     UI_hostState_.quitRequested = false;
     UI_hostState_.framePending = false;
@@ -234,31 +212,25 @@ int UI_init(void) {
 
 int UI_run(void) {
     char const *errorMsg = (char const *)0;
-    int errorNo = 0;
     int result = 0;
 
     // Runtime wiring for UI Thread Wake required inputs. notcurses Runtime
     // provides terminal readiness; UI Event Inbox provides event readiness.
-    int terminalFd = notcurses_inputready_fd(UI_nc_);
-    int eventFd = UI_evtWakeFd();
-    DBC_REQUIRE(503, eventFd >= 0);
+    PlatformWaitObject const terminal =
+        UI_TerminalInput_waitObject();
+    PlatformWaitObject const event = UI_evtWakeObject();
+    DBC_REQUIRE(503, PlatformWaitObject_isValid(terminal));
+    DBC_REQUIRE(504, PlatformWaitObject_isValid(event));
 
     struct FrameClock frameClock = {0};
 
-    if (terminalFd < 0) {
-        errorMsg = "notcurses input fd unavailable";
-        result = 1;
-        goto cleanup;
-    }
-
-    UI_ThreadWake_init(terminalFd, eventFd);
+    UI_ThreadWake_init(terminal, event);
 
     while (!UI_hostState_.quitRequested) {
         if (FrameClock_tick_(&frameClock,
                              UI_hostState_.framePending) != 0)
         {
-            errorMsg = "clock_gettime failed";
-            errorNo = errno;
+            errorMsg = "monotonic clock failed";
             result = 1;
             break;
         }
@@ -271,20 +243,17 @@ int UI_run(void) {
         // Frame Clock supplies the dynamic render deadline to the fixed wait
         // set bound above.
         int waitReady = UI_ThreadWake_wait(frameClock.pollTimeout);
-        if (waitReady < 0) {
-            if (errno == EINTR) {
-                continue;
-            }
-            errorMsg = "poll failed";
-            errorNo = errno;
+        if (waitReady == UI_THREAD_WAKE_INTERRUPTED) {
+            continue;
+        } else if (waitReady == UI_THREAD_WAKE_ERROR) {
+            errorMsg = "UI thread wait failed";
             result = 1;
             break;
         }
 
         if ((waitReady & UI_THREAD_WAKE_EVENT) != 0) {
             if (UI_evtConsumeWake() != 0) {
-                errorMsg = "eventfd read failed";
-                errorNo = errno;
+                errorMsg = "UI event wake consume failed";
                 result = 1;
                 break;
             }
@@ -317,12 +286,11 @@ int UI_run(void) {
                 result = 1;
                 break;
             }
-            frameClock.lastRender = frameClock.now;
+            frameClock.lastRenderMs = frameClock.nowMs;
         }
     }
 
-cleanup:
-    // SST producers remain active until process exit, so eventfd lifetime
+    // SST producers remain active until process exit, so wake lifetime
     // follows the process.
     // SM_UI releases lifecycle-sensitive widgets before notcurses tears down
     // the remaining plane graph and restores the terminal.
@@ -336,11 +304,7 @@ cleanup:
     UI_nc_ = (struct notcurses *)0;
 
     if (errorMsg != (char const *)0) {
-        if (errorNo != 0) {
-            fprintf(stderr, "%s: %s\n", errorMsg, strerror(errorNo));
-        } else {
-            fprintf(stderr, "%s\n", errorMsg);
-        }
+        fprintf(stderr, "%s\n", errorMsg);
     }
 
     return result;

@@ -13,7 +13,7 @@
 //============================================================================
 //=== UI module — main thread event loop, notcurses rendering
 
-// Initialize notcurses, UI planes, eventfd, tick registration
+// Initialize notcurses, UI planes, input/wake infrastructure, and tick hook.
 // Returns 0 on success, nonzero on failure.
 int UI_init(void);
 

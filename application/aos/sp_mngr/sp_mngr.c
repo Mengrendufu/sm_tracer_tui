@@ -22,7 +22,6 @@
 #include "app_sig.h"
 #include "ui_evt.h"
 #include "sp_thread/sp_thread.h"
-#include <bits/sockaddr.h>
 #include "hdlc_parser_priv.h"
 #include "protocol_catalog_priv.h"
 #include "protocol_decoder_priv.h"

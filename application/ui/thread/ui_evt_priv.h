@@ -10,6 +10,7 @@
 #ifndef UI_EVT_PRIV_H_
 #define UI_EVT_PRIV_H_
 
+#include "platform_port.h"
 #include "hsm/sm_ui_evt.h"
 
 //============================================================================
@@ -17,16 +18,16 @@
 
 void UI_evtPostSignal(UI_Signal sig);
 void UI_evtPostText(UI_Signal sig, char const *text);
-// UI-thread-local enqueue; the active poll wake has already occurred.
+// UI-thread-local enqueue; terminal readiness already woke the loop.
 void UI_evtEnqueueInput(UI_Signal sig, UI_Input const *input);
 
 // Initialize the event subsystem; return 0 on success.
 int UI_evtInit(void);
 
-// Return the borrowed eventfd for poll registration (call after UI_evtInit).
-int UI_evtWakeFd(void);
+// Return the borrowed wait object (call after UI_evtInit).
+PlatformWaitObject UI_evtWakeObject(void);
 
-// Consume a pending eventfd notification; return 0 on success.
+// Consume a pending wake notification; return 0 on success.
 int UI_evtConsumeWake(void);
 
 // Dequeue one event (returns NULL if empty).

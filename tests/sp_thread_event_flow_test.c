@@ -80,8 +80,8 @@ bool SerialPortRuntime_reconfigure(SerialConfig const * const config) {
     return l_runtimeReconfigureResult_;
 }
 
-int SerialPortRuntime_fd(void) {
-    return l_runtimeFd_;
+PlatformWaitObject SerialPortRuntime_waitObject(void) {
+    return PlatformWaitObject_fromDescriptor(l_runtimeFd_);
 }
 
 int SerialPortRuntime_read(uint8_t * const data,

@@ -2211,26 +2211,7 @@ static void SM_InputCmpsMngr_clear_(SM_InputCmpsMngr * const me) {
 void SM_InputCmpsMngr_ctor(SM_InputCmpsMngr * const me) {
     DBC_REQUIRE(100, me != (SM_InputCmpsMngr *)0);
 
-    me->super.curr = (SM_StatePtr)0;
-    me->super.next = (SM_StatePtr)0;
-    me->buffer[0] = '\0';
-    me->length = 0U;
-    me->editPos = 0U;
-    me->tokenCount = 0U;
-    me->candidateCount = 0U;
-    me->selectedCandidate = 0U;
-    me->suggestionStart = 0U;
-    me->suggestionEnd = 0U;
-    me->portCatalog = (char const *)0;
-    me->portCatalogSize = 0U;
-    me->limitReached = false;
-    me->inputY = 0;
-    me->cols = 0U;
-    me->commandSink.submit = (void (*)(
-        void *, SM_InputCmpsMngrSubmission const *))0;
-    me->commandSink.reject =
-        (void (*)(void *, char const *))0;
-    me->commandSink.ctx = (void *)0;
+    *me = (SM_InputCmpsMngr){0};
     InputComposer_init(&me->composer);
     CommandSuggestion_init(&me->suggestion);
     SM_InputCmpsMngr_validate_(me);

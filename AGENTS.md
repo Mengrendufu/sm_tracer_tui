@@ -28,17 +28,19 @@ build.
 |       `-- widgets/           # Passive notcurses UI components
 |-- bsp/                       # Tick, SST runtime init, fault handling
 |-- ports/
+|   |-- platform/              # POSIX/Win32 thread, sync, wait, IO bridge
 |   |-- sm/                    # sm_hsm desktop adaptation
-|   `-- sst/                   # SST pthread and event-pool adaptation
+|   `-- sst/                   # SST platform and event-pool adaptation
 |-- 3rd_party/                 # Third-party dependencies
-|   |-- libserialport/         # Vendored Linux/Windows serial library
+|   |-- libserialport/         # Vendored POSIX serial implementation
 |   |-- sm_sst/                # Git submodule
 |   |-- sm_hsm/                # Git submodule
 |   `-- common_c/              # Git submodule
 |-- tests/                     # Contract and focused behavior tests
 |-- CMakeLists.txt
 |-- CMakePresets.json
-`-- toolchain_gcc.cmake
+|-- toolchain_gcc.cmake
+`-- toolchain_mingw_ucrt64.cmake
 ```
 
 ## Runtime architecture
@@ -48,10 +50,12 @@ build.
 | Main | Terminal input, UI event drain, frame scheduling, rendering | `UI_run()` |
 | Serial port | Event/serial wake, HSM dispatch, RX packet assembly | `SpThread_run_()` |
 | SST kernel | Starts AOs, ticks timers, runs idle callback | `SST_Task_run()` |
-| SST AO workers | One pthread and queue per started AO | `ao_thread()` |
+| SST AO workers | One native worker and queue per started AO | `ao_thread()` |
 
-These are categories, not a fixed count. The current process has five threads:
-main, serial, SST kernel, Blinky worker, and SpMngr worker.
+These are categories, not a fixed count. The application owns five such
+threads: main, serial, SST kernel, Blinky worker, and SpMngr worker. On Windows,
+`UITerminalInput` additionally owns a process-lifetime bridge thread because
+notcurses does not expose a waitable terminal-input handle.
 
 Launch-call order is significant:
 
@@ -61,7 +65,7 @@ UI_init -> SpThread_start -> SST_init/SST_Task_run -> UI_run
 
 UI infrastructure must exist before the serial HSM and SST AOs initialize,
 because their initial transitions can call `UI_postText()`.
-`SpThread_start()` and the SST launch create threads asynchronously. Before
+`SpThread_start()` and the SST launch create native threads asynchronously. Before
 entering `UI_run()`, main waits until `SST_onStart()` confirms that all AOs
 have completed synchronous construction, queue setup, and initial transition.
 After its HSM reaches a stable leaf state, SpMngr queues protocol-catalog and
@@ -72,7 +76,9 @@ The serial-thread HSM has an `active` parent with `disconnected` and
 `connected` leaf states. Port refresh is handled by `active`; open and close
 successes transition between the leaves. Open failure retains `disconnected`;
 close failure or connection loss performs best-effort cleanup and returns to
-`disconnected`. `SerialPortRuntime` owns the opened `sp_port` handle.
+`disconnected`. `SerialPortRuntime` owns the opened serial handle. POSIX uses
+libserialport and borrows its descriptor; Windows uses an overlapped Win32
+handle and owns the wait/read events required by native mixed waiting.
 
 The serial receive path is `SerialPortRuntime -> RxPacketAssembler ->
 SpMngrRxPacketEvt -> SpMngr HSM -> HdlcParser -> UI_postText`. The transport
@@ -88,7 +94,7 @@ catalog discovery and selected-file loading are connected.
 The terminal-input path is:
 
 ```text
-notcurses_getvec
+UITerminalInput
   -> UI_Input
   -> UIInputRouter
   -> UIEventInbox
@@ -99,9 +105,13 @@ notcurses_getvec
 
 - `UIThreadRuntime` owns the notcurses root, frame clock, host state, and loop.
 - `UIInputRouter` classifies normalized `UI_Input` into `UI_Signal` values.
-- `UIEventInbox` owns queued events and the producer-wakeup `eventfd`.
-- `UIThreadWake` borrows terminal/event FDs, owns `pollfd[2]`, and reports
-  terminal, event, or render-timeout readiness without consuming input.
+- `UIEventInbox` owns queued events and a platform producer wake.
+- `UITerminalInput` lends notcurses' readiness descriptor on POSIX. On Windows,
+  its bridge thread blocks in notcurses, copies parsed `ncinput` values into a
+  bounded queue, and signals a waitable Event.
+- `UIThreadWake` borrows terminal/event wait objects, owns a two-source
+  `PlatformWaitSet`, and reports terminal, event, or render-timeout readiness
+  without interpreting input.
 - `SM_UI` owns page state and the top-level widget graph. Its embedded manager
   directly owns the `InputComposer` and `CommandSuggestion` lifecycles.
 - `SM_UI` also owns the latest successful packed serial-port and protocol-path
@@ -158,7 +168,7 @@ in `TextBufferView`.
 - `UI_InputEvt` copies the complete normalized `UI_Input` payload.
 - `UI_evtFree()` uses `free()`; UI events are not reference counted.
 - Terminal-originated events are already on the UI thread, so enqueueing them
-  does not write the eventfd. Once terminal readiness is reported, the runtime
+  does not signal the cross-thread wake. Once readiness is reported, the runtime
   drains notcurses input in bounded batches and dispatches each batch before
   reading the next one. Cross-thread posts enqueue and wake the loop.
 - The public application ingress consists of `UI_postText()` and
@@ -263,14 +273,25 @@ Two event domains coexist:
 Use `containerof()` when an HSM handler needs its enclosing AO or subsystem
 instance.
 
-## SST desktop port
+## Platform and SST ports
+
+- `ports/platform` owns the POSIX/Win32 mapping for threads, mutexes,
+  semaphores, one-shot barriers, wakes, wait sets, monotonic time, delays,
+  UTF-8 path file opening, console setup, and fatal output.
+- `PlatformWaitObject` stores the complete native handle value; application
+  code must not cast Win32 handles through `int`.
+- `PLATFORM_*_INITIALIZER` macros hide only native declaration/initial-value
+  differences. Keep ordinary variables and business control flow explicit.
+- Application HSMs and event contracts remain platform-neutral. Native
+  branches are limited to terminal-input, serial-runtime, and filesystem
+  infrastructure where the operating-system contract genuinely differs.
 
 - The port uses a non-recursive mutex and a thread-local nesting guard;
   critical sections must not nest.
 - Every AO worker waits on its semaphore, dequeues under the critical section,
   dispatches outside it, then calls `SST_GC()`.
 - `SST_Task_setPrio()` records the priority, registers the task, initializes
-  its semaphore, and launches its pthread.
+  its semaphore, and launches its native worker.
 - `SST_Task_lock()` and `SST_Task_unlock()` are no-ops in this port.
 - The event-pool mechanism is compile-time optional through
   `SST_EVT_POOL_NUM`; this port currently fixes it to `3U`, while BSP currently
@@ -294,14 +315,18 @@ DBC_ENSURE(200, e != (SST_Evt const *)0);
 ```
 
 Use requirements for caller obligations, invariants for persistent state, and
-ensures for produced results. The desktop fault handler writes to `/dev/tty`
-before `abort()` so failures remain visible outside the notcurses alternate
-screen. `DBC_DISABLE` and `SM_DBC_DISABLE` remove their respective checks.
+ensures for produced results. The platform fault writer targets `/dev/tty` on
+POSIX and the standard-error handle on Windows before `abort()`. `DBC_DISABLE`
+and `SM_DBC_DISABLE` remove their respective checks.
 
 ## Build and tests
 
-Prerequisites are CMake 3.25 or newer, Ninja, GCC, and the notcurses-core
-headers and library. Preset schema 6 is the reason for the CMake minimum.
+Linux prerequisites are CMake 3.25 or newer, Ninja, GCC, and notcurses-core.
+Native Windows builds use PowerShell plus MSYS2 UCRT64 GCC and the patched
+notcurses installation at
+`%LOCALAPPDATA%/notcurses-win-patched/install-ucrt64`. The Windows presets
+provide this path through `NOTCURSES_ROOT`. Preset schema 6 is the reason for
+the CMake minimum.
 
 ```sh
 cmake --preset debug
@@ -318,12 +343,28 @@ cmake --build --preset clean-debug
 cmake --build --preset clean-release
 ```
 
+Run native Windows presets from PowerShell so `${hostSystemName}` is
+`Windows`; their build trees live below `%LOCALAPPDATA%/sm_tracer_tui/build`:
+
+```powershell
+cmake --preset windows-debug
+cmake --build --preset windows-build-debug
+ctest --test-dir "$env:LOCALAPPDATA/sm_tracer_tui/build/windows-debug" `
+  --output-on-failure
+
+cmake --preset windows-release
+cmake --build --preset windows-build-release
+cmake --build --preset windows-run-debug
+```
+
 Because application sources are collected with `GLOB_RECURSE` without
 `CONFIGURE_DEPENDS`, rerun `cmake --preset debug` or `release` after adding or
-removing a `.c` file.
+removing a `.c` file. Use the corresponding `windows-*` configure preset for a
+native Windows build.
 
 CTest currently exercises:
 
+- `platform_port`
 - `ui_input_router`
 - `ui_input_cmps_mngr`
 - `sp_mngr_command`
@@ -342,6 +383,11 @@ CTest currently exercises:
 - `scrollbar`
 - `text_area`
 - `ui_widget_boundary_contract`
+
+Platform-specific CTest registration omits fixture tests that directly mock
+POSIX descriptors and notcurses lifecycle tests that require an interactive
+ConPTY. The native Windows application itself still needs a terminal smoke
+test through Windows Terminal before release.
 
 Compile-only object targets additionally check the public UI event ingress,
 application subsystem declarations, and the Manager-facing input composer API.

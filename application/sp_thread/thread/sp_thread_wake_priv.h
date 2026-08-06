@@ -10,16 +10,19 @@
 #ifndef SP_THREAD_WAKE_PRIV_H_
 #define SP_THREAD_WAKE_PRIV_H_
 
+#include "platform_port.h"
+
 enum SpThreadWakeResult {
     SP_THREAD_WAKE_ERROR = -1,
+    SP_THREAD_WAKE_INTERRUPTED = -2,
     SP_THREAD_WAKE_TIMEOUT = 0,
     SP_THREAD_WAKE_EVENT = 1,
     SP_THREAD_WAKE_SERIAL = 2,
     SP_THREAD_WAKE_SERIAL_LOST = 4
 };
 
-void SpThreadWake_init(int eventFd);
-void SpThreadWake_setSerialFd(int serialFd);
+void SpThreadWake_init(PlatformWaitObject event);
+void SpThreadWake_setSerialObject(PlatformWaitObject serial);
 int SpThreadWake_wait(int timeoutMs);
 
 #endif // SP_THREAD_WAKE_PRIV_H_
