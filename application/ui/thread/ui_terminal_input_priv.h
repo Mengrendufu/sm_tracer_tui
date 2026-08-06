@@ -17,6 +17,9 @@
 // Bind the borrowed notcurses runtime and prepare terminal readiness.
 int UI_TerminalInput_init(struct notcurses *nc);
 
+// Stop owned input infrastructure before the borrowed runtime is destroyed.
+int UI_TerminalInput_deinit(void);
+
 // Return the borrowed wait object representing parsed notcurses input.
 PlatformWaitObject UI_TerminalInput_waitObject(void);
 

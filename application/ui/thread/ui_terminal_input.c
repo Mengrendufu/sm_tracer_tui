@@ -11,8 +11,8 @@
 //=== Component: UITerminalInput
 //
 // POSIX lends notcurses' readiness descriptor directly. Windows notcurses
-// has no public waitable input object, so a process-lifetime bridge thread
-// blocks in notcurses and projects parsed ncinput values through an Event.
+// has no public waitable input object, so a bridge thread waits in notcurses
+// and projects parsed ncinput values through an Event.
 #include <limits.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -25,6 +25,7 @@ DBC_MODULE_NAME("ui_terminal_input")
 #if defined(_WIN32)
 
 #define UI_TERMINAL_INPUT_QLEN_ 512U
+#define UI_TERMINAL_INPUT_POLL_MS_ 50U
 
 struct UI_TerminalInputQueue {
     ncinput buffer[UI_TERMINAL_INPUT_QLEN_];
@@ -41,6 +42,7 @@ struct UI_TerminalInput {
     PlatformWake wake;
     PlatformThread thread;
     bool failed;
+    bool stopping;
 };
 
 static struct UI_TerminalInput UI_terminalInput_ = {
@@ -60,20 +62,53 @@ static void UI_TerminalInput_fail_(void) {
     (void)status;
 }
 
+static bool UI_TerminalInput_isStopping_(
+    struct UI_TerminalInput * const me)
+{
+    int status = PlatformMutex_lock(&me->queue.mutex);
+    DBC_ASSERT(105, status == 0);
+    bool const stopping = me->stopping;
+    status = PlatformMutex_unlock(&me->queue.mutex);
+    DBC_ASSERT(106, status == 0);
+    return stopping;
+}
+
 static void UI_TerminalInput_run_(void * const ctx) {
     struct UI_TerminalInput * const me =
         (struct UI_TerminalInput *)ctx;
 
     for (;;) {
+        // MinGW notcurses uses a default CLOCK_REALTIME condition variable.
+        struct timespec deadline;
+        if (clock_gettime(CLOCK_REALTIME, &deadline) != 0) {
+            UI_TerminalInput_fail_();
+            return;
+        }
+        deadline.tv_nsec +=
+            (long)UI_TERMINAL_INPUT_POLL_MS_ * 1000000L;
+        if (deadline.tv_nsec >= 1000000000L) {
+            ++deadline.tv_sec;
+            deadline.tv_nsec -= 1000000000L;
+        }
+
         ncinput input;
-        uint32_t const id = notcurses_get_blocking(me->nc, &input);
+        uint32_t const id = notcurses_get(me->nc, &deadline, &input);
+        if (UI_TerminalInput_isStopping_(me)) {
+            return;
+        }
         if (id == (uint32_t)-1) {
             UI_TerminalInput_fail_();
             return;
         }
+        if (id == 0U) {
+            continue;
+        }
 
         if (PlatformSemaphore_wait(&me->slots) != 0) {
             UI_TerminalInput_fail_();
+            return;
+        }
+        if (UI_TerminalInput_isStopping_(me)) {
             return;
         }
 
@@ -111,6 +146,7 @@ int UI_TerminalInput_init(struct notcurses * const nc) {
 
     UI_terminalInput_.nc = nc;
     UI_terminalInput_.failed = false;
+    UI_terminalInput_.stopping = false;
     if (PlatformThread_start(&UI_terminalInput_.thread,
                              &UI_TerminalInput_run_,
                              &UI_terminalInput_) != 0)
@@ -120,6 +156,31 @@ int UI_TerminalInput_init(struct notcurses * const nc) {
         PlatformSemaphore_deinit(&UI_terminalInput_.slots);
         return 1;
     }
+    return 0;
+}
+
+int UI_TerminalInput_deinit(void) {
+    DBC_REQUIRE(210,
+                UI_terminalInput_.nc != (struct notcurses *)0);
+
+    int status = PlatformMutex_lock(&UI_terminalInput_.queue.mutex);
+    DBC_ASSERT(211, status == 0);
+    UI_terminalInput_.stopping = true;
+    status = PlatformMutex_unlock(&UI_terminalInput_.queue.mutex);
+    DBC_ASSERT(212, status == 0);
+
+    // Release a producer that might be waiting for queue capacity.
+    (void)PlatformSemaphore_post(&UI_terminalInput_.slots);
+    if (PlatformThread_join(&UI_terminalInput_.thread) != 0) {
+        return 1;
+    }
+
+    PlatformWake_deinit(&UI_terminalInput_.wake);
+    PlatformSemaphore_deinit(&UI_terminalInput_.slots);
+    UI_terminalInput_.nc = (struct notcurses *)0;
+    UI_terminalInput_.queue.head = 0U;
+    UI_terminalInput_.queue.tail = 0U;
+    UI_terminalInput_.queue.used = 0U;
     return 0;
 }
 
@@ -176,6 +237,15 @@ int UI_TerminalInput_init(struct notcurses * const nc) {
     UI_terminalInputNc_ = nc;
     UI_terminalInputWait_ =
         PlatformWaitObject_fromDescriptor(descriptor);
+    return 0;
+}
+
+int UI_TerminalInput_deinit(void) {
+    DBC_REQUIRE(210,
+                UI_terminalInputNc_ != (struct notcurses *)0);
+
+    UI_terminalInputNc_ = (struct notcurses *)0;
+    UI_terminalInputWait_ = PLATFORM_WAIT_OBJECT_INVALID;
     return 0;
 }
 

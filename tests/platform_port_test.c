@@ -102,6 +102,7 @@ int main(void) {
     failed += result.readyMask == 0x2U ? 0 : 1;
     failed += PlatformWake_consume(&l_inputWake_) == 0 ? 0 : 1;
     failed += PlatformSemaphore_wait(&l_workerDone_) == 0 ? 0 : 1;
+    failed += PlatformThread_join(&l_worker_) == 0 ? 0 : 1;
 
     uint64_t before;
     uint64_t after;

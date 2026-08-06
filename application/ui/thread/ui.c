@@ -291,10 +291,15 @@ int UI_run(void) {
     }
 
     // SST producers remain active until process exit, so wake lifetime
-    // follows the process.
-    // SM_UI releases lifecycle-sensitive widgets before notcurses tears down
-    // the remaining plane graph and restores the terminal.
+    // follows the process. Stop the Windows terminal bridge before destroying
+    // the borrowed notcurses runtime it reads from.
     SM_UI_teardown();
+    if (UI_TerminalInput_deinit() != 0) {
+        if (errorMsg == (char const *)0) {
+            errorMsg = "terminal input stop failed";
+        }
+        result = 1;
+    }
     if (notcurses_stop(UI_nc_) != 0) {
         if (errorMsg == (char const *)0) {
             errorMsg = "notcurses stop failed";

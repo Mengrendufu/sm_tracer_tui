@@ -12,6 +12,8 @@ cmake_minimum_required(VERSION 3.25)
 # ===Name of project.
 project(sm_tracer_tui LANGUAGES C)
 
+include(CTest)
+
 #=============================================================================
 # ===Output directories.
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
@@ -31,26 +33,34 @@ file(GLOB_RECURSE SRC_LOCAL
 
 #=============================================================================
 # ===Component notcurses.
-set(NOTCURSES_ROOT "" CACHE PATH "Optional notcurses installation root")
-if(NOTCURSES_ROOT)
-    unset(NOTCURSES_INCLUDE_DIR CACHE)
-    unset(NOTCURSES_LIBRARY CACHE)
-    find_path(NOTCURSES_INCLUDE_DIR notcurses/notcurses.h
-        PATHS "${NOTCURSES_ROOT}/include"
-        NO_DEFAULT_PATH
-        NO_CMAKE_FIND_ROOT_PATH)
-    find_library(NOTCURSES_LIBRARY notcurses-core
-        PATHS "${NOTCURSES_ROOT}/lib"
-        NO_DEFAULT_PATH
-        NO_CMAKE_FIND_ROOT_PATH)
-else()
-    find_path(NOTCURSES_INCLUDE_DIR notcurses/notcurses.h)
-    find_library(NOTCURSES_LIBRARY notcurses-core)
-endif()
+set(NOTCURSES_ROOT ${CMAKE_SOURCE_DIR}/3rd_party/notcurses)
+set(NOTCURSES_BINARY_DIR ${CMAKE_BINARY_DIR}/third_party/notcurses)
 
-if(NOT NOTCURSES_INCLUDE_DIR OR NOT NOTCURSES_LIBRARY)
-    message(FATAL_ERROR "notcurses-core not found")
-endif()
+set(USE_CXX OFF CACHE BOOL "" FORCE)
+set(USE_DOCTEST OFF CACHE BOOL "" FORCE)
+set(USE_PANDOC OFF CACHE BOOL "" FORCE)
+set(BUILD_EXECUTABLES OFF CACHE BOOL "" FORCE)
+set(BUILD_FFI_LIBRARY OFF CACHE BOOL "" FORCE)
+set(USE_POC OFF CACHE BOOL "" FORCE)
+set(USE_QRCODEGEN OFF CACHE BOOL "" FORCE)
+set(USE_GPM OFF CACHE BOOL "" FORCE)
+set(USE_STATIC ON CACHE BOOL "" FORCE)
+set(USE_MULTIMEDIA none CACHE STRING "" FORCE)
+
+# Keep the parent test suite enabled while suppressing notcurses' own tests.
+set(SM_TRACER_BUILD_TESTING ${BUILD_TESTING})
+set(SM_TRACER_C_EXTENSIONS ${CMAKE_C_EXTENSIONS})
+set(BUILD_TESTING OFF)
+set(CMAKE_C_EXTENSIONS ON)
+add_subdirectory(${NOTCURSES_ROOT} ${NOTCURSES_BINARY_DIR}
+                 EXCLUDE_FROM_ALL)
+set(BUILD_TESTING ${SM_TRACER_BUILD_TESTING})
+set(CMAKE_C_EXTENSIONS ${SM_TRACER_C_EXTENSIONS})
+
+set(NOTCURSES_INCLUDE_DIR
+    ${NOTCURSES_ROOT}/include
+    ${NOTCURSES_BINARY_DIR}/include)
+set(NOTCURSES_LIBRARY notcurses-core-static)
 
 #=============================================================================
 # ===Component platform port.
@@ -189,14 +199,6 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
         $<TARGET_FILE_DIR:${PROJECT_NAME}>/protocols
 )
 
-if(WIN32 AND NOTCURSES_ROOT)
-    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${NOTCURSES_ROOT}/bin/libnotcurses-core.dll"
-            $<TARGET_FILE_DIR:${PROJECT_NAME}>
-    )
-endif()
-
 if(NOT WIN32)
     set_target_properties(${PROJECT_NAME} PROPERTIES
         BUILD_RPATH "${SERIALPORT_ROOT}/linux"
@@ -206,7 +208,6 @@ endif()
 
 #=============================================================================
 # ===Tests and compile-time interface contracts.
-include(CTest)
 if(BUILD_TESTING)
     add_executable(platform_port_test
         tests/platform_port_test.c

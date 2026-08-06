@@ -10,3 +10,7 @@
 [submodule "3rd_party/yyjson"]
 	path = 3rd_party/yyjson
 	url = https://github.com/ibireme/yyjson.git
+[submodule "3rd_party/notcurses"]
+	path = 3rd_party/notcurses
+	url = https://github.com/Mengrendufu/notcurses.git
+	branch = win-cbreak-fix

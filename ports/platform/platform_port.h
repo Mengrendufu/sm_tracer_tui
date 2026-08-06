@@ -121,6 +121,7 @@ typedef enum {
 int PlatformThread_start(PlatformThread *thread,
                          PlatformThreadHandler handler,
                          void *ctx);
+int PlatformThread_join(PlatformThread *thread);
 
 int PlatformMutex_lock(PlatformMutex *mutex);
 int PlatformMutex_unlock(PlatformMutex *mutex);

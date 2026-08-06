@@ -33,6 +33,7 @@ build.
 |   `-- sst/                   # SST platform and event-pool adaptation
 |-- 3rd_party/                 # Third-party dependencies
 |   |-- libserialport/         # Vendored POSIX serial implementation
+|   |-- notcurses/             # Patched cross-platform source submodule
 |   |-- sm_sst/                # Git submodule
 |   |-- sm_hsm/                # Git submodule
 |   `-- common_c/              # Git submodule
@@ -54,7 +55,7 @@ build.
 
 These are categories, not a fixed count. The application owns five such
 threads: main, serial, SST kernel, Blinky worker, and SpMngr worker. On Windows,
-`UITerminalInput` additionally owns a process-lifetime bridge thread because
+`UITerminalInput` additionally owns a lifecycle-managed bridge thread because
 notcurses does not expose a waitable terminal-input handle.
 
 Launch-call order is significant:
@@ -212,8 +213,9 @@ UI_PROTOCOL_LOADED_SIG, UI_CONNECTION_STATUS_SIG
 - `SM_UI` keeps the keybar anchored, shrinks `TextBufferView` while the input
   composer grows, and recomputes wrapping whenever terminal width changes.
 - Quit is selected through the menu. `SM_UI_teardown()` destroys
-  lifecycle-sensitive widgets before `notcurses_stop()` tears down the
-  remaining plane graph.
+  lifecycle-sensitive widgets, then `UITerminalInput` stops and joins its
+  Windows bridge before `notcurses_stop()` tears down the remaining plane
+  graph.
 
 Menu keys:
 
@@ -321,12 +323,11 @@ and `SM_DBC_DISABLE` remove their respective checks.
 
 ## Build and tests
 
-Linux prerequisites are CMake 3.25 or newer, Ninja, GCC, and notcurses-core.
-Native Windows builds use PowerShell plus MSYS2 UCRT64 GCC and the patched
-notcurses installation at
-`%LOCALAPPDATA%/notcurses-win-patched/install-ucrt64`. The Windows presets
-provide this path through `NOTCURSES_ROOT`. Preset schema 6 is the reason for
-the CMake minimum.
+Linux prerequisites are CMake 3.25 or newer, Ninja, GCC, pkg-config, ncurses,
+libunistring, and libdeflate development packages. Native Windows builds use
+PowerShell plus the equivalent MSYS2 UCRT64 packages. Both platforms build the
+same pinned patched notcurses source from `3rd_party/notcurses` and link its
+core static target. Preset schema 6 is the reason for the CMake minimum.
 
 ```sh
 cmake --preset debug

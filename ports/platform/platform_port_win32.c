@@ -41,6 +41,23 @@ int PlatformThread_start(PlatformThread * const thread,
     return 0;
 }
 
+int PlatformThread_join(PlatformThread * const thread) {
+    if ((thread == (PlatformThread *)0) || (thread->native == NULL)) {
+        return 1;
+    }
+
+    DWORD const status = WaitForSingleObject(thread->native, INFINITE);
+    if (status != WAIT_OBJECT_0) {
+        return 1;
+    }
+
+    int const result = CloseHandle(thread->native) != FALSE ? 0 : 1;
+    thread->native = NULL;
+    thread->handler = (PlatformThreadHandler)0;
+    thread->ctx = (void *)0;
+    return result;
+}
+
 int PlatformMutex_lock(PlatformMutex * const mutex) {
     AcquireSRWLockExclusive(&mutex->native);
     return 0;

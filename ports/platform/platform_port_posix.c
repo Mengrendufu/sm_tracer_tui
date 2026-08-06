@@ -39,6 +39,21 @@ int PlatformThread_start(PlatformThread * const thread,
                           &Platform_threadMain_, thread);
 }
 
+int PlatformThread_join(PlatformThread * const thread) {
+    if ((thread == (PlatformThread *)0)
+        || (thread->handler == (PlatformThreadHandler)0))
+    {
+        return 1;
+    }
+
+    int const result = pthread_join(thread->native, (void **)0);
+    if (result == 0) {
+        thread->handler = (PlatformThreadHandler)0;
+        thread->ctx = (void *)0;
+    }
+    return result;
+}
+
 int PlatformMutex_lock(PlatformMutex * const mutex) {
     return pthread_mutex_lock(&mutex->native);
 }
