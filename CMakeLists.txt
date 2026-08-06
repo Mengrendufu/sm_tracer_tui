@@ -255,6 +255,15 @@ if(BUILD_TESTING)
     add_test(NAME ui_input_router
              COMMAND ui_input_router_test)
 
+    add_executable(ui_terminal_geometry_test
+        tests/ui_terminal_geometry_test.c
+    )
+    target_include_directories(ui_terminal_geometry_test PRIVATE
+        ${INC_ALL}
+    )
+    add_test(NAME ui_terminal_geometry
+             COMMAND ui_terminal_geometry_test)
+
     add_executable(ui_input_cmps_mngr_test
         tests/ui_input_cmps_mngr_test.c
         application/ui/hsm/sm_input_cmps_mngr.c
@@ -604,6 +613,9 @@ if(BUILD_TESTING)
 
         add_test(NAME system_message_contract
                  COMMAND sh ${CMAKE_SOURCE_DIR}/tests/system_message_contract.sh)
+
+        add_test(NAME ui_resize_refresh_contract
+                 COMMAND sh ${CMAKE_SOURCE_DIR}/tests/ui_resize_refresh_contract.sh)
     else()
         get_property(TEST_NAMES DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
                      PROPERTY TESTS)

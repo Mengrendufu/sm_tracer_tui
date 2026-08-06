@@ -19,6 +19,7 @@
 #include <time.h>
 #include "dbc_assert.h"
 #include "platform_port.h"
+#include "ui_terminal_geometry_priv.h"
 #include "ui_terminal_input_priv.h"
 DBC_MODULE_NAME("ui_terminal_input")
 
@@ -41,6 +42,7 @@ struct UI_TerminalInput {
     PlatformSemaphore slots;
     PlatformWake wake;
     PlatformThread thread;
+    UI_TerminalGeometry geometry;
     bool failed;
     bool stopping;
 };
@@ -73,6 +75,53 @@ static bool UI_TerminalInput_isStopping_(
     return stopping;
 }
 
+static bool UI_TerminalInput_queryGeometry_(
+    UI_TerminalGeometry * const geometry)
+{
+    HANDLE const output = GetStdHandle(STD_OUTPUT_HANDLE);
+    if ((output == NULL) || (output == INVALID_HANDLE_VALUE)) {
+        return false;
+    }
+
+    CONSOLE_SCREEN_BUFFER_INFO info;
+    if (GetConsoleScreenBufferInfo(output, &info) == FALSE) {
+        return false;
+    }
+
+    geometry->rows = (unsigned)(info.srWindow.Bottom
+                                - info.srWindow.Top + 1);
+    geometry->cols = (unsigned)info.dwSize.X;
+    return (geometry->rows > 0U) && (geometry->cols > 0U);
+}
+
+static bool UI_TerminalInput_enqueue_(
+    struct UI_TerminalInput * const me,
+    ncinput const * const input)
+{
+    if (PlatformSemaphore_wait(&me->slots) != 0) {
+        UI_TerminalInput_fail_();
+        return false;
+    }
+    if (UI_TerminalInput_isStopping_(me)) {
+        (void)PlatformSemaphore_post(&me->slots);
+        return false;
+    }
+
+    int status = PlatformMutex_lock(&me->queue.mutex);
+    DBC_ASSERT(110, status == 0);
+    DBC_ASSERT(111, me->queue.used < UI_TERMINAL_INPUT_QLEN_);
+    me->queue.buffer[me->queue.head] = *input;
+    me->queue.head = (uint16_t)(
+        (me->queue.head + 1U) % UI_TERMINAL_INPUT_QLEN_);
+    ++me->queue.used;
+    status = PlatformMutex_unlock(&me->queue.mutex);
+    DBC_ASSERT(112, status == 0);
+
+    status = PlatformWake_signal(&me->wake);
+    (void)status;
+    return true;
+}
+
 static void UI_TerminalInput_run_(void * const ctx) {
     struct UI_TerminalInput * const me =
         (struct UI_TerminalInput *)ctx;
@@ -96,6 +145,19 @@ static void UI_TerminalInput_run_(void * const ctx) {
         if (UI_TerminalInput_isStopping_(me)) {
             return;
         }
+
+        UI_TerminalGeometry geometry;
+        if (!UI_TerminalInput_queryGeometry_(&geometry)) {
+            UI_TerminalInput_fail_();
+            return;
+        }
+        if (UI_TerminalGeometry_update(&me->geometry, geometry)) {
+            ncinput const resize = {.id = NCKEY_RESIZE};
+            if (!UI_TerminalInput_enqueue_(me, &resize)) {
+                return;
+            }
+        }
+
         if (id == (uint32_t)-1) {
             UI_TerminalInput_fail_();
             return;
@@ -104,26 +166,9 @@ static void UI_TerminalInput_run_(void * const ctx) {
             continue;
         }
 
-        if (PlatformSemaphore_wait(&me->slots) != 0) {
-            UI_TerminalInput_fail_();
+        if (!UI_TerminalInput_enqueue_(me, &input)) {
             return;
         }
-        if (UI_TerminalInput_isStopping_(me)) {
-            return;
-        }
-
-        int status = PlatformMutex_lock(&me->queue.mutex);
-        DBC_ASSERT(110, status == 0);
-        DBC_ASSERT(111, me->queue.used < UI_TERMINAL_INPUT_QLEN_);
-        me->queue.buffer[me->queue.head] = input;
-        me->queue.head = (uint16_t)(
-            (me->queue.head + 1U) % UI_TERMINAL_INPUT_QLEN_);
-        ++me->queue.used;
-        status = PlatformMutex_unlock(&me->queue.mutex);
-        DBC_ASSERT(112, status == 0);
-
-        status = PlatformWake_signal(&me->wake);
-        (void)status;
         if (id == NCKEY_EOF) {
             return;
         }
@@ -140,6 +185,11 @@ int UI_TerminalInput_init(struct notcurses * const nc) {
         return 1;
     }
     if (PlatformWake_init(&UI_terminalInput_.wake) != 0) {
+        PlatformSemaphore_deinit(&UI_terminalInput_.slots);
+        return 1;
+    }
+    if (!UI_TerminalInput_queryGeometry_(&UI_terminalInput_.geometry)) {
+        PlatformWake_deinit(&UI_terminalInput_.wake);
         PlatformSemaphore_deinit(&UI_terminalInput_.slots);
         return 1;
     }

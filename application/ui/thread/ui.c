@@ -41,6 +41,7 @@ struct UI_HostState {
 };
 
 static struct UI_HostState UI_hostState_;
+static bool UI_resizePending_;
 
 #define UI_FRAME_MS_   (1000U / 60U)
 #define UI_INPUT_BATCH_SIZE_ 64
@@ -70,6 +71,9 @@ static void UI_routeInput_(uint32_t r, ncinput const *ni) {
         .type = (uint32_t)ni->evtype,
     };
     memcpy(input.utf8, ni->utf8, sizeof(input.utf8));
+    if (r == NCKEY_RESIZE) {
+        UI_resizePending_ = true;
+    }
     UI_evtEnqueueInput(UI_InputRouter_route(&input), &input);
 }
 
@@ -280,6 +284,14 @@ int UI_run(void) {
 
         if (frameClock.canRender) {
             UI_hostState_.framePending = false;
+            if (UI_resizePending_) {
+                if (notcurses_refresh(UI_nc_, NULL, NULL) != 0) {
+                    errorMsg = "notcurses resize refresh failed";
+                    result = 1;
+                    break;
+                }
+                UI_resizePending_ = false;
+            }
             SM_UI_flush();
             if (notcurses_render(UI_nc_) != 0) {
                 errorMsg = "notcurses render failed";

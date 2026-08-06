@@ -109,7 +109,8 @@ UITerminalInput
 - `UIEventInbox` owns queued events and a platform producer wake.
 - `UITerminalInput` lends notcurses' readiness descriptor on POSIX. On Windows,
   its bridge thread blocks in notcurses, copies parsed `ncinput` values into a
-  bounded queue, and signals a waitable Event.
+  bounded queue, synthesizes `NCKEY_RESIZE` when the Win32 console geometry
+  changes, and signals a waitable Event.
 - `UIThreadWake` borrows terminal/event wait objects, owns a two-source
   `PlatformWaitSet`, and reports terminal, event, or render-timeout readiness
   without interpreting input.
@@ -367,6 +368,7 @@ CTest currently exercises:
 
 - `platform_port`
 - `ui_input_router`
+- `ui_terminal_geometry`
 - `ui_input_cmps_mngr`
 - `sp_mngr_command`
 - `hdlc_parser`
