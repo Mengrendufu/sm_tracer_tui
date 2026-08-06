@@ -161,6 +161,8 @@ enum sp_return sp_nonblocking_read(struct sp_port * const port,
 
 int main(void) {
     int failed = 0;
+    SerialConfig appliedConfig;
+    failed += !SerialPortRuntime_getAppliedConfig(&appliedConfig) ? 0 : 1;
 
     failed += !PlatformWaitObject_isValid(
         SerialPortRuntime_waitObject()) ? 0 : 1;
@@ -214,6 +216,8 @@ int main(void) {
 
     l_configResult_ = SP_OK;
     failed += SerialPortRuntime_open(&config) ? 0 : 1;
+    failed += SerialPortRuntime_getAppliedConfig(&appliedConfig) ? 0 : 1;
+    failed += memcmp(&appliedConfig, &config, sizeof(config)) == 0 ? 0 : 1;
     failed += strcmp(l_port0_.name, config.portName) == 0 ? 0 : 1;
     failed += l_openCalls_ == 3 ? 0 : 1;
     failed += l_baudrate_ == 115200 ? 0 : 1;
@@ -231,6 +235,9 @@ int main(void) {
     updatedConfig.parity = SERIAL_PARITY_ODD;
     int const openCallsBeforeReconfigure = l_openCalls_;
     failed += SerialPortRuntime_reconfigure(&updatedConfig) ? 0 : 1;
+    failed += SerialPortRuntime_getAppliedConfig(&appliedConfig) ? 0 : 1;
+    failed += memcmp(&appliedConfig, &updatedConfig,
+                     sizeof(updatedConfig)) == 0 ? 0 : 1;
     failed += l_openCalls_ == openCallsBeforeReconfigure ? 0 : 1;
     failed += l_baudrate_ == 9600 ? 0 : 1;
     failed += l_dataBits_ == 7 ? 0 : 1;
@@ -255,6 +262,7 @@ int main(void) {
 
     l_closeResult_ = SP_ERR_FAIL;
     failed += !SerialPortRuntime_close() ? 0 : 1;
+    failed += !SerialPortRuntime_getAppliedConfig(&appliedConfig) ? 0 : 1;
     failed += (l_closeCalls_ == 2) && (l_freeCalls_ == 3)
               ? 0 : 1;
     failed += !PlatformWaitObject_isValid(

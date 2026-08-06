@@ -212,6 +212,17 @@ int main(void) {
               ? 0 : 1;
     failed += l_connectionStatus_ == UI_CONNECTION_CONNECTED ? 0 : 1;
 
+    SST_Evt const alreadyConnected = {
+        .sig = SPMNGR_PORT_ALREADY_CONNECTED_SIG,
+    };
+    unsigned const textPostsBeforeAlreadyConnected = l_textPosts_;
+    (void)snprintf(l_text_, sizeof(l_text_), "%s", "unchanged");
+    l_connectionStatus_ = UI_CONNECTION_CONNECTING;
+    (*AO_SpMngr->dispatch)(AO_SpMngr, &alreadyConnected);
+    failed += strcmp(l_text_, "unchanged") == 0 ? 0 : 1;
+    failed += l_textPosts_ == textPostsBeforeAlreadyConnected ? 0 : 1;
+    failed += l_connectionStatus_ == UI_CONNECTION_CONNECTED ? 0 : 1;
+
     SST_Evt const openFailed = {
         .sig = SPMNGR_PORT_OPEN_FAILED_SIG,
     };

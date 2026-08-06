@@ -111,8 +111,11 @@ static void SpThread_run_(void * const arg) {
 
             SpThreadEvt e;
             while (SpThread_evtDequeue(&e)) {
-                SM_SpThread_dispatchEvt(&me->hsm, &e);
-                if (e.sig == SPTHRD_APPLY_CONFIG_SIG) {
+                bool const runtimeChanged =
+                    SM_SpThread_dispatchEvt(&me->hsm, &e);
+                if (runtimeChanged
+                    || (e.sig == SPTHRD_APPLY_CONFIG_SIG))
+                {
                     RxPacketAssembler_reset(&me->rxAssembler);
                 }
             }
@@ -122,7 +125,7 @@ static void SpThread_run_(void * const arg) {
             && PlatformWaitObject_isValid(
                    SerialPortRuntime_waitObject()))
         {
-            SM_SpThread_dispatchEvt(&me->hsm, &lostEvt);
+            (void)SM_SpThread_dispatchEvt(&me->hsm, &lostEvt);
         }
 
         currentObject = SerialPortRuntime_waitObject();
@@ -148,7 +151,7 @@ static void SpThread_run_(void * const arg) {
             } while (readSize > 0);
 
             if (readSize < 0) {
-                SM_SpThread_dispatchEvt(&me->hsm, &lostEvt);
+                (void)SM_SpThread_dispatchEvt(&me->hsm, &lostEvt);
                 RxPacketAssembler_reset(&me->rxAssembler);
                 SpThreadWake_setSerialObject(
                     PLATFORM_WAIT_OBJECT_INVALID);

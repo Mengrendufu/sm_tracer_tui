@@ -25,6 +25,8 @@ static pthread_mutex_t l_mutex_ = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t l_cond_ = PTHREAD_COND_INITIALIZER;
 static bool l_refreshDispatched_;
 static bool l_openDispatched_;
+static bool l_runtimeOpenResult_ = true;
+static unsigned l_runtimeOpenCalls_;
 static bool l_runtimeCloseResult_;
 static unsigned l_runtimeCloseCalls_;
 static bool l_runtimeReconfigureResult_;
@@ -35,6 +37,8 @@ static bool l_reconfigureDispatched_;
 static SST_Signal l_reconfigureResultSig_;
 static SST_Signal l_openResultSig_;
 static SerialConfig l_openConfig_;
+static SerialConfig l_runtimeAppliedConfig_;
+static bool l_runtimeConfigValid_;
 static char l_portNames_[128];
 static size_t l_portNamesSize_;
 static int l_serialPipe_[2];
@@ -63,13 +67,19 @@ char *SerialPortRuntime_listPorts(size_t * const size) {
 }
 
 bool SerialPortRuntime_open(SerialConfig const * const config) {
+    ++l_runtimeOpenCalls_;
     l_openConfig_ = *config;
-    l_runtimeFd_ = l_serialPipe_[0];
-    return true;
+    if (l_runtimeOpenResult_) {
+        l_runtimeAppliedConfig_ = *config;
+        l_runtimeConfigValid_ = true;
+        l_runtimeFd_ = l_serialPipe_[0];
+    }
+    return l_runtimeOpenResult_;
 }
 
 bool SerialPortRuntime_close(void) {
     ++l_runtimeCloseCalls_;
+    l_runtimeConfigValid_ = false;
     l_runtimeFd_ = -1;
     return l_runtimeCloseResult_;
 }
@@ -77,7 +87,18 @@ bool SerialPortRuntime_close(void) {
 bool SerialPortRuntime_reconfigure(SerialConfig const * const config) {
     ++l_runtimeReconfigureCalls_;
     l_reconfigureConfig_ = *config;
+    if (l_runtimeReconfigureResult_) {
+        l_runtimeAppliedConfig_ = *config;
+    }
     return l_runtimeReconfigureResult_;
+}
+
+bool SerialPortRuntime_getAppliedConfig(SerialConfig * const config) {
+    if (!l_runtimeConfigValid_) {
+        return false;
+    }
+    *config = l_runtimeAppliedConfig_;
+    return true;
 }
 
 PlatformWaitObject SerialPortRuntime_waitObject(void) {
@@ -114,7 +135,9 @@ void SST_Task_post(SST_Task * const me, SST_Evt const * const e) {
         free(result->portNames);
         free((void *)e);
     } else if ((me == AO_SpMngr)
-               && (e->sig == SPMNGR_PORT_OPENED_SIG))
+               && ((e->sig == SPMNGR_PORT_OPENED_SIG)
+                   || (e->sig == SPMNGR_PORT_OPEN_FAILED_SIG)
+                   || (e->sig == SPMNGR_PORT_ALREADY_CONNECTED_SIG)))
     {
         pthread_mutex_lock(&l_mutex_);
         l_openResultSig_ = e->sig;
@@ -248,6 +271,57 @@ int main(void) {
     failed += l_reconfigureConfig_.baudRate == 9600 ? 0 : 1;
     failed += l_runtimeCloseCalls_ == closeCallsBeforeReconfigure ? 0 : 1;
     failed += l_runtimeFd_ == l_serialPipe_[0] ? 0 : 1;
+
+    unsigned const openCallsBeforeRepeat = l_runtimeOpenCalls_;
+    unsigned const closeCallsBeforeRepeat = l_runtimeCloseCalls_;
+    l_openDispatched_ = false;
+    SpThread_postOpenPort(&config);
+    (void)clock_gettime(CLOCK_REALTIME, &deadline);
+    ++deadline.tv_sec;
+
+    pthread_mutex_lock(&l_mutex_);
+    while (!l_openDispatched_) {
+        int const status = pthread_cond_timedwait(
+            &l_cond_, &l_mutex_, &deadline);
+        if (status != 0) {
+            failed = 1;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&l_mutex_);
+
+    failed += l_openResultSig_ == SPMNGR_PORT_ALREADY_CONNECTED_SIG
+              ? 0 : 1;
+    failed += l_runtimeOpenCalls_ == openCallsBeforeRepeat ? 0 : 1;
+    failed += l_runtimeCloseCalls_ == closeCallsBeforeRepeat ? 0 : 1;
+
+    SerialConfig switchedConfig = updatedConfig;
+    (void)snprintf(switchedConfig.portName,
+                   sizeof(switchedConfig.portName),
+                   "/dev/ttyTEST1");
+    unsigned const openCallsBeforeSwitch = l_runtimeOpenCalls_;
+    unsigned const closeCallsBeforeSwitch = l_runtimeCloseCalls_;
+    l_openDispatched_ = false;
+    SpThread_postOpenPort(&switchedConfig);
+    (void)clock_gettime(CLOCK_REALTIME, &deadline);
+    ++deadline.tv_sec;
+
+    pthread_mutex_lock(&l_mutex_);
+    while (!l_openDispatched_) {
+        int const status = pthread_cond_timedwait(
+            &l_cond_, &l_mutex_, &deadline);
+        if (status != 0) {
+            failed = 1;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&l_mutex_);
+
+    failed += l_openResultSig_ == SPMNGR_PORT_OPENED_SIG ? 0 : 1;
+    failed += l_runtimeCloseCalls_ == closeCallsBeforeSwitch + 1U ? 0 : 1;
+    failed += l_runtimeOpenCalls_ == openCallsBeforeSwitch + 1U ? 0 : 1;
+    failed += strcmp(l_openConfig_.portName,
+                     switchedConfig.portName) == 0 ? 0 : 1;
 
     uint8_t const rxData[] = {0x11U, 0x22U, 0x33U};
     failed += write(l_serialPipe_[1], rxData, sizeof(rxData))
@@ -383,6 +457,53 @@ int main(void) {
               == SPMNGR_CONFIG_APPLY_FAILED_SIG ? 0 : 1;
     failed += l_runtimeReconfigureCalls_ == 2U ? 0 : 1;
     failed += l_runtimeCloseCalls_ == closeCallsBeforeFailure + 1U ? 0 : 1;
+    failed += l_runtimeFd_ == -1 ? 0 : 1;
+
+    l_runtimeOpenResult_ = true;
+    l_openDispatched_ = false;
+    SpThread_postOpenPort(&config);
+    (void)clock_gettime(CLOCK_REALTIME, &deadline);
+    ++deadline.tv_sec;
+
+    pthread_mutex_lock(&l_mutex_);
+    while (!l_openDispatched_) {
+        int const status = pthread_cond_timedwait(
+            &l_cond_, &l_mutex_, &deadline);
+        if (status != 0) {
+            failed = 1;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&l_mutex_);
+
+    SerialConfig failedSwitchConfig = config;
+    (void)snprintf(failedSwitchConfig.portName,
+                   sizeof(failedSwitchConfig.portName),
+                   "/dev/ttyTEST2");
+    unsigned const openCallsBeforeFailedSwitch = l_runtimeOpenCalls_;
+    unsigned const closeCallsBeforeFailedSwitch = l_runtimeCloseCalls_;
+    l_runtimeOpenResult_ = false;
+    l_openDispatched_ = false;
+    SpThread_postOpenPort(&failedSwitchConfig);
+    (void)clock_gettime(CLOCK_REALTIME, &deadline);
+    ++deadline.tv_sec;
+
+    pthread_mutex_lock(&l_mutex_);
+    while (!l_openDispatched_) {
+        int const status = pthread_cond_timedwait(
+            &l_cond_, &l_mutex_, &deadline);
+        if (status != 0) {
+            failed = 1;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&l_mutex_);
+
+    failed += l_openResultSig_ == SPMNGR_PORT_OPEN_FAILED_SIG ? 0 : 1;
+    failed += l_runtimeCloseCalls_ == closeCallsBeforeFailedSwitch + 1U
+              ? 0 : 1;
+    failed += l_runtimeOpenCalls_ == openCallsBeforeFailedSwitch + 1U
+              ? 0 : 1;
     failed += l_runtimeFd_ == -1 ? 0 : 1;
 
     (void)close(l_serialPipe_[0]);

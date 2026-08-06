@@ -9,7 +9,9 @@
 //============================================================================
 //============================================================================
 //=== SM_SpThread: serial-port thread state owner
+#include <stdbool.h>
 #include <stddef.h>
+#include <string.h>
 #include "sst.h"
 #include "sm_port.h"
 #include "sm_hsm.h"
@@ -19,6 +21,18 @@
 #include "sm_sp_thread.h"
 #include "sp_thread/thread/serial_port_runtime_priv.h"
 DBC_MODULE_NAME("sm_sp_thread")
+
+static bool SM_SpThread_configsEqual_(
+    SerialConfig const * const left,
+    SerialConfig const * const right)
+{
+    return (strcmp(left->portName, right->portName) == 0)
+           && (left->baudRate == right->baudRate)
+           && (left->dataBits == right->dataBits)
+           && (left->stopBits == right->stopBits)
+           && (left->parity == right->parity)
+           && (left->flowControl == right->flowControl);
+}
 
 //============================================================================
 //=== HSM states
@@ -145,11 +159,39 @@ static SM_RetState SM_SpThread_connected_(SM_Hsm * const me, SpThreadEvt const *
         }
 
         case SPTHRD_OPEN_PORT_SIG: {
+            static SST_Evt const openedEvt = {
+                .sig = SPMNGR_PORT_OPENED_SIG,
+            };
+            static SST_Evt const alreadyConnectedEvt = {
+                .sig = SPMNGR_PORT_ALREADY_CONNECTED_SIG,
+            };
             static SST_Evt const failedEvt = {
                 .sig = SPMNGR_PORT_OPEN_FAILED_SIG,
             };
-            SST_Task_post(AO_SpMngr, &failedEvt);
-            return _SM_HANDLED();
+            SerialConfig appliedConfig;
+            bool const hasAppliedConfig =
+                SerialPortRuntime_getAppliedConfig(&appliedConfig);
+            DBC_ASSERT(400, hasAppliedConfig);
+
+            if (!hasAppliedConfig) {
+                (void)SerialPortRuntime_close();
+                SST_Task_post(AO_SpMngr, &failedEvt);
+                return _SM_TRAN(&SM_SpThread_disconnected);
+            } else if (strcmp(appliedConfig.portName,
+                              e->config.portName) == 0)
+            {
+                SST_Task_post(AO_SpMngr, &alreadyConnectedEvt);
+                return _SM_HANDLED();
+            } else {
+                (void)SerialPortRuntime_close();
+                if (SerialPortRuntime_open(&e->config)) {
+                    SST_Task_post(AO_SpMngr, &openedEvt);
+                    return _SM_HANDLED();
+                } else {
+                    SST_Task_post(AO_SpMngr, &failedEvt);
+                    return _SM_TRAN(&SM_SpThread_disconnected);
+                }
+            }
         }
 
         case SPTHRD_CLOSE_PORT_SIG: {
@@ -199,12 +241,24 @@ void SM_SpThread_init(SM_SpThread * const me) {
                  (SM_InitHandler)SM_SpThread_TOP_initial_);
 }
 
-void SM_SpThread_dispatchEvt(SM_SpThread * const me,
+bool SM_SpThread_dispatchEvt(SM_SpThread * const me,
                              SpThreadEvt const * const e)
 {
     DBC_REQUIRE(300, me != (SM_SpThread *)0);
     DBC_REQUIRE(301, e != (SpThreadEvt const *)0);
     DBC_REQUIRE(302, e->sig > SPTHRD_NULL_SIG);
 
+    SerialConfig beforeConfig;
+    bool const hadConfig =
+        SerialPortRuntime_getAppliedConfig(&beforeConfig);
+
     SM_Hsm_dispatch_(&me->super, e);
+
+    SerialConfig afterConfig;
+    bool const hasConfig =
+        SerialPortRuntime_getAppliedConfig(&afterConfig);
+    return (hadConfig != hasConfig)
+           || (hadConfig
+               && !SM_SpThread_configsEqual_(&beforeConfig,
+                                              &afterConfig));
 }

@@ -42,6 +42,8 @@ int main(void) {
     failed += e.config.flowControl == SERIAL_FLOW_NONE ? 0 : 1;
     failed += SPMNGR_PORT_OPENED_SIG != SPMNGR_PORT_OPEN_FAILED_SIG
               ? 0 : 1;
+    failed += SPMNGR_PORT_ALREADY_CONNECTED_SIG
+              != SPMNGR_PORT_OPENED_SIG ? 0 : 1;
 
     SpThread_postClosePort();
     failed += SpThread_evtConsumeWake() == 0 ? 0 : 1;

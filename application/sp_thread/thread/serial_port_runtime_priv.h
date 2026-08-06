@@ -25,6 +25,10 @@ bool SerialPortRuntime_open(SerialConfig const *config);
 // unknown.
 bool SerialPortRuntime_reconfigure(SerialConfig const *config);
 
+// Copy the configuration successfully applied to the retained open port.
+// Return false while no port is open. No internal storage is borrowed.
+bool SerialPortRuntime_getAppliedConfig(SerialConfig *config);
+
 // Best-effort close the retained port, then always release local ownership.
 // Return whether the operating-system close operation succeeded.
 bool SerialPortRuntime_close(void);

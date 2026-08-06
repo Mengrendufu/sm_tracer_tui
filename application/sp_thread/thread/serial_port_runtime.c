@@ -17,6 +17,32 @@
 #include "platform_port.h"
 #include "serial_port_runtime_priv.h"
 
+static SerialConfig SerialPortRuntime_appliedConfig_;
+static bool SerialPortRuntime_configValid_;
+
+static void SerialPortRuntime_storeConfig_(
+    SerialConfig const * const config)
+{
+    SerialPortRuntime_appliedConfig_ = *config;
+    SerialPortRuntime_configValid_ = true;
+}
+
+static void SerialPortRuntime_clearConfig_(void) {
+    memset(&SerialPortRuntime_appliedConfig_, 0,
+           sizeof(SerialPortRuntime_appliedConfig_));
+    SerialPortRuntime_configValid_ = false;
+}
+
+bool SerialPortRuntime_getAppliedConfig(SerialConfig * const config) {
+    if ((config == (SerialConfig *)0)
+        || !SerialPortRuntime_configValid_)
+    {
+        return false;
+    }
+    *config = SerialPortRuntime_appliedConfig_;
+    return true;
+}
+
 #if defined(_WIN32)
 
 #include <wchar.h>
@@ -229,15 +255,21 @@ bool SerialPortRuntime_open(SerialConfig const * const config) {
         (void)SerialPortRuntime_close();
         return false;
     }
+    SerialPortRuntime_storeConfig_(config);
     return true;
 }
 
 bool SerialPortRuntime_reconfigure(
     SerialConfig const * const config)
 {
-    return (config != (SerialConfig const *)0)
-           && SerialPortRuntime_isOpen_()
-           && SerialPortRuntime_configure_(SerialPortRuntime_port_, config);
+    bool const configured = (config != (SerialConfig const *)0)
+                            && SerialPortRuntime_isOpen_()
+                            && SerialPortRuntime_configure_(
+                                   SerialPortRuntime_port_, config);
+    if (configured) {
+        SerialPortRuntime_storeConfig_(config);
+    }
+    return configured;
 }
 
 bool SerialPortRuntime_close(void) {
@@ -268,6 +300,7 @@ bool SerialPortRuntime_close(void) {
     }
     SerialPortRuntime_port_ = INVALID_HANDLE_VALUE;
     SerialPortRuntime_release_();
+    SerialPortRuntime_clearConfig_();
     return closed;
 }
 
@@ -544,6 +577,7 @@ bool SerialPortRuntime_open(SerialConfig const * const config) {
 
     SerialPortRuntime_port_ = port;
     SerialPortRuntime_fd_ = descriptor;
+    SerialPortRuntime_storeConfig_(config);
     return true;
 }
 
@@ -567,8 +601,12 @@ bool SerialPortRuntime_reconfigure(
         return false;
     }
 
-    return SerialPortRuntime_configure_(SerialPortRuntime_port_, config,
-                                        stopBits, parity, flowControl);
+    bool const configured = SerialPortRuntime_configure_(
+        SerialPortRuntime_port_, config, stopBits, parity, flowControl);
+    if (configured) {
+        SerialPortRuntime_storeConfig_(config);
+    }
+    return configured;
 }
 
 bool SerialPortRuntime_close(void) {
@@ -580,6 +618,7 @@ bool SerialPortRuntime_close(void) {
     sp_free_port(SerialPortRuntime_port_);
     SerialPortRuntime_port_ = (struct sp_port *)0;
     SerialPortRuntime_fd_ = -1;
+    SerialPortRuntime_clearConfig_();
     return closed;
 }
 

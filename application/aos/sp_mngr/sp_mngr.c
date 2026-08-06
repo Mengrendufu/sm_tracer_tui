@@ -139,6 +139,11 @@ static SM_RetState SpMngr_active_(SM_Hsm * const me, SST_Evt const * const e) SM
             return _SM_HANDLED();
         }
 
+        case SPMNGR_PORT_ALREADY_CONNECTED_SIG: {
+            UI_postConnectionStatus(UI_CONNECTION_CONNECTED);
+            return _SM_HANDLED();
+        }
+
         case SPMNGR_PORT_OPEN_FAILED_SIG: {
             UI_postText("[SYS_INFO]> Serial port open failed.\n");
             UI_postConnectionStatus(UI_CONNECTION_DISCONNECTED);
