@@ -76,9 +76,10 @@ The serial-thread HSM has an `active` parent with `disconnected` and
 `connected` leaf states. Port refresh is handled by `active`; open and close
 successes transition between the leaves. Open failure retains `disconnected`;
 close failure or connection loss performs best-effort cleanup and returns to
-`disconnected`. `SerialPortRuntime` owns the opened serial handle. POSIX uses
-libserialport and borrows its descriptor; Windows uses an overlapped Win32
-handle and owns the wait/read events required by native mixed waiting.
+`disconnected`. `SerialPortRuntime` owns the libserialport handle, event set,
+applied business configuration, and lifecycle orchestration. The stateless
+Ports-layer `SerialPortPlatform` only converts the event set's native RX handle
+into `PlatformWaitObject` and preserves the Win32-only 1.5 stop-bit capability.
 
 The serial receive path is `SerialPortRuntime -> RxPacketAssembler ->
 SpMngrRxPacketEvt -> SpMngr HSM -> HdlcParser -> UI_postText`. The transport
@@ -285,7 +286,7 @@ instance.
 - `PLATFORM_*_INITIALIZER` macros hide only native declaration/initial-value
   differences. Keep ordinary variables and business control flow explicit.
 - Application HSMs and event contracts remain platform-neutral. Native
-  branches are limited to terminal-input, serial-runtime, and filesystem
+  branches are limited to terminal-input, serial-port platform, and filesystem
   infrastructure where the operating-system contract genuinely differs.
 
 - The port uses a non-recursive mutex and a thread-local nesting guard;

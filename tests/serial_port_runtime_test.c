@@ -34,9 +34,13 @@ static struct sp_port *l_empty_[] = {(struct sp_port *)0};
 static enum sp_return l_openResult_ = SP_OK;
 static enum sp_return l_closeResult_ = SP_OK;
 static enum sp_return l_configResult_ = SP_OK;
+static enum sp_return l_eventResult_ = SP_OK;
 static int l_openCalls_;
 static int l_closeCalls_;
 static int l_freeCalls_;
+static int l_eventCreateCalls_;
+static int l_eventFreeCalls_;
+static enum sp_event l_eventMask_;
 static int l_baudrate_;
 static int l_dataBits_;
 static int l_stopBits_;
@@ -44,6 +48,7 @@ static enum sp_parity l_parity_;
 static enum sp_flowcontrol l_flowControl_;
 static int l_portFd_ = 42;
 static uint8_t l_readData_[] = {0x11U, 0x22U, 0x33U};
+static struct sp_event_set l_eventSet_;
 
 enum sp_return sp_list_ports(struct sp_port *** const list) {
     if (l_mode_ == LIST_MODE_ERROR_) {
@@ -140,12 +145,38 @@ enum sp_return sp_flush(struct sp_port * const port,
     return l_configResult_;
 }
 
-enum sp_return sp_get_port_handle(struct sp_port const * const port,
-                                  void * const resultPtr)
+enum sp_return sp_new_event_set(
+    struct sp_event_set ** const eventSet)
+{
+    ++l_eventCreateCalls_;
+    if (l_eventResult_ != SP_OK) {
+        *eventSet = (struct sp_event_set *)0;
+        return l_eventResult_;
+    }
+    memset(&l_eventSet_, 0, sizeof(l_eventSet_));
+    *eventSet = &l_eventSet_;
+    return l_eventResult_;
+}
+
+enum sp_return sp_add_port_events(
+    struct sp_event_set * const eventSet,
+    struct sp_port const * const port,
+    enum sp_event const mask)
 {
     (void)port;
-    *((int *)resultPtr) = l_portFd_;
+    if (l_eventResult_ != SP_OK) {
+        return l_eventResult_;
+    }
+    eventSet->handles = &l_portFd_;
+    eventSet->count = 1U;
+    l_eventMask_ = mask;
     return SP_OK;
+}
+
+void sp_free_event_set(struct sp_event_set * const eventSet) {
+    if (eventSet != (struct sp_event_set *)0) {
+        ++l_eventFreeCalls_;
+    }
 }
 
 enum sp_return sp_nonblocking_read(struct sp_port * const port,
@@ -215,11 +246,21 @@ int main(void) {
               ? 0 : 1;
 
     l_configResult_ = SP_OK;
+    l_eventResult_ = SP_ERR_FAIL;
+    failed += !SerialPortRuntime_open(&config) ? 0 : 1;
+    failed += (l_closeCalls_ == 2) && (l_freeCalls_ == 3)
+              && (l_eventCreateCalls_ == 1) ? 0 : 1;
+
+    l_eventResult_ = SP_OK;
     failed += SerialPortRuntime_open(&config) ? 0 : 1;
     failed += SerialPortRuntime_getAppliedConfig(&appliedConfig) ? 0 : 1;
     failed += memcmp(&appliedConfig, &config, sizeof(config)) == 0 ? 0 : 1;
     failed += strcmp(l_port0_.name, config.portName) == 0 ? 0 : 1;
-    failed += l_openCalls_ == 3 ? 0 : 1;
+    failed += l_openCalls_ == 4 ? 0 : 1;
+    failed += (l_eventCreateCalls_ == 2)
+              && (l_eventFreeCalls_ == 0) ? 0 : 1;
+    failed += l_eventMask_ == (SP_EVENT_RX_READY | SP_EVENT_ERROR)
+              ? 0 : 1;
     failed += l_baudrate_ == 115200 ? 0 : 1;
     failed += l_dataBits_ == 8 ? 0 : 1;
     failed += l_stopBits_ == 1 ? 0 : 1;
@@ -263,12 +304,14 @@ int main(void) {
     l_closeResult_ = SP_ERR_FAIL;
     failed += !SerialPortRuntime_close() ? 0 : 1;
     failed += !SerialPortRuntime_getAppliedConfig(&appliedConfig) ? 0 : 1;
-    failed += (l_closeCalls_ == 2) && (l_freeCalls_ == 3)
+    failed += (l_closeCalls_ == 3) && (l_freeCalls_ == 4)
+              && (l_eventFreeCalls_ == 1)
               ? 0 : 1;
     failed += !PlatformWaitObject_isValid(
         SerialPortRuntime_waitObject()) ? 0 : 1;
     failed += !SerialPortRuntime_close() ? 0 : 1;
-    failed += (l_closeCalls_ == 2) && (l_freeCalls_ == 3)
+    failed += (l_closeCalls_ == 3) && (l_freeCalls_ == 4)
+              && (l_eventFreeCalls_ == 1)
               ? 0 : 1;
 
     return failed == 0 ? 0 : 1;

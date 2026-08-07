@@ -88,16 +88,53 @@ endif()
 #=============================================================================
 # ===Component libserialport.
 set(SERIALPORT_ROOT ${CMAKE_SOURCE_DIR}/3rd_party/libserialport)
-if(NOT WIN32)
-    add_library(serialport SHARED IMPORTED GLOBAL)
+add_library(serialport SHARED IMPORTED GLOBAL)
+if(WIN32)
+    set(SERIALPORT_INCLUDE_DIR "${SERIALPORT_ROOT}/windows/include")
+    set_target_properties(serialport PROPERTIES
+        IMPORTED_IMPLIB
+            "${SERIALPORT_ROOT}/windows/libserialport.dll.a"
+        IMPORTED_LOCATION
+            "${SERIALPORT_ROOT}/windows/libserialport-0.dll"
+        INTERFACE_INCLUDE_DIRECTORIES
+            "${SERIALPORT_INCLUDE_DIR}"
+    )
+else()
     set(SERIALPORT_INCLUDE_DIR "${SERIALPORT_ROOT}/linux/include")
+    set(SERIALPORT_RUNTIME_DIR
+        "${CMAKE_BINARY_DIR}/third_party/libserialport")
+    file(MAKE_DIRECTORY "${SERIALPORT_RUNTIME_DIR}")
+    configure_file(
+        "${SERIALPORT_ROOT}/linux/libserialport.so.0.1.2"
+        "${SERIALPORT_RUNTIME_DIR}/libserialport.so.0"
+        COPYONLY
+    )
     set_target_properties(serialport PROPERTIES
         IMPORTED_LOCATION
-            "${SERIALPORT_ROOT}/linux/libserialport.so"
+            "${SERIALPORT_RUNTIME_DIR}/libserialport.so.0"
         INTERFACE_INCLUDE_DIRECTORIES
             "${SERIALPORT_INCLUDE_DIR}"
     )
 endif()
+
+#=============================================================================
+# ===Component serial port platform.
+if(WIN32)
+    set(SERIAL_PORT_PLATFORM_SRC
+        ${CMAKE_SOURCE_DIR}/ports/serial_port/serial_port_platform_win32.c)
+else()
+    set(SERIAL_PORT_PLATFORM_SRC
+        ${CMAKE_SOURCE_DIR}/ports/serial_port/serial_port_platform_posix.c)
+endif()
+set(SERIAL_PORT_PLATFORM_INC
+    ${CMAKE_SOURCE_DIR}/ports/serial_port)
+
+add_library(serial_port_platform STATIC
+    ${SERIAL_PORT_PLATFORM_SRC})
+target_include_directories(serial_port_platform PUBLIC
+    ${SERIAL_PORT_PLATFORM_INC})
+target_link_libraries(serial_port_platform PUBLIC platform_port
+                                           PRIVATE serialport)
 
 #=============================================================================
 # ===Component yyjson.
@@ -160,6 +197,7 @@ set(INC_ALL
     ${SST_INC}
     ${PORT_INC}
     ${PLATFORM_INC}
+    ${SERIAL_PORT_PLATFORM_INC}
     ${SM_HSM_INC}
     ${COMMON_C_INC}
     ${YYJSON_INC}
@@ -186,10 +224,9 @@ endif()
 target_link_libraries(${PROJECT_NAME} PRIVATE
     ${NOTCURSES_LIBRARY}
     platform_port
+    serial_port_platform
+    serialport
 )
-if(NOT WIN32)
-    target_link_libraries(${PROJECT_NAME} PRIVATE serialport)
-endif()
 
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory
@@ -201,8 +238,14 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
 
 if(NOT WIN32)
     set_target_properties(${PROJECT_NAME} PROPERTIES
-        BUILD_RPATH "${SERIALPORT_ROOT}/linux"
+        BUILD_RPATH "${SERIALPORT_RUNTIME_DIR}"
         INSTALL_RPATH_USE_LINK_PATH TRUE
+    )
+else()
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:serialport>
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>
     )
 endif()
 
@@ -452,7 +495,13 @@ if(BUILD_TESTING)
             ${INC_ALL}
             ${SERIALPORT_INCLUDE_DIR}
         )
-        target_link_libraries(serial_port_runtime_test PRIVATE platform_port)
+        target_link_libraries(serial_port_runtime_test PRIVATE
+            serial_port_platform
+            serialport
+        )
+        set_target_properties(serial_port_runtime_test PROPERTIES
+            BUILD_RPATH "${SERIALPORT_RUNTIME_DIR}"
+        )
         add_test(NAME serial_port_runtime
                  COMMAND serial_port_runtime_test)
     else()
@@ -464,11 +513,41 @@ if(BUILD_TESTING)
             ${INC_ALL}
         )
         target_link_libraries(serial_port_runtime_win32_test PRIVATE
-            platform_port
+            serial_port_platform
+            serialport
+        )
+        add_custom_command(TARGET serial_port_runtime_win32_test POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:serialport>
+                $<TARGET_FILE_DIR:serial_port_runtime_win32_test>
         )
         add_test(NAME serial_port_runtime_win32
                  COMMAND serial_port_runtime_win32_test)
     endif()
+
+    add_executable(serial_port_platform_test
+        tests/serial_port_platform_test.c
+    )
+    target_include_directories(serial_port_platform_test PRIVATE
+        ${INC_ALL}
+        ${SERIALPORT_INCLUDE_DIR}
+    )
+    target_link_libraries(serial_port_platform_test PRIVATE
+        serial_port_platform
+    )
+    if(NOT WIN32)
+        set_target_properties(serial_port_platform_test PROPERTIES
+            BUILD_RPATH "${SERIALPORT_RUNTIME_DIR}"
+        )
+    else()
+        add_custom_command(TARGET serial_port_platform_test POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:serialport>
+                $<TARGET_FILE_DIR:serial_port_platform_test>
+        )
+    endif()
+    add_test(NAME serial_port_platform
+             COMMAND serial_port_platform_test)
 
     add_executable(rx_packet_assembler_test
         tests/rx_packet_assembler_test.c
