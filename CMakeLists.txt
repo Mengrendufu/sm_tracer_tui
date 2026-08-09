@@ -86,6 +86,30 @@ if(NOT WIN32)
 endif()
 
 #=============================================================================
+# ===Component filesystem platform.
+if(WIN32)
+    set(FILESYSTEM_PLATFORM_SRC
+        ${CMAKE_SOURCE_DIR}/ports/filesystem/filesystem_platform_win32.c)
+else()
+    set(FILESYSTEM_PLATFORM_SRC
+        ${CMAKE_SOURCE_DIR}/ports/filesystem/filesystem_platform_posix.c)
+endif()
+set(FILESYSTEM_PLATFORM_INC
+    ${CMAKE_SOURCE_DIR}/ports/filesystem)
+
+add_library(filesystem_platform STATIC
+    ${FILESYSTEM_PLATFORM_SRC})
+target_include_directories(filesystem_platform PUBLIC
+    ${FILESYSTEM_PLATFORM_INC})
+if(NOT WIN32)
+    target_compile_definitions(filesystem_platform PRIVATE
+        _DEFAULT_SOURCE
+        _POSIX_C_SOURCE=200809L
+        _XOPEN_SOURCE=700
+    )
+endif()
+
+#=============================================================================
 # ===Component libserialport.
 set(SERIALPORT_ROOT ${CMAKE_SOURCE_DIR}/3rd_party/libserialport)
 add_library(serialport SHARED IMPORTED GLOBAL)
@@ -175,7 +199,12 @@ set(STATIC_POOL_SRC ${CMAKE_SOURCE_DIR}/3rd_party/common_c/src/static_pool/stati
 
 #=============================================================================
 # ===Component BSP.
-set(BSP_SRC ${CMAKE_SOURCE_DIR}/bsp/bsp.c)
+set(PROTOCOL_CATALOG_LOCATION_SRC
+    ${CMAKE_SOURCE_DIR}/bsp/protocol_catalog_location.c)
+set(BSP_SRC
+    ${CMAKE_SOURCE_DIR}/bsp/bsp.c
+    ${PROTOCOL_CATALOG_LOCATION_SRC}
+)
 set(BSP_INC ${CMAKE_SOURCE_DIR}/bsp)
 
 #=============================================================================
@@ -197,6 +226,7 @@ set(INC_ALL
     ${SST_INC}
     ${PORT_INC}
     ${PLATFORM_INC}
+    ${FILESYSTEM_PLATFORM_INC}
     ${SERIAL_PORT_PLATFORM_INC}
     ${SM_HSM_INC}
     ${COMMON_C_INC}
@@ -224,6 +254,7 @@ endif()
 target_link_libraries(${PROJECT_NAME} PRIVATE
     ${NOTCURSES_LIBRARY}
     platform_port
+    filesystem_platform
     serial_port_platform
     serialport
 )
@@ -252,6 +283,26 @@ endif()
 #=============================================================================
 # ===Tests and compile-time interface contracts.
 if(BUILD_TESTING)
+    add_executable(filesystem_platform_test
+        tests/filesystem_platform_test.c
+    )
+    target_include_directories(filesystem_platform_test PRIVATE
+        ${CMAKE_SOURCE_DIR}/ports/filesystem
+    )
+    target_link_libraries(filesystem_platform_test PRIVATE
+        filesystem_platform)
+    add_custom_command(TARGET filesystem_platform_test POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            $<TARGET_FILE_DIR:filesystem_platform_test>/protocols
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_SOURCE_DIR}/utils/protocols
+            $<TARGET_FILE_DIR:filesystem_platform_test>/protocols
+    )
+    add_test(NAME filesystem_platform
+        COMMAND filesystem_platform_test
+                $<TARGET_FILE_DIR:filesystem_platform_test>
+                $<TARGET_FILE_DIR:filesystem_platform_test>/protocols)
+
     add_executable(platform_port_test
         tests/platform_port_test.c
     )
@@ -328,13 +379,16 @@ if(BUILD_TESTING)
         application/aos/sp_mngr/protocol_catalog.c
         application/aos/sp_mngr/protocol_decoder.c
         application/aos/sp_mngr/protocol_frame_formatter.c
+        ${PROTOCOL_CATALOG_LOCATION_SRC}
         ${YYJSON_SRC}
         ${SM_HSM_SRC}
     )
     target_include_directories(sp_mngr_command_test PRIVATE
         ${INC_ALL}
     )
-    target_link_libraries(sp_mngr_command_test PRIVATE platform_port)
+    target_link_libraries(sp_mngr_command_test PRIVATE
+        platform_port
+        filesystem_platform)
     target_compile_definitions(sp_mngr_command_test PRIVATE
         DBC_DISABLE
         SM_DBC_DISABLE
@@ -400,6 +454,7 @@ if(BUILD_TESTING)
     add_executable(protocol_catalog_test
         tests/protocol_catalog_test.c
         application/aos/sp_mngr/protocol_catalog.c
+        ${PROTOCOL_CATALOG_LOCATION_SRC}
     )
     target_include_directories(protocol_catalog_test PRIVATE
         ${INC_ALL}
@@ -408,6 +463,8 @@ if(BUILD_TESTING)
         DBC_DISABLE
         _POSIX_C_SOURCE=200809L
     )
+    target_link_libraries(protocol_catalog_test PRIVATE
+        filesystem_platform)
     add_custom_command(TARGET protocol_catalog_test POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory
             $<TARGET_FILE_DIR:protocol_catalog_test>/protocols

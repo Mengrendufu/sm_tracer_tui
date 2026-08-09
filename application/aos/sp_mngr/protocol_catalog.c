@@ -8,23 +8,26 @@
 // See http://www.wtfpl.net/ for more details.
 //============================================================================
 #include <ctype.h>
-#include <errno.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 #include "dbc_assert.h"
+#include "filesystem_platform.h"
+#include "protocol_catalog_location.h"
 #include "protocol_catalog_priv.h"
 
-#if defined(_WIN32)
-#include <wchar.h>
-#include <windows.h>
-#else
-#include <dirent.h>
-#include <sys/stat.h>
-#include <unistd.h>
-#endif
+//============================================================================
+//=== Component: ProtocolCatalog
 
 DBC_MODULE_NAME("protocol_catalog")
+
+typedef struct {
+    ProtocolCatalog *catalog;
+    char const *relativeDir;
+    uint8_t catalogIndex;
+    unsigned depth;
+    bool valid;
+} ProtocolCatalogScanContext;
 
 static void ProtocolCatalog_clearError_(ProtocolCatalog *me);
 static ProtocolCatalogResult ProtocolCatalog_fail_(
@@ -38,6 +41,9 @@ static bool ProtocolCatalog_scanDir_(ProtocolCatalog *me,
                                      uint8_t catalogIndex,
                                      char const *relativeDir,
                                      unsigned depth);
+static bool ProtocolCatalog_visitEntry_(
+    void *ctx,
+    FilesystemPlatformEntry const *entry);
 static bool ProtocolCatalog_add_(ProtocolCatalog *me,
                                  uint8_t catalogIndex,
                                  char const *relativePath);
@@ -257,124 +263,48 @@ static void ProtocolCatalog_sort_(ProtocolCatalog * const me,
 }
 
 //============================================================================
-//=== Platform file-system bridge
-
-#if defined(_WIN32)
-
-#define PROTOCOL_CATALOG_WIDE_PATH_CAPACITY 32768U
-
-static bool ProtocolCatalog_utf8FromWide_(ProtocolCatalog * const me,
-                                          wchar_t const * const source,
-                                          char * const target,
-                                          size_t const capacity,
-                                          ProtocolCatalogResult const result)
-{
-    int const written = WideCharToMultiByte(
-        CP_UTF8, WC_ERR_INVALID_CHARS, source, -1,
-        target, (int)capacity, (char const *)0, (BOOL *)0);
-    if (written == 0) {
-        (void)ProtocolCatalog_fail_(
-            me, result,
-            "UTF-16 path conversion failed: %lu",
-            (unsigned long)GetLastError());
-        return false;
-    }
-    for (char *ch = target; *ch != '\0'; ++ch) {
-        if (*ch == '\\') {
-            *ch = '/';
-        }
-    }
-    return true;
-}
-
-static bool ProtocolCatalog_wideFromUtf8_(ProtocolCatalog * const me,
-                                          char const * const source,
-                                          wchar_t * const target,
-                                          size_t const capacity)
-{
-    int const written = MultiByteToWideChar(
-        CP_UTF8, MB_ERR_INVALID_CHARS, source, -1,
-        target, (int)capacity);
-    if (written == 0) {
-        (void)ProtocolCatalog_fail_(
-            me, PROTOCOL_CATALOG_SCAN_FAILED,
-            "UTF-8 path conversion failed: %lu",
-            (unsigned long)GetLastError());
-        return false;
-    }
-    for (wchar_t *ch = target; *ch != L'\0'; ++ch) {
-        if (*ch == L'/') {
-            *ch = L'\\';
-        }
-    }
-    return true;
-}
+//=== Catalog location and directory-access boundaries
 
 static bool ProtocolCatalog_resolveRoot_(ProtocolCatalog * const me) {
-    wchar_t executable[PROTOCOL_CATALOG_WIDE_PATH_CAPACITY];
-    DWORD const size = GetModuleFileNameW(
-        (HMODULE)0, executable,
-        (DWORD)PROTOCOL_CATALOG_WIDE_PATH_CAPACITY);
-    if ((size == 0U)
-        || (size >= PROTOCOL_CATALOG_WIDE_PATH_CAPACITY))
-    {
-        (void)ProtocolCatalog_fail_(
-            me, PROTOCOL_CATALOG_EXECUTABLE_PATH_FAILED,
-            "cannot resolve executable path: %lu",
-            (unsigned long)GetLastError());
-        return false;
+    char detail[PROTOCOL_CATALOG_ERROR_CAPACITY];
+    ProtocolCatalogLocationResult const result =
+        ProtocolCatalogLocation_resolveRoot(
+            me->scanRoot, sizeof(me->scanRoot),
+            detail, sizeof(detail));
+    if (result == PROTOCOL_CATALOG_LOCATION_OK) {
+        return true;
     }
 
-    wchar_t *separator = wcsrchr(executable, L'\\');
-    wchar_t * const slash = wcsrchr(executable, L'/');
-    if ((slash != (wchar_t *)0)
-        && ((separator == (wchar_t *)0) || (slash > separator)))
-    {
-        separator = slash;
-    }
-    if (separator == (wchar_t *)0) {
-        (void)ProtocolCatalog_fail_(
-            me, PROTOCOL_CATALOG_EXECUTABLE_PATH_FAILED,
-            "executable path has no parent directory");
-        return false;
-    }
-
-    wchar_t const suffix[] = L"\\protocols";
-    size_t const parentSize = (size_t)(separator - executable);
-    if ((parentSize + (sizeof(suffix) / sizeof(suffix[0])))
-        > PROTOCOL_CATALOG_WIDE_PATH_CAPACITY)
-    {
-        (void)ProtocolCatalog_fail_(
-            me, PROTOCOL_CATALOG_PATH_TOO_LONG,
-            "protocol root path is too long");
-        return false;
-    }
-    memcpy(&executable[parentSize], suffix, sizeof(suffix));
-    return ProtocolCatalog_utf8FromWide_(
-        me, executable, me->scanRoot, sizeof(me->scanRoot),
-        PROTOCOL_CATALOG_EXECUTABLE_PATH_FAILED);
+    ProtocolCatalogResult const catalogResult =
+        result == PROTOCOL_CATALOG_LOCATION_PATH_TOO_LONG
+        ? PROTOCOL_CATALOG_PATH_TOO_LONG
+        : PROTOCOL_CATALOG_EXECUTABLE_PATH_FAILED;
+    (void)ProtocolCatalog_fail_(me, catalogResult, "%s", detail);
+    return false;
 }
 
 static bool ProtocolCatalog_rootValid_(ProtocolCatalog * const me) {
-    wchar_t root[PROTOCOL_CATALOG_WIDE_PATH_CAPACITY];
-    if (!ProtocolCatalog_wideFromUtf8_(
-            me, me->scanRoot, root,
-            PROTOCOL_CATALOG_WIDE_PATH_CAPACITY))
+    char detail[PROTOCOL_CATALOG_ERROR_CAPACITY];
+    FilesystemPlatformEntryKind kind = FILESYSTEM_PLATFORM_ENTRY_OTHER;
+    FilesystemPlatformResult const result = FilesystemPlatform_pathKind(
+        me->scanRoot, &kind, detail, sizeof(detail));
+    if ((result == FILESYSTEM_PLATFORM_OK)
+        && (kind == FILESYSTEM_PLATFORM_ENTRY_DIRECTORY))
     {
-        return false;
+        return true;
     }
 
-    DWORD const attributes = GetFileAttributesW(root);
-    if ((attributes == INVALID_FILE_ATTRIBUTES)
-        || ((attributes & FILE_ATTRIBUTE_DIRECTORY) == 0U)
-        || ((attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0U))
-    {
+    if (detail[0] != '\0') {
+        (void)ProtocolCatalog_fail_(
+            me, PROTOCOL_CATALOG_ROOT_NOT_FOUND,
+            "protocol root is missing or is not a physical directory: %s",
+            detail);
+    } else {
         (void)ProtocolCatalog_fail_(
             me, PROTOCOL_CATALOG_ROOT_NOT_FOUND,
             "protocol root is missing or is not a physical directory");
-        return false;
     }
-    return true;
+    return false;
 }
 
 static bool ProtocolCatalog_scanDir_(ProtocolCatalog * const me,
@@ -392,252 +322,66 @@ static bool ProtocolCatalog_scanDir_(ProtocolCatalog * const me,
         return false;
     }
 
-    wchar_t pattern[PROTOCOL_CATALOG_WIDE_PATH_CAPACITY];
-    if (!ProtocolCatalog_wideFromUtf8_(
-            me, directory, pattern,
-            PROTOCOL_CATALOG_WIDE_PATH_CAPACITY))
-    {
+    ProtocolCatalogScanContext context = {
+        .catalog = me,
+        .relativeDir = relativeDir,
+        .catalogIndex = catalogIndex,
+        .depth = depth,
+        .valid = true
+    };
+    char detail[PROTOCOL_CATALOG_ERROR_CAPACITY];
+    FilesystemPlatformResult const result =
+        FilesystemPlatform_enumerateDirectory(
+            directory, &ProtocolCatalog_visitEntry_, &context,
+            detail, sizeof(detail));
+    if (!context.valid) {
         return false;
     }
-    size_t const patternSize = wcslen(pattern);
-    if ((patternSize + 3U) > PROTOCOL_CATALOG_WIDE_PATH_CAPACITY) {
-        (void)ProtocolCatalog_fail_(
-            me, PROTOCOL_CATALOG_PATH_TOO_LONG,
-            "protocol search pattern is too long");
-        return false;
-    }
-    memcpy(&pattern[patternSize], L"\\*", 3U * sizeof(wchar_t));
-
-    WIN32_FIND_DATAW data;
-    HANDLE const search = FindFirstFileW(pattern, &data);
-    if (search == INVALID_HANDLE_VALUE) {
-        if (GetLastError() == ERROR_FILE_NOT_FOUND) {
-            return true;
-        }
+    if (result != FILESYSTEM_PLATFORM_OK) {
         (void)ProtocolCatalog_fail_(
             me, PROTOCOL_CATALOG_SCAN_FAILED,
-            "cannot scan protocol directory: %lu",
-            (unsigned long)GetLastError());
-        return false;
-    }
-
-    bool valid = true;
-    for (;;) {
-        if ((wcscmp(data.cFileName, L".") != 0)
-            && (wcscmp(data.cFileName, L"..") != 0)
-            && ((data.dwFileAttributes
-                 & FILE_ATTRIBUTE_REPARSE_POINT) == 0U))
-        {
-            char name[PROTOCOL_CATALOG_PATH_CAPACITY];
-            if (!ProtocolCatalog_utf8FromWide_(
-                    me, data.cFileName, name, sizeof(name),
-                    PROTOCOL_CATALOG_PATH_TOO_LONG))
-            {
-                valid = false;
-                break;
-            }
-
-            char relativePath[PROTOCOL_CATALOG_PATH_CAPACITY];
-            if (!ProtocolCatalog_join_(relativePath,
-                                       sizeof(relativePath),
-                                       relativeDir, name))
-            {
-                (void)ProtocolCatalog_fail_(
-                    me, PROTOCOL_CATALOG_PATH_TOO_LONG,
-                    "protocol relative path is too long");
-                valid = false;
-                break;
-            }
-
-            if ((data.dwFileAttributes
-                 & FILE_ATTRIBUTE_DIRECTORY) != 0U)
-            {
-                if ((depth < PROTOCOL_CATALOG_MAX_DEPTH)
-                    && !ProtocolCatalog_scanDir_(
-                        me, catalogIndex, relativePath, depth + 1U))
-                {
-                    valid = false;
-                    break;
-                }
-            } else if (ProtocolCatalog_isJson_(name)
-                       && !ProtocolCatalog_add_(
-                           me, catalogIndex, relativePath))
-            {
-                valid = false;
-                break;
-            }
-        }
-
-        if (!FindNextFileW(search, &data)) {
-            DWORD const error = GetLastError();
-            if (error != ERROR_NO_MORE_FILES) {
-                (void)ProtocolCatalog_fail_(
-                    me, PROTOCOL_CATALOG_SCAN_FAILED,
-                    "protocol directory iteration failed: %lu",
-                    (unsigned long)error);
-                valid = false;
-            }
-            break;
-        }
-    }
-
-    (void)FindClose(search);
-    return valid;
-}
-
-#else
-
-static bool ProtocolCatalog_resolveRoot_(ProtocolCatalog * const me) {
-    char executable[PROTOCOL_CATALOG_ROOT_CAPACITY];
-    ssize_t const size = readlink(
-        "/proc/self/exe", executable, sizeof(executable) - 1U);
-    if (size < 0) {
-        (void)ProtocolCatalog_fail_(
-            me, PROTOCOL_CATALOG_EXECUTABLE_PATH_FAILED,
-            "cannot resolve /proc/self/exe: %s", strerror(errno));
-        return false;
-    }
-    executable[size] = '\0';
-
-    char * const separator = strrchr(executable, '/');
-    if (separator == (char *)0) {
-        (void)ProtocolCatalog_fail_(
-            me, PROTOCOL_CATALOG_EXECUTABLE_PATH_FAILED,
-            "executable path has no parent directory");
-        return false;
-    }
-    *separator = '\0';
-
-    if (!ProtocolCatalog_join_(me->scanRoot, sizeof(me->scanRoot),
-                               executable, "protocols"))
-    {
-        (void)ProtocolCatalog_fail_(
-            me, PROTOCOL_CATALOG_PATH_TOO_LONG,
-            "protocol root path is too long");
+            "cannot scan protocol directory: %s", detail);
         return false;
     }
     return true;
 }
 
-static bool ProtocolCatalog_rootValid_(ProtocolCatalog * const me) {
-    struct stat status;
-    if ((lstat(me->scanRoot, &status) != 0)
-        || !S_ISDIR(status.st_mode)
-        || S_ISLNK(status.st_mode))
-    {
-        (void)ProtocolCatalog_fail_(
-            me, PROTOCOL_CATALOG_ROOT_NOT_FOUND,
-            "protocol root is missing or is not a physical directory");
-        return false;
-    }
-    return true;
-}
-
-static bool ProtocolCatalog_scanDir_(ProtocolCatalog * const me,
-                                     uint8_t const catalogIndex,
-                                     char const * const relativeDir,
-                                     unsigned const depth)
+static bool ProtocolCatalog_visitEntry_(
+    void * const ctx,
+    FilesystemPlatformEntry const * const entry)
 {
-    char directory[PROTOCOL_CATALOG_FILE_PATH_CAPACITY];
-    if (!ProtocolCatalog_join_(directory, sizeof(directory),
-                               me->scanRoot, relativeDir))
+    ProtocolCatalogScanContext * const context =
+        (ProtocolCatalogScanContext *)ctx;
+    if ((entry->kind == FILESYSTEM_PLATFORM_ENTRY_LINK)
+        || (entry->kind == FILESYSTEM_PLATFORM_ENTRY_OTHER))
+    {
+        return true;
+    }
+
+    char relativePath[PROTOCOL_CATALOG_PATH_CAPACITY];
+    if (!ProtocolCatalog_join_(relativePath, sizeof(relativePath),
+                               context->relativeDir, entry->name))
     {
         (void)ProtocolCatalog_fail_(
-            me, PROTOCOL_CATALOG_PATH_TOO_LONG,
-            "protocol directory path is too long");
+            context->catalog, PROTOCOL_CATALOG_PATH_TOO_LONG,
+            "protocol relative path is too long");
+        context->valid = false;
         return false;
     }
 
-    DIR * const stream = opendir(directory);
-    if (stream == (DIR *)0) {
-        (void)ProtocolCatalog_fail_(
-            me, PROTOCOL_CATALOG_SCAN_FAILED,
-            "cannot scan protocol directory: %s", strerror(errno));
-        return false;
+    if (entry->kind == FILESYSTEM_PLATFORM_ENTRY_DIRECTORY) {
+        if ((context->depth < PROTOCOL_CATALOG_MAX_DEPTH)
+            && !ProtocolCatalog_scanDir_(
+                context->catalog, context->catalogIndex,
+                relativePath, context->depth + 1U))
+        {
+            context->valid = false;
+        }
+    } else if (ProtocolCatalog_isJson_(entry->name)
+               && !ProtocolCatalog_add_(
+                   context->catalog, context->catalogIndex, relativePath))
+    {
+        context->valid = false;
     }
-
-    bool valid = true;
-    errno = 0;
-    for (;;) {
-        struct dirent const * const entry = readdir(stream);
-        if (entry == (struct dirent const *)0) {
-            if (errno != 0) {
-                (void)ProtocolCatalog_fail_(
-                    me, PROTOCOL_CATALOG_SCAN_FAILED,
-                    "protocol directory iteration failed: %s",
-                    strerror(errno));
-                valid = false;
-            }
-            break;
-        }
-        if ((strcmp(entry->d_name, ".") == 0)
-            || (strcmp(entry->d_name, "..") == 0))
-        {
-            continue;
-        }
-
-        char relativePath[PROTOCOL_CATALOG_PATH_CAPACITY];
-        if (!ProtocolCatalog_join_(relativePath,
-                                   sizeof(relativePath),
-                                   relativeDir, entry->d_name))
-        {
-            (void)ProtocolCatalog_fail_(
-                me, PROTOCOL_CATALOG_PATH_TOO_LONG,
-                "protocol relative path is too long");
-            valid = false;
-            break;
-        }
-
-        char path[PROTOCOL_CATALOG_FILE_PATH_CAPACITY];
-        if (!ProtocolCatalog_join_(path, sizeof(path),
-                                   me->scanRoot, relativePath))
-        {
-            (void)ProtocolCatalog_fail_(
-                me, PROTOCOL_CATALOG_PATH_TOO_LONG,
-                "protocol file path is too long");
-            valid = false;
-            break;
-        }
-
-        struct stat status;
-        if (lstat(path, &status) != 0) {
-            (void)ProtocolCatalog_fail_(
-                me, PROTOCOL_CATALOG_SCAN_FAILED,
-                "cannot inspect protocol path: %s", strerror(errno));
-            valid = false;
-            break;
-        }
-        if (S_ISLNK(status.st_mode)) {
-            continue;
-        }
-        if (S_ISDIR(status.st_mode)) {
-            if ((depth < PROTOCOL_CATALOG_MAX_DEPTH)
-                && !ProtocolCatalog_scanDir_(
-                    me, catalogIndex, relativePath, depth + 1U))
-            {
-                valid = false;
-                break;
-            }
-        } else if (S_ISREG(status.st_mode)
-                   && ProtocolCatalog_isJson_(entry->d_name)
-                   && !ProtocolCatalog_add_(
-                       me, catalogIndex, relativePath))
-        {
-            valid = false;
-            break;
-        }
-        errno = 0;
-    }
-
-    if (closedir(stream) != 0) {
-        if (valid) {
-            (void)ProtocolCatalog_fail_(
-                me, PROTOCOL_CATALOG_SCAN_FAILED,
-                "cannot close protocol directory: %s", strerror(errno));
-        }
-        valid = false;
-    }
-    return valid;
+    return context->valid;
 }
-
-#endif
