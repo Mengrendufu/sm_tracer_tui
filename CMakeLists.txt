@@ -86,6 +86,38 @@ if(NOT WIN32)
 endif()
 
 #=============================================================================
+# ===Component terminal input platform.
+set(TERMINAL_INPUT_PLATFORM_DIR
+    ${CMAKE_SOURCE_DIR}/ports/terminal_input)
+if(WIN32)
+    set(TERMINAL_INPUT_PLATFORM_SRC
+        ${TERMINAL_INPUT_PLATFORM_DIR}/terminal_input_platform_win32.c)
+else()
+    set(TERMINAL_INPUT_PLATFORM_SRC
+        ${TERMINAL_INPUT_PLATFORM_DIR}/terminal_input_platform_posix.c)
+endif()
+set(TERMINAL_INPUT_PLATFORM_INC
+    ${TERMINAL_INPUT_PLATFORM_DIR})
+
+add_library(terminal_input_platform STATIC
+    ${TERMINAL_INPUT_PLATFORM_SRC})
+target_include_directories(terminal_input_platform PUBLIC
+    ${TERMINAL_INPUT_PLATFORM_INC}
+    ${NOTCURSES_INCLUDE_DIR}
+    PRIVATE
+    ${CMAKE_SOURCE_DIR}/3rd_party/sm_sst/include
+)
+target_link_libraries(terminal_input_platform PUBLIC platform_port
+                                              PRIVATE ${NOTCURSES_LIBRARY})
+if(NOT WIN32)
+    target_compile_definitions(terminal_input_platform PRIVATE
+        _DEFAULT_SOURCE
+        _POSIX_C_SOURCE=200809L
+        _XOPEN_SOURCE=700
+    )
+endif()
+
+#=============================================================================
 # ===Component filesystem platform.
 if(WIN32)
     set(FILESYSTEM_PLATFORM_SRC
@@ -226,6 +258,7 @@ set(INC_ALL
     ${SST_INC}
     ${PORT_INC}
     ${PLATFORM_INC}
+    ${TERMINAL_INPUT_PLATFORM_INC}
     ${FILESYSTEM_PLATFORM_INC}
     ${SERIAL_PORT_PLATFORM_INC}
     ${SM_HSM_INC}
@@ -254,6 +287,7 @@ endif()
 target_link_libraries(${PROJECT_NAME} PRIVATE
     ${NOTCURSES_LIBRARY}
     platform_port
+    terminal_input_platform
     filesystem_platform
     serial_port_platform
     serialport
@@ -349,14 +383,14 @@ if(BUILD_TESTING)
     add_test(NAME ui_input_router
              COMMAND ui_input_router_test)
 
-    add_executable(ui_terminal_geometry_test
-        tests/ui_terminal_geometry_test.c
+    add_executable(terminal_input_geometry_test
+        tests/terminal_input_geometry_test.c
     )
-    target_include_directories(ui_terminal_geometry_test PRIVATE
-        ${INC_ALL}
+    target_include_directories(terminal_input_geometry_test PRIVATE
+        ${TERMINAL_INPUT_PLATFORM_INC}
     )
-    add_test(NAME ui_terminal_geometry
-             COMMAND ui_terminal_geometry_test)
+    add_test(NAME terminal_input_geometry
+             COMMAND terminal_input_geometry_test)
 
     add_executable(ui_input_cmps_mngr_test
         tests/ui_input_cmps_mngr_test.c
@@ -752,6 +786,11 @@ if(BUILD_TESTING)
 
         add_test(NAME ui_resize_refresh_contract
                  COMMAND sh ${CMAKE_SOURCE_DIR}/tests/ui_resize_refresh_contract.sh)
+
+        set(TERMINAL_INPUT_BOUNDARY_TEST
+            ${CMAKE_SOURCE_DIR}/tests/terminal_input_boundary_contract.sh)
+        add_test(NAME terminal_input_boundary_contract
+                 COMMAND sh ${TERMINAL_INPUT_BOUNDARY_TEST})
     else()
         get_property(TEST_NAMES DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
                      PROPERTY TESTS)

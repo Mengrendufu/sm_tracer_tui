@@ -7,19 +7,19 @@
 // To Public License, Version 2, as published by Sam Hocevar.
 // See http://www.wtfpl.net/ for more details.
 //============================================================================
-#ifndef UI_TERMINAL_GEOMETRY_PRIV_H_
-#define UI_TERMINAL_GEOMETRY_PRIV_H_
+#ifndef TERMINAL_INPUT_GEOMETRY_PRIV_H_
+#define TERMINAL_INPUT_GEOMETRY_PRIV_H_
 
 #include <stdbool.h>
 
 typedef struct {
     unsigned rows;
     unsigned cols;
-} UI_TerminalGeometry;
+} TerminalInputGeometry;
 
-static inline bool UI_TerminalGeometry_update(
-    UI_TerminalGeometry * const previous,
-    UI_TerminalGeometry const current)
+static inline bool TerminalInputGeometry_update(
+    TerminalInputGeometry * const previous,
+    TerminalInputGeometry const current)
 {
     bool const changed = (previous->rows != current.rows)
                       || (previous->cols != current.cols);
@@ -27,4 +27,4 @@ static inline bool UI_TerminalGeometry_update(
     return changed;
 }
 
-#endif // UI_TERMINAL_GEOMETRY_PRIV_H_
+#endif // TERMINAL_INPUT_GEOMETRY_PRIV_H_

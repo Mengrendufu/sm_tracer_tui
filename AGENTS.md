@@ -29,6 +29,9 @@ build.
 |-- bsp/                       # Tick, SST runtime init, fault handling
 |-- ports/
 |   |-- platform/              # POSIX/Win32 thread, sync, wait, IO bridge
+|   |-- terminal_input/        # POSIX/Win32 notcurses input readiness
+|   |-- filesystem/            # Executable location and directory access
+|   |-- serial_port/           # Native libserialport capability differences
 |   |-- sm/                    # sm_hsm desktop adaptation
 |   `-- sst/                   # SST platform and event-pool adaptation
 |-- 3rd_party/                 # Third-party dependencies
@@ -54,8 +57,8 @@ build.
 
 These are categories, not a fixed count. The application owns five such
 threads: main, serial, SST kernel, Blinky worker, and SpMngr worker. On Windows,
-`UITerminalInput` additionally owns a lifecycle-managed bridge thread because
-notcurses does not expose a waitable terminal-input handle.
+`TerminalInputPlatform` additionally owns a lifecycle-managed bridge thread
+because notcurses does not expose a waitable terminal-input handle.
 
 Launch-call order is significant:
 
@@ -107,10 +110,13 @@ UITerminalInput
 - `UIThreadRuntime` owns the notcurses root, frame clock, host state, and loop.
 - `UIInputRouter` classifies normalized `UI_Input` into `UI_Signal` values.
 - `UIEventInbox` owns queued events and a platform producer wake.
-- `UITerminalInput` lends notcurses' readiness descriptor on POSIX. On Windows,
-  its bridge thread blocks in notcurses, copies parsed `ncinput` values into a
-  bounded queue, synthesizes `NCKEY_RESIZE` when the Win32 console geometry
-  changes, and signals a waitable Event.
+- `UITerminalInput` provides the platform-neutral UI terminal-input contract,
+  borrows the notcurses runtime, and delegates native input acquisition to
+  `TerminalInputPlatform`.
+- `TerminalInputPlatform` lends notcurses' readiness descriptor on POSIX. On
+  Windows, it owns a bridge thread that blocks in notcurses, copies parsed
+  `ncinput` values into a bounded queue, synthesizes `NCKEY_RESIZE` when the
+  console geometry changes, and signals a waitable Event.
 - `UIThreadWake` borrows terminal/event wait objects, owns a two-source
   `PlatformWaitSet`, and reports terminal, event, or render-timeout readiness
   without interpreting input.
@@ -214,9 +220,9 @@ UI_PROTOCOL_LOADED_SIG, UI_CONNECTION_STATUS_SIG
 - `SM_UI` keeps the keybar anchored, shrinks `TextBufferView` while the input
   composer grows, and recomputes wrapping whenever terminal width changes.
 - Quit is selected through the menu. `SM_UI_teardown()` destroys
-  lifecycle-sensitive widgets, then `UITerminalInput` stops and joins its
-  Windows bridge before `notcurses_stop()` tears down the remaining plane
-  graph.
+  lifecycle-sensitive widgets, then `UITerminalInput` delegates shutdown so
+  `TerminalInputPlatform` can stop and join its Windows bridge before
+  `notcurses_stop()` tears down the remaining plane graph.
 
 Menu keys:
 
@@ -281,13 +287,16 @@ instance.
 - `ports/platform` owns the POSIX/Win32 mapping for threads, mutexes,
   semaphores, one-shot barriers, wakes, wait sets, monotonic time, delays,
   UTF-8 path file opening, console setup, and fatal output.
+- `ports/terminal_input` owns the POSIX/Win32 mapping from a borrowed
+  notcurses runtime to a waitable, nonblocking parsed-input source. It does not
+  classify keys or depend on `UI_Input`, `UI_Signal`, or UI HSM semantics.
 - `PlatformWaitObject` stores the complete native handle value; application
   code must not cast Win32 handles through `int`.
 - `PLATFORM_*_INITIALIZER` macros hide only native declaration/initial-value
   differences. Keep ordinary variables and business control flow explicit.
-- Application HSMs and event contracts remain platform-neutral. Native
-  branches are limited to terminal-input, serial-port platform, and filesystem
-  infrastructure where the operating-system contract genuinely differs.
+- Application HSMs, terminal input, and event contracts remain
+  platform-neutral. Native branches are limited to Ports implementations where
+  the operating-system contract genuinely differs.
 
 - The port uses a non-recursive mutex and a thread-local nesting guard;
   critical sections must not nest.
@@ -367,7 +376,8 @@ CTest currently exercises:
 
 - `platform_port`
 - `ui_input_router`
-- `ui_terminal_geometry`
+- `terminal_input_geometry`
+- `terminal_input_boundary_contract`
 - `ui_input_cmps_mngr`
 - `sp_mngr_command`
 - `hdlc_parser`
