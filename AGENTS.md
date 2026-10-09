@@ -40,6 +40,7 @@ build.
 |   |-- sm_sst/                # Git submodule
 |   |-- sm_hsm/                # Git submodule
 |   `-- common_c/              # Git submodule
+|-- scripts/                   # Host-side build helpers
 |-- tests/                     # Contract and focused behavior tests
 |-- CMakeLists.txt
 |-- CMakePresets.json
@@ -292,6 +293,18 @@ instance.
   classify keys or depend on `UI_Input`, `UI_Signal`, or UI HSM semantics.
 - `PlatformWaitObject` stores the complete native handle value; application
   code must not cast Win32 handles through `int`.
+- `ports/serial_port` owns the native libserialport capability differences:
+  the Win32-only 1.5 stop-bit path, and whether the platform offers DTR/DSR
+  flow control. POSIX termios has no such setting, so the runtime rejects
+  `SERIAL_FLOW_DTR_DSR` while validating a configuration, before it opens
+  the device.
+- `SerialPortRuntime` parks RTS and DTR in the pair that keeps the target
+  board's CH340C auto-reset circuit off after every configuration write,
+  except for the line that the selected flow control owns: RTS/CTS owns RTS
+  and DTR/DSR owns DTR. Never move one line while the other is free.
+- `SerialPortRuntime_failure()` reports why the last open or reconfigure
+  failed. The serial-port HSM maps a `SERIAL_PORT_FAILURE_*` reason onto the
+  matching manager signal, and the manager owns the user-visible text.
 - `PLATFORM_*_INITIALIZER` macros hide only native declaration/initial-value
   differences. Keep ordinary variables and business control flow explicit.
 - Application HSMs, terminal input, and event contracts remain
@@ -367,6 +380,17 @@ cmake --preset release
 cmake --build --preset build-release
 cmake --build --preset run-debug
 ```
+
+From a WSL checkout, `scripts/build_win.sh [debug|release] [--test]
+[<cmake --build args>]` configures and builds the Windows target through
+interop. The Windows toolchain cannot link into the WSL filesystem, so the
+script keeps the physical tree on a drive (`SM_WIN_BUILD_ROOT`, default
+`/mnt/c/tmp/sm_tracer_tui_win`) and exposes it as `build/Windows`. Windows
+cannot follow that symlink, so run the binary from Windows Terminal with the
+printed `C:\...` path.
+
+Both presets export compile commands, so `build/Linux/debug/compile_commands.json`
+is the database to point editor tooling at.
 
 Because application sources are collected with `GLOB_RECURSE` without
 `CONFIGURE_DEPENDS`, rerun `cmake --preset debug` or `release` after adding or

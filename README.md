@@ -76,6 +76,27 @@ ctest --test-dir build/Linux/debug --output-on-failure
 ctest --test-dir build/Windows/debug --output-on-failure
 ```
 
+### Windows build from a WSL checkout
+
+A checkout that lives in WSL cannot host the Windows build tree. CMake wraps
+every link rule in `cmd.exe`, and `cmd.exe` refuses a UNC working directory,
+so a tree below `\\wsl.localhost\...` compiles but never links. Keep the sources
+in WSL and let the helper place the tree on a Windows drive:
+
+```sh
+scripts/build_win.sh                  # debug configure and build
+scripts/build_win.sh release
+scripts/build_win.sh debug --target sm_tracer_tui
+scripts/build_win.sh debug --test     # then run ctest
+```
+
+The script reuses the shared presets, keeps `build/Windows` as a symlink to the
+physical tree (`SM_WIN_BUILD_ROOT`, default `/mnt/c/tmp/sm_tracer_tui_win`)
+and prints the Windows path of the binary. Windows cannot follow that symlink,
+so launch the application from Windows Terminal with the printed `C:\...`
+path: the TUI needs a real ConPTY console and the copied `protocols`
+directory next to the binary.
+
 ## notcurses dependency
 
 `3rd_party/notcurses` is pinned to the project fork of notcurses 3.0.17. Its
