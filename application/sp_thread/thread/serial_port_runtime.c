@@ -17,10 +17,25 @@
 #include "serial_port_platform.h"
 #include "serial_port_runtime_priv.h"
 
+//============================================================================
+//=== Board quirk: the CH340C auto-reset circuit drives the target's NRST
+//=== from RTS and its BOOT0 from DTR through two cross-coupled
+//=== transistors. Only one of the two equal-state pairs keeps both
+//=== transistors off, so a port left in the other pair holds NRST low for
+//=== as long as it stays open, and the target never starts. These two
+//=== macros select the pair that releases the target. Every configuration
+//=== write parks both lines in that pair, except for the line that the
+//=== selected flow control owns: RTS/CTS owns RTS and DTR/DSR owns DTR.
+//=== Only a deliberately unequal pair is the reset trigger this circuit
+//=== exists for, so never leave one line parked while the other is free.
+#define SERIAL_PORT_MODEM_RTS SP_RTS_OFF
+#define SERIAL_PORT_MODEM_DTR SP_DTR_OFF
+
 static struct sp_port *SerialPortRuntime_port_;
 static struct sp_event_set *SerialPortRuntime_eventSet_;
 static SerialConfig SerialPortRuntime_appliedConfig_;
 static bool SerialPortRuntime_configValid_;
+static SerialPortFailure SerialPortRuntime_failure_;
 
 static void SerialPortRuntime_storeConfig_(
     SerialConfig const * const config)
@@ -87,9 +102,42 @@ static bool SerialPortRuntime_mapConfig_(
         return false;
     }
 
+    if ((config->flowControl == SERIAL_FLOW_DTR_DSR)
+        && !SerialPortPlatform_supportsDtrDsrFlowControl())
+    {
+        SerialPortRuntime_failure_ =
+            SERIAL_PORT_FAILURE_DTR_DSR_UNSUPPORTED;
+        return false;
+    }
+
     return SerialPortRuntime_mapParity_(config->parity, parity)
            && SerialPortRuntime_mapFlowControl_(
                   config->flowControl, flowControl);
+}
+
+static bool SerialPortRuntime_applyModemPins_(
+    struct sp_port * const port,
+    enum sp_flowcontrol const flowControl)
+{
+    struct sp_port_config *config = (struct sp_port_config *)0;
+    bool applied = false;
+
+    if ((sp_new_config(&config) == SP_OK)
+        && (config != (struct sp_port_config *)0))
+    {
+        applied = sp_get_config(port, config) == SP_OK;
+        if (applied && (flowControl != SP_FLOWCONTROL_RTSCTS)) {
+            applied = sp_set_config_rts(
+                          config, SERIAL_PORT_MODEM_RTS) == SP_OK;
+        }
+        if (applied && (flowControl != SP_FLOWCONTROL_DTRDSR)) {
+            applied = sp_set_config_dtr(
+                          config, SERIAL_PORT_MODEM_DTR) == SP_OK;
+        }
+        applied = applied && (sp_set_config(port, config) == SP_OK);
+        sp_free_config(config);
+    }
+    return applied;
 }
 
 static bool SerialPortRuntime_applyConfig_(
@@ -113,7 +161,8 @@ static bool SerialPortRuntime_applyConfig_(
            && (sp_set_bits(port, config->dataBits) == SP_OK)
            && (sp_set_parity(port, parity) == SP_OK)
            && (sp_set_flowcontrol(port, flowControl) == SP_OK)
-           && (sp_flush(port, SP_BUF_BOTH) == SP_OK);
+           && (sp_flush(port, SP_BUF_BOTH) == SP_OK)
+           && SerialPortRuntime_applyModemPins_(port, flowControl);
 }
 
 static void SerialPortRuntime_release_(
@@ -128,6 +177,7 @@ static void SerialPortRuntime_release_(
 }
 
 bool SerialPortRuntime_open(SerialConfig const * const config) {
+    SerialPortRuntime_failure_ = SERIAL_PORT_FAILURE_NONE;
     if (SerialPortRuntime_port_ != (struct sp_port *)0) {
         return false;
     }
@@ -177,6 +227,7 @@ bool SerialPortRuntime_open(SerialConfig const * const config) {
 bool SerialPortRuntime_reconfigure(
     SerialConfig const * const config)
 {
+    SerialPortRuntime_failure_ = SERIAL_PORT_FAILURE_NONE;
     if (SerialPortRuntime_port_ == (struct sp_port *)0) {
         return false;
     }
@@ -203,6 +254,10 @@ bool SerialPortRuntime_getAppliedConfig(
     }
     *config = SerialPortRuntime_appliedConfig_;
     return true;
+}
+
+SerialPortFailure SerialPortRuntime_failure(void) {
+    return SerialPortRuntime_failure_;
 }
 
 bool SerialPortRuntime_close(void) {

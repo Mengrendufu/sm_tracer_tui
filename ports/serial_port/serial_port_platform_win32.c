@@ -46,3 +46,7 @@ bool SerialPortPlatform_applyOneAndHalfStopBits(
     dcb.StopBits = ONE5STOPBITS;
     return SetCommState(handle, &dcb) != FALSE;
 }
+
+bool SerialPortPlatform_supportsDtrDsrFlowControl(void) {
+    return true;
+}

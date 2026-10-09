@@ -34,6 +34,18 @@ static bool SM_SpThread_configsEqual_(
            && (left->flowControl == right->flowControl);
 }
 
+static SST_Evt const *SM_SpThread_failureEvt_(
+    SST_Evt const * const fallback)
+{
+    static SST_Evt const dtrDsrEvt = {
+        .sig = SPMNGR_DTR_DSR_UNSUPPORTED_SIG,
+    };
+
+    return (SerialPortRuntime_failure()
+            == SERIAL_PORT_FAILURE_DTR_DSR_UNSUPPORTED)
+           ? &dtrDsrEvt : fallback;
+}
+
 //============================================================================
 //=== HSM states
 
@@ -118,7 +130,8 @@ static SM_RetState SM_SpThread_disconnected_(SM_Hsm * const me, SpThreadEvt cons
                 SST_Task_post(AO_SpMngr, &openedEvt);
                 return _SM_TRAN(&SM_SpThread_connected);
             } else {
-                SST_Task_post(AO_SpMngr, &failedEvt);
+                SST_Task_post(AO_SpMngr,
+                              SM_SpThread_failureEvt_(&failedEvt));
                 return _SM_HANDLED();
             }
         }
@@ -153,7 +166,8 @@ static SM_RetState SM_SpThread_connected_(SM_Hsm * const me, SpThreadEvt const *
                 return _SM_HANDLED();
             } else {
                 (void)SerialPortRuntime_close();
-                SST_Task_post(AO_SpMngr, &failedEvt);
+                SST_Task_post(AO_SpMngr,
+                              SM_SpThread_failureEvt_(&failedEvt));
                 return _SM_TRAN(&SM_SpThread_disconnected);
             }
         }
@@ -188,7 +202,9 @@ static SM_RetState SM_SpThread_connected_(SM_Hsm * const me, SpThreadEvt const *
                     SST_Task_post(AO_SpMngr, &openedEvt);
                     return _SM_HANDLED();
                 } else {
-                    SST_Task_post(AO_SpMngr, &failedEvt);
+                    SST_Task_post(
+                        AO_SpMngr,
+                        SM_SpThread_failureEvt_(&failedEvt));
                     return _SM_TRAN(&SM_SpThread_disconnected);
                 }
             }

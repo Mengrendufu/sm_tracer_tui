@@ -18,6 +18,11 @@ struct sp_port {
     char const *name;
 };
 
+struct sp_port_config {
+    enum sp_rts rts;
+    enum sp_dtr dtr;
+};
+
 enum ListMode_ {
     LIST_MODE_PORTS_,
     LIST_MODE_EMPTY_,
@@ -34,12 +39,16 @@ static struct sp_port *l_empty_[] = {(struct sp_port *)0};
 static enum sp_return l_openResult_ = SP_OK;
 static enum sp_return l_closeResult_ = SP_OK;
 static enum sp_return l_configResult_ = SP_OK;
+static enum sp_return l_modemResult_ = SP_OK;
 static enum sp_return l_eventResult_ = SP_OK;
 static int l_openCalls_;
 static int l_closeCalls_;
 static int l_freeCalls_;
 static int l_eventCreateCalls_;
 static int l_eventFreeCalls_;
+static int l_setConfigCalls_;
+static enum sp_rts l_rts_;
+static enum sp_dtr l_dtr_;
 static enum sp_event l_eventMask_;
 static int l_baudrate_;
 static int l_dataBits_;
@@ -135,6 +144,59 @@ enum sp_return sp_set_flowcontrol(
     (void)port;
     l_flowControl_ = flowControl;
     return l_configResult_;
+}
+
+enum sp_return sp_new_config(
+    struct sp_port_config ** const config)
+{
+    if (l_modemResult_ != SP_OK) {
+        *config = (struct sp_port_config *)0;
+        return l_modemResult_;
+    }
+    static struct sp_port_config configStorage;
+    *config = &configStorage;
+    return SP_OK;
+}
+
+void sp_free_config(struct sp_port_config * const config) {
+    (void)config;
+}
+
+enum sp_return sp_get_config(
+    struct sp_port * const port,
+    struct sp_port_config * const config)
+{
+    (void)port;
+    config->rts = SP_RTS_ON;
+    config->dtr = SP_DTR_ON;
+    return SP_OK;
+}
+
+enum sp_return sp_set_config_rts(
+    struct sp_port_config * const config,
+    enum sp_rts const rts)
+{
+    config->rts = rts;
+    return SP_OK;
+}
+
+enum sp_return sp_set_config_dtr(
+    struct sp_port_config * const config,
+    enum sp_dtr const dtr)
+{
+    config->dtr = dtr;
+    return SP_OK;
+}
+
+enum sp_return sp_set_config(
+    struct sp_port * const port,
+    struct sp_port_config const * const config)
+{
+    (void)port;
+    ++l_setConfigCalls_;
+    l_rts_ = config->rts;
+    l_dtr_ = config->dtr;
+    return l_modemResult_;
 }
 
 enum sp_return sp_flush(struct sp_port * const port,
@@ -246,17 +308,32 @@ int main(void) {
               ? 0 : 1;
 
     l_configResult_ = SP_OK;
-    l_eventResult_ = SP_ERR_FAIL;
+    l_modemResult_ = SP_ERR_FAIL;
     failed += !SerialPortRuntime_open(&config) ? 0 : 1;
     failed += (l_closeCalls_ == 2) && (l_freeCalls_ == 3)
+              ? 0 : 1;
+
+    l_modemResult_ = SP_OK;
+    l_eventResult_ = SP_ERR_FAIL;
+    failed += !SerialPortRuntime_open(&config) ? 0 : 1;
+    failed += (l_closeCalls_ == 3) && (l_freeCalls_ == 4)
               && (l_eventCreateCalls_ == 1) ? 0 : 1;
 
+    SerialConfig dtrDsrConfig = config;
+    dtrDsrConfig.flowControl = SERIAL_FLOW_DTR_DSR;
+    failed += !SerialPortRuntime_open(&dtrDsrConfig) ? 0 : 1;
+    failed += (l_closeCalls_ == 3) && (l_freeCalls_ == 4)
+              ? 0 : 1;
+    failed += SerialPortRuntime_failure()
+              == SERIAL_PORT_FAILURE_DTR_DSR_UNSUPPORTED ? 0 : 1;
+
     l_eventResult_ = SP_OK;
+    l_setConfigCalls_ = 0;
     failed += SerialPortRuntime_open(&config) ? 0 : 1;
     failed += SerialPortRuntime_getAppliedConfig(&appliedConfig) ? 0 : 1;
     failed += memcmp(&appliedConfig, &config, sizeof(config)) == 0 ? 0 : 1;
     failed += strcmp(l_port0_.name, config.portName) == 0 ? 0 : 1;
-    failed += l_openCalls_ == 4 ? 0 : 1;
+    failed += l_openCalls_ == 5 ? 0 : 1;
     failed += (l_eventCreateCalls_ == 2)
               && (l_eventFreeCalls_ == 0) ? 0 : 1;
     failed += l_eventMask_ == (SP_EVENT_RX_READY | SP_EVENT_ERROR)
@@ -266,6 +343,11 @@ int main(void) {
     failed += l_stopBits_ == 1 ? 0 : 1;
     failed += l_parity_ == SP_PARITY_EVEN ? 0 : 1;
     failed += l_flowControl_ == SP_FLOWCONTROL_RTSCTS ? 0 : 1;
+    failed += l_setConfigCalls_ == 1 ? 0 : 1;
+    failed += (l_rts_ == SP_RTS_ON) && (l_dtr_ == SP_DTR_OFF)
+              ? 0 : 1;
+    failed += SerialPortRuntime_failure() == SERIAL_PORT_FAILURE_NONE
+              ? 0 : 1;
     failed += PlatformWaitObject_equal(
         SerialPortRuntime_waitObject(),
         PlatformWaitObject_fromDescriptor(l_portFd_)) ? 0 : 1;
@@ -287,6 +369,15 @@ int main(void) {
         SerialPortRuntime_waitObject(),
         PlatformWaitObject_fromDescriptor(l_portFd_)) ? 0 : 1;
 
+    SerialConfig releasedConfig = updatedConfig;
+    releasedConfig.flowControl = SERIAL_FLOW_NONE;
+    l_setConfigCalls_ = 0;
+    failed += SerialPortRuntime_reconfigure(&releasedConfig) ? 0 : 1;
+    failed += l_flowControl_ == SP_FLOWCONTROL_NONE ? 0 : 1;
+    failed += l_setConfigCalls_ == 1 ? 0 : 1;
+    failed += (l_rts_ == SP_RTS_OFF) && (l_dtr_ == SP_DTR_OFF)
+              ? 0 : 1;
+
     l_configResult_ = SP_ERR_FAIL;
     failed += !SerialPortRuntime_reconfigure(&config) ? 0 : 1;
     failed += PlatformWaitObject_equal(
@@ -304,13 +395,13 @@ int main(void) {
     l_closeResult_ = SP_ERR_FAIL;
     failed += !SerialPortRuntime_close() ? 0 : 1;
     failed += !SerialPortRuntime_getAppliedConfig(&appliedConfig) ? 0 : 1;
-    failed += (l_closeCalls_ == 3) && (l_freeCalls_ == 4)
+    failed += (l_closeCalls_ == 4) && (l_freeCalls_ == 5)
               && (l_eventFreeCalls_ == 1)
               ? 0 : 1;
     failed += !PlatformWaitObject_isValid(
         SerialPortRuntime_waitObject()) ? 0 : 1;
     failed += !SerialPortRuntime_close() ? 0 : 1;
-    failed += (l_closeCalls_ == 3) && (l_freeCalls_ == 4)
+    failed += (l_closeCalls_ == 4) && (l_freeCalls_ == 5)
               && (l_eventFreeCalls_ == 1)
               ? 0 : 1;
 

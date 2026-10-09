@@ -25,4 +25,9 @@ PlatformWaitObject SerialPortPlatform_eventWaitObject(
 // Preserve the Win32-only 1.5 stop-bit capability. POSIX reports unsupported.
 bool SerialPortPlatform_applyOneAndHalfStopBits(struct sp_port *port);
 
+// Report whether the platform offers DTR/DSR hardware flow control. Win32
+// maps it onto the DCB. POSIX termios has no such setting, and the pinned
+// libserialport build reports it unsupported.
+bool SerialPortPlatform_supportsDtrDsrFlowControl(void);
+
 #endif // SERIAL_PORT_PLATFORM_H_

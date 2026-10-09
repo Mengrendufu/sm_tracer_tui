@@ -150,6 +150,13 @@ static SM_RetState SpMngr_active_(SM_Hsm * const me, SST_Evt const * const e) SM
             return _SM_HANDLED();
         }
 
+        case SPMNGR_DTR_DSR_UNSUPPORTED_SIG: {
+            UI_postText(
+                "[SYS_INFO]> DTR/DSR flow control is not supported.\n");
+            UI_postConnectionStatus(UI_CONNECTION_DISCONNECTED);
+            return _SM_HANDLED();
+        }
+
         case SPMNGR_PORT_DISCONNECT_SIG: {
             UI_postText("[SYS_INFO]> Disconnect requested.\n");
             SpThread_postClosePort();

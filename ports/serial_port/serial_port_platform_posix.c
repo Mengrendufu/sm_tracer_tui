@@ -32,3 +32,7 @@ bool SerialPortPlatform_applyOneAndHalfStopBits(
     (void)port;
     return false;
 }
+
+bool SerialPortPlatform_supportsDtrDsrFlowControl(void) {
+    return false;
+}

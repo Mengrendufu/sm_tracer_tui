@@ -16,6 +16,16 @@
 #include "platform_port.h"
 #include "sp_thread/sp_thread.h"
 
+//============================================================================
+//=== Serial port failure reasons
+
+// Reason reported by SerialPortRuntime_failure() after a failed open or
+// reconfigure. Only failures that callers report differently need a value.
+typedef enum {
+    SERIAL_PORT_FAILURE_NONE = 0,
+    SERIAL_PORT_FAILURE_DTR_DSR_UNSUPPORTED
+} SerialPortFailure;
+
 // Open and configure one serial port. The runtime retains the port handle
 // after success and releases every acquired resource after failure.
 bool SerialPortRuntime_open(SerialConfig const *config);
@@ -28,6 +38,10 @@ bool SerialPortRuntime_reconfigure(SerialConfig const *config);
 // Copy the configuration successfully applied to the retained open port.
 // Return false while no port is open. No internal storage is borrowed.
 bool SerialPortRuntime_getAppliedConfig(SerialConfig *config);
+
+// Return why the last open or reconfigure failed. Return
+// SERIAL_PORT_FAILURE_NONE while the last attempt succeeded.
+SerialPortFailure SerialPortRuntime_failure(void);
 
 // Best-effort close the retained port, then always release local ownership.
 // Return whether the operating-system close operation succeeded.
