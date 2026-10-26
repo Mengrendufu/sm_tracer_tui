@@ -311,6 +311,12 @@ else()
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             $<TARGET_FILE:serialport>
             $<TARGET_FILE_DIR:${PROJECT_NAME}>
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${SERIALPORT_ROOT}/windows/distribution"
+            "$<TARGET_FILE_DIR:${PROJECT_NAME}>/third_party/libserialport"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${SERIALPORT_ROOT}/windows/distribution/NOTICE.md"
+            "$<TARGET_FILE_DIR:${PROJECT_NAME}>/LIBSERIALPORT_NOTICE.md"
     )
 endif()
 

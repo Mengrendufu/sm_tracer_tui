@@ -107,3 +107,14 @@ tree without maintaining divergent copies.
 Only the notcurses core static target is linked into the application. Demo
 programs, multimedia support, C++, FFI, documentation, and the upstream test
 suite are disabled in this build.
+
+## Windows libserialport notices and source
+
+The Windows serial library uses LGPL-3.0-or-later. Its copyright notices,
+GPLv3 and LGPLv3 license texts, and complete patched source archive are
+included in [the libserialport distribution materials](3rd_party/libserialport/windows/distribution/NOTICE.md).
+
+Windows builds copy these materials to `bin/third_party/libserialport/` and
+place `LIBSERIALPORT_NOTICE.md` beside the executable. Include that notice and
+directory when distributing the application and its DLL. Build provenance is
+recorded in [BUILD.md](3rd_party/libserialport/windows/BUILD.md).

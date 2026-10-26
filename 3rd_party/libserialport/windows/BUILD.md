@@ -9,6 +9,12 @@ Commit: `29937e8d0cd4a83d691cee9de55c18de0f89f683`
 Build instructions and regression coverage:
 https://github.com/Mengrendufu/libserialport/blob/29937e8d0cd4a83d691cee9de55c18de0f89f683/WINDOWS_RX_FIX.md
 
+The complete source snapshot is also included locally in
+`distribution/libserialport-29937e8-source.tar.gz`, together with copyright
+notices and both license texts. See [distribution/NOTICE.md](distribution/NOTICE.md).
+Windows application builds copy these materials beside the executable under
+`third_party/libserialport/`, with a top-level `LIBSERIALPORT_NOTICE.md`.
+
 Built with MSYS2 UCRT64 GCC 16.1.0, `-O2 -g`, shared library enabled and
 static library disabled. The fix rearms completed RX notifications after an
 empty read, preventing repeated immediate wakeups. The application API and
@@ -20,6 +26,7 @@ SHA-256:
 ```text
 6a73ea88bd2eb1ba41beb7fdffeba943deabf55ce729f88e23a335b1b95f573e  libserialport-0.dll
 50f041f398e73fa3ac83fb5dc089ac17d9e376d0b353fef64d2a66029bda5eea  libserialport.dll.a
+cedee9245b86da2a4e98443584188d869e8e3a8840cf475b329839c6c247720b  distribution/libserialport-29937e8-source.tar.gz
 ```
 
 The DLL uses Windows UCRT. `make check` passed both upstream timing and
